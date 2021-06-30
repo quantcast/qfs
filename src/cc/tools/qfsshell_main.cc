@@ -35,6 +35,9 @@
 #include <iomanip>
 #include <unistd.h>
 
+#include <readline/readline.h>
+#include <readline/history.h>
+
 namespace KFS
 {
 namespace tools
@@ -53,6 +56,7 @@ using std::flush;
 typedef map <string, cmdHandler> CmdHandlers;
 
 static CmdHandlers handlers;
+char history_file[512];
 
 static void setupHandlers();
 
@@ -117,6 +121,11 @@ kfsshell_main(int argc, char** argv)
         return 1;
     }
 
+    rl_initialize();  
+    using_history();
+    sprintf(history_file, "%s/%s", getenv("HOME"), ".qfs_history");
+    read_history(history_file);
+
     MsgLogger::Init(0, logLevel, 0, 0, logLevelStr);
     setupHandlers();
     KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
@@ -179,6 +188,11 @@ setupHandlers()
     handlers["exit"] = handleExit;
 }
 
+static char *gets_interactive() {
+    rl_reset_screen_size();
+    return readline("QfsShell> ");
+}
+
 int
 processCmds(KfsClient* client, bool quietMode, int nargs,
     const char* const* cmdLine)
@@ -202,10 +216,21 @@ processCmds(KfsClient* client, bool quietMode, int nargs,
             }
             nargs = 0;
         } else {
-            cout << "QfsShell> " << flush;
-            if (! getline(cin, s)) {
-                break;
+            char* read_buffer = gets_interactive(); 
+            s = read_buffer;
+            if (s.length()) {
+                add_history(s.data());
+                if (write_history(history_file)) {
+                    printf("failed to write history: %s\n", strerror(errno));
+                }
+            } else {
+                    break;
             }
+            rl_free(read_buffer);
+            //cout << "QfsShell> " << flush;
+            //if (! getline(cin, s)) {
+            //    break;
+            //}
         }
 
         // buf contains info of the form: <cmd>{<args>}
