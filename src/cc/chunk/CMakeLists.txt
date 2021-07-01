@@ -45,20 +45,20 @@ add_executable (chunkserver
     IOMethod.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
-
+find_library(TCMALLOC_LIB NAMES libtcmalloc.a tcmalloc)
 set (exe_files chunkserver chunkscrubber)
 
 foreach (exe_file ${exe_files})
     if (USE_STATIC_LIB_LINKAGE)
         target_link_libraries (${exe_file}
-            kfsClient
+            kfsClient ${TCMALLOC_LIB}
         )
         add_dependencies (${exe_file}
             kfsClient
         )
     else (USE_STATIC_LIB_LINKAGE)
         target_link_libraries (${exe_file}
-            kfsClient-shared
+            kfsClient-shared ${TCMALLOC_LIB}
         )
         add_dependencies (${exe_file}
             kfsClient-shared
