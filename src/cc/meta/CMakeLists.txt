@@ -73,6 +73,7 @@ if (NOT USE_STATIC_LIB_LINKAGE)
         LIBRARY DESTINATION lib)
 endif (NOT USE_STATIC_LIB_LINKAGE)
 
+find_library(TCMALLOC_LIB NAMES libtcmalloc_minimal.a tcmalloc_minimal)
 set (exe_files metaserver logcompactor filelister qfsfsck qfsobjstorefsck)
 foreach (exe_file ${exe_files})
     if (USE_STATIC_LIB_LINKAGE)
@@ -81,7 +82,7 @@ foreach (exe_file ${exe_files})
             layoutmanager_instance.cc
         )
         target_link_libraries (${exe_file}
-            kfsMeta
+            kfsMeta ${TCMALLOC_LIB}
         )
         add_dependencies (${exe_file}
             kfsMeta
@@ -91,7 +92,7 @@ foreach (exe_file ${exe_files})
             ${exe_file}_main.cc
         )
         target_link_libraries (${exe_file}
-            kfsMeta-shared
+            kfsMeta-shared ${TCMALLOC_LIB}
         )
         add_dependencies (${exe_file}
             kfsCommon-shared
