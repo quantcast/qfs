@@ -216,7 +216,11 @@ if(NOT FUSE_FOUND)
                 FUSE_LIBRARIES "${FUSE_LIBRARIES}")
         endif()
     else()
+        # Suppress warnings, from FindPkgConfig
+        # see https://cmake.org/cmake/help/latest/module/FindPackageHandleStandardArgs.html
+        set(FPHSA_NAME_MISMATCHED 1)
         INCLUDE(FindPkgConfig)
+        unset(FPHSA_NAME_MISMATCHED)
         pkg_search_module(FUSE "fuse")
         set(FUSE_DEFINITIONS ${FUSE_CFLAGS} CACHE STRING INTERNAL FORCE)
     endif()
