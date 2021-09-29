@@ -131,7 +131,7 @@ jobs:
       - name: Brew install
         run: |
           brew install boost || true
-          brew install osxfuse || true
+          brew install macfuse || true
 
       - name: Checkout code
         uses: actions/checkout@v2
