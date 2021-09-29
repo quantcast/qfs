@@ -68,6 +68,7 @@ using std::set;
 using std::less;
 using std::hex;
 using std::dec;
+using std::streamoff;
 
 inline void
 Replay::setRollSeeds(int64_t roll)
@@ -2524,12 +2525,12 @@ ValidateLogSegmentTrailer(
     const char* name,
     bool        completeSegmentFlag)
 {
-    int                       ret       = 0;
-    ifstream::streamoff const kTailSize = 1 << 10;
-    ifstream::streamoff       pos       = -1;
+    int             ret       = 0;
+    streamoff const kTailSize = 1 << 10;
+    streamoff       pos       = -1;
     ifstream fs(name, ifstream::in | ifstream::binary);
     if (fs && fs.seekg(0, ifstream::end) && 0 <= (pos = fs.tellg())) {
-        ifstream::streamoff sz;
+        streamoff sz;
         if (kTailSize < pos) {
             sz = kTailSize;
             pos -= kTailSize;
@@ -2538,7 +2539,7 @@ ValidateLogSegmentTrailer(
             pos = 0;
         }
         StBufferT<char, 1> buf;
-        char* const        ptr = buf.Resize(sz + ifstream::streamoff(1));
+        char* const        ptr = buf.Resize(sz + streamoff(1));
         if (fs.seekg(pos, ifstream::beg) && fs.read(ptr, sz)) {
             if (sz != fs.gcount()) {
                 KFS_LOG_STREAM_FATAL <<
