@@ -213,7 +213,8 @@ Main(
         }
     }
 
-    if (theHelpFlag || ! theServerPtr || thePort < 0 || inArgCount <= optind) {
+    if (theHelpFlag || ! theServerPtr || ! *theServerPtr ||
+            thePort <= 0 || inArgCount <= optind) {
         (theHelpFlag ? cout : cerr) <<
             "Usage: " << inArgsPtr[0] << "\n"
             " -m|-s <meta server host name>\n"
@@ -235,6 +236,12 @@ Main(
         MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO);
 
     const ServerLocation theLocation(theServerPtr, thePort);
+    if (! theLocation.IsValid()) {
+        KFS_LOG_STREAM_ERROR <<
+            "invalid meta server address: " << theLocation <<
+        KFS_LOG_EOM;
+        return 1;
+    }
     MonClient            theClient;
     theClient.SetMaxContentLength(512 << 20);
     theClient.SetRpcFormat(theShortRpcFmtFlag ?
