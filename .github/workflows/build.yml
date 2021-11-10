@@ -68,11 +68,6 @@ jobs:
             btype: release
             buser: qfsbuild
           - distro: centos
-            ver: 5
-            codecov: no
-            btype: release
-            buser: qfsbuild
-          - distro: centos
             ver: 6
             codecov: no
             btype: release
