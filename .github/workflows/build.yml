@@ -145,6 +145,7 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   cygwin-build:
+    if: ${{ false }}  # turn off for now
     runs-on: windows-latest
     env:
       CYG_MIRROR: http://cygwin.mirror.constant.com
