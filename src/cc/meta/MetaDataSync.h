@@ -55,7 +55,8 @@ public:
         int               inMaxReadSize);
     int Start(
         const char* inCheckpointDirPtr,
-        const char* inLogDirPtr);
+        const char* inLogDirPtr,
+        bool        inVrNodeIdConfiguredFlag);
     void Shutdown();
     void StartLogSync(
         const MetaVrLogSeq& inLogSeq);

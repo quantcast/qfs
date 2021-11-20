@@ -910,7 +910,8 @@ MetaServer::Startup(bool createEmptyFsFlag,
     if (! createEmptyFsFlag &&
             (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
         if (0 != (status = mMetaDataSync.Start(
-                mCPDir.c_str(), mLogDir.c_str()))) {
+                mCPDir.c_str(), mLogDir.c_str(),
+                0 <= MetaRequest::GetLogWriter().GetMetaVrSM().GetNodeId()))) {
             return false;
         }
         if (0 != (status = gNetDispatch.GetMetaDataStore().Load(

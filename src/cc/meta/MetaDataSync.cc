@@ -396,7 +396,8 @@ public:
     }
     int Start(
         const char* inCheckpointDirPtr,
-        const char* inLogDirPtr)
+        const char* inLogDirPtr,
+        bool        inVrNodeIdConfiguredFlag)
     {
         if (mReadOpsPtr || ! inCheckpointDirPtr || ! *inCheckpointDirPtr ||
                 ! inLogDirPtr || ! *inLogDirPtr) {
@@ -509,35 +510,43 @@ public:
             return -EINVAL;
         }
         // Do not start fetch with config. if fs is not empty.
-        bool theFetchFlag             = theEmptyFsFlag;
+        bool theFetchFlag             =
+            theEmptyFsFlag && inVrNodeIdConfiguredFlag;
         bool theFetchAfterRestartFlag = false;
         if (! mFetchOnRestartFileName.empty()) {
-            ifstream theStream(mFetchOnRestartFileName.c_str());
-            if (theStream) {
-                Servers theCfgServers;
-                theCfgServers.swap(mServers);
-                ServerLocation theLocation;
-                while ((theStream >> theLocation)) {
-                    if (theLocation.IsValid() &&
-                            mServers.end() == find(
-                                mServers.begin(), mServers.end(),
-                                theLocation)) {
-                        mServers.push_back(theLocation);
+            if (inVrNodeIdConfiguredFlag) {
+                ifstream theStream(mFetchOnRestartFileName.c_str());
+                if (theStream) {
+                    Servers theCfgServers;
+                    theCfgServers.swap(mServers);
+                    ServerLocation theLocation;
+                    while ((theStream >> theLocation)) {
+                        if (theLocation.IsValid() &&
+                                mServers.end() == find(
+                                    mServers.begin(), mServers.end(),
+                                    theLocation)) {
+                            mServers.push_back(theLocation);
+                        }
+                        theLocation = ServerLocation();
                     }
-                    theLocation = ServerLocation();
-                }
-                theStream.close();
-                for (Servers::const_iterator
-                        theIt = theCfgServers.begin();
-                        theCfgServers.end() != theIt;
-                        ++theIt) {
-                    if (mServers.end() == find(
-                            mServers.begin(), mServers.end(), *theIt)) {
-                        mServers.push_back(*theIt);
+                    theStream.close();
+                    for (Servers::const_iterator
+                            theIt = theCfgServers.begin();
+                            theCfgServers.end() != theIt;
+                            ++theIt) {
+                        if (mServers.end() == find(
+                                mServers.begin(), mServers.end(), *theIt)) {
+                            mServers.push_back(*theIt);
+                        }
                     }
+                    theFetchFlag             = ! mServers.empty();
+                    theFetchAfterRestartFlag = theFetchFlag;
                 }
-                theFetchFlag             = ! mServers.empty();
-                theFetchAfterRestartFlag = theFetchFlag;
+            } else {
+                const int theRet = DeleteFetchOnRestartFile();
+                if (0 != theRet) {
+                    return theRet;
+                }
             }
         }
         if (! theFetchFlag) {
@@ -605,6 +614,10 @@ public:
                 KFS_LOG_EOM;
                 return theRet;
             }
+        }
+        const int theRet = DeleteFetchOnRestartFile();
+        if (0 != theRet) {
+            return theRet;
         }
         LogSeqCheckStart();
         int kStackSize = 64 << 10;
@@ -897,6 +910,21 @@ private:
     MetaMds           mMetaMds;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    int DeleteFetchOnRestartFile()
+    {
+        if (! mFetchOnRestartFileName.empty() &&
+                unlink(mFetchOnRestartFileName.c_str())) {
+            const int theRet = GetErrno();
+            if (ENOENT != theRet) {
+                KFS_LOG_STREAM_ERROR <<
+                    mFetchOnRestartFileName << ": " <<
+                        QCUtils::SysError(theRet) <<
+                KFS_LOG_EOM;
+                return theRet;
+            }
+        }
+        return 0;
+    }
     void FreeWriteOps()
     {
         MetaRequest* thePtr;
@@ -2449,9 +2477,11 @@ MetaDataSync::SetParameters(
     int
 MetaDataSync::Start(
     const char* inCheckpointDirPtr,
-    const char* inLogDirPtr)
+    const char* inLogDirPtr,
+    bool        inVrNodeIdConfiguredFlag)
 {
-    return mImpl.Start(inCheckpointDirPtr, inLogDirPtr);
+    return mImpl.Start(
+        inCheckpointDirPtr, inLogDirPtr, inVrNodeIdConfiguredFlag);
 }
 
     void
