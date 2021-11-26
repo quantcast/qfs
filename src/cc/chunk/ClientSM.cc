@@ -145,6 +145,18 @@ ClientSM::SendResponse(KfsOp& op)
     GetBufferManager().Put(*this, opBytes - respBytes);
 }
 
+inline bool
+ClientSM::IsWaitingForDevBufMgr() const
+{
+    return mDevBufMgr && (*mDevBufMgrClients.Find(mDevBufMgr))->IsWaiting();
+}
+
+inline bool
+ClientSM::IsWaitingForBuffers() const
+{
+    return IsWaiting() || IsWaitingForDevBufMgr();
+}
+
 inline static bool
 IsDependingOpType(const KfsOp& op)
 {
@@ -201,7 +213,6 @@ ClientSM::ClientSM(
       mWOStream(),
       mDevBufMgrClients(),
       mDevBufMgr(0),
-      mGrantedFlag(false),
       mInFlightOpCount(0),
       mDevCliMgrAllocator(),
       mDataReceivedFlag(false),
@@ -335,7 +346,7 @@ ClientSM::HandleRequest(int code, void* data)
                 mSessionKey.clear(); // Not needed with encrypted connection.
             }
         }
-        if (IsWaiting() || (mDevBufMgr && ! mGrantedFlag)) {
+        if (IsWaitingForBuffers()) {
             CLIENT_SM_LOG_STREAM_DEBUG <<
                 "spurious read:"
                 " cur op: "     << KfsOp::ShowOp(mCurOp) <<
@@ -345,7 +356,6 @@ ClientSM::HandleRequest(int code, void* data)
             KFS_LOG_EOM;
             break;
         }
-        mGrantedFlag = false;
         // We read something from the network.  Run the RPC that
         // came in.
         int       cmdLen = 0;
@@ -516,8 +526,9 @@ ClientSM::HandleRequest(int code, void* data)
                     mNetConnection->IsWriteReady()) ?
                 gClientManager.GetIoTimeoutSec() :
                 gClientManager.GetIdleTimeoutSec());
-            if (IsWaiting() || mDevBufMgr) {
+            if (IsWaitingForBuffers()) {
                 mNetConnection->SetMaxReadAhead(0);
+                ClearGranted();
                 ReceiveClear();
             } else if (! mCurOp || ! mNetConnection->IsReadReady()) {
                 mNetConnection->SetMaxReadAhead(sMaxCmdHeaderReadAhead);
@@ -805,8 +816,7 @@ ClientSM::FailIfExceedsWait(
 bool
 ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
 {
-    if (IsWaiting() || (mDevBufMgr && (! mCurOp ||
-            GetDevBufMgrClient(mDevBufMgr)->IsWaiting()))) {
+    if (IsWaitingForBuffers() || (mDevBufMgr && ! mCurOp)) {
         die("ClientSM: invalid command handler invocation");
     }
     KfsOp* op     = mCurOp;
@@ -1216,7 +1226,6 @@ ClientSM::HandleGranted()
     if (! mNetConnection->IsGood()) {
         return 0;
     }
-    mGrantedFlag = true;
     return HandleRequest(EVENT_NET_READ, &(mNetConnection->GetInBuffer()));
 }
 

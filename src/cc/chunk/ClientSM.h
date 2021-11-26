@@ -144,6 +144,8 @@ protected:
         void*     inDataPtr);
     void DispatchGranted(
         ClientSM& inClient);
+    void ClearGranted()
+        { mGrantedFlag = false; }
 private:
     ClientThread* const    mClientThreadPtr;
     KfsOp*                 mOpsHeadPtr;
@@ -378,7 +380,6 @@ private:
     IOBuffer::WOStream         mWOStream;
     DevBufferManagerClients    mDevBufMgrClients;
     BufferManager*             mDevBufMgr;
-    bool                       mGrantedFlag;
     int                        mInFlightOpCount;
     DevClientMgrAllocator      mDevCliMgrAllocator;
     bool                       mDataReceivedFlag;
@@ -424,6 +425,8 @@ private:
     inline Client* GetDevBufMgrClient(const BufferManager* bufMgr);
     inline void PutAndResetDevBufferManager(KfsOp& op, ByteCount opBytes);
     inline bool IsAccessEnforced() const;
+    inline bool IsWaitingForDevBufMgr() const;
+    inline bool IsWaitingForBuffers() const;
     bool FailIfExceedsWait(
         BufferManager&         bufMgr,
         BufferManager::Client* mgrCli);

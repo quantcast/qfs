@@ -65,7 +65,12 @@ ClientThreadListEntry::HandleRequest(
 ClientThreadListEntry::HandleGranted(
     ClientSM& inClient)
 {
-    return inClient.HandleGranted();
+    ClientThreadListEntry& theEntry = inClient;
+    if (theEntry.mGrantedFlag) {
+        theEntry.mGrantedFlag = false;
+        return inClient.HandleGranted();
+    }
+    return 0;
 }
 
     inline const NetConnectionPtr&
@@ -284,7 +289,7 @@ public:
         if (SyncAddAndFetch(mWakeupCnt, 0) <= 0) {
             return;
         }
-        QCASSERT( ! GetMutex().IsOwned());
+        QCASSERT(! GetMutex().IsOwned());
         StMutexLocker theLocker(mOuter);
         QCASSERT(! mShutdownFlag || ! mRunFlag);
 
@@ -317,7 +322,7 @@ public:
         mTmpDispatchQueue.clear();
         theCnt = 0;
         while ((thePtr = DispatchQueue::PopBack(mDispatchQueuePtr))) {
-            CheckQueueSize(++theCnt, "sync");
+            CheckQueueSize(++theCnt, "dispatch");
             mTmpDispatchQueue.push_back(&thePtr->GetClient());
         }
         RemoteSyncSM* theSyncPtr = mSyncQueueHeadPtr;
@@ -596,11 +601,9 @@ private:
         ClientSM& inClient)
     {
         ClientThreadListEntry& theEntry = inClient;
-        const bool theGrantedFlag = theEntry.mGrantedFlag;
-        KfsOp*     thePtr         = theEntry.mOpsHeadPtr;
+        KfsOp*                 thePtr   = theEntry.mOpsHeadPtr;
         theEntry.mOpsHeadPtr  = 0;
         theEntry.mOpsTailPtr  = 0;
-        theEntry.mGrantedFlag = false;
         while (thePtr) {
             KfsOp& theCur = *thePtr;
             thePtr = GetNextPtr(theCur);
@@ -615,8 +618,7 @@ private:
                 return false; // Deleted.
             }
         }
-        return (! theGrantedFlag ||
-            ClientThreadListEntry::HandleGranted(inClient) == 0);
+        return ClientThreadListEntry::HandleGranted(inClient) == 0;
     }
     static void RunPending(
         RemoteSyncSM& inSyncSM)
@@ -662,7 +664,6 @@ private:
         ClientThreadListEntry& theEntry = inClient;
         if (theEntry.mGrantedFlag && ! theEntry.mOpsHeadPtr) {
             DispatchQueue::Remove(mDispatchQueuePtr, theEntry);
-            theEntry.mGrantedFlag = false;
             return ClientThreadListEntry::HandleGranted(inClient);
         }
         return 0;
