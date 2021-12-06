@@ -583,7 +583,7 @@ public:
             globals().ctrNetBytesWritten.Update(theWrCnt);
             return theWrCnt;
         }
-        return SslRetToErr(theRet);
+        return SslRetToErr(theRet, ! inIoBuffer.IsEmpty());
     }
     void Close(
         NetConnection& inConnection,
@@ -1117,14 +1117,22 @@ private:
         return theRet;
     }
     int SslRetToErr(
-        int inRet)
+        int  inRet,
+        bool inWriteFlag = false)
     {
+        const int theErr    = errno;
+        const int theSslErr = SSL_get_error(mSslPtr, inRet);
+        int       theRet    = 0;
         mSslErrorFlag = false;
-        switch (SSL_get_error(mSslPtr, inRet))
+        switch (theSslErr)
         {
             case SSL_ERROR_NONE:
                 break;
             case SSL_ERROR_ZERO_RETURN:
+                if (inWriteFlag && mSslEofFlag) {
+                    theRet = 0 < theErr ? -theErr :
+                        0 == theErr ? -EINVAL : theErr;
+                }
                 mSslEofFlag = true;
                 break;
             case SSL_ERROR_WANT_READ:
@@ -1132,29 +1140,42 @@ private:
             case SSL_ERROR_WANT_CONNECT:
             case SSL_ERROR_WANT_ACCEPT:
             case SSL_ERROR_WANT_X509_LOOKUP:
-                return -EAGAIN;
-            case SSL_ERROR_SYSCALL: {
+                theRet = -EAGAIN;
+                break;
+            case SSL_ERROR_SYSCALL:
                 mError = GetAndClearErr();
                 if (mError) {
-                    return -EINVAL;
+                    theRet = -EINVAL;
+                } else if (0 < theErr) {
+                    theRet = -theErr;
+                } else if (0 == theErr) {
+                    theRet = -EINVAL;
+                } else {
+                    theRet = theErr;
                 }
-                const int theErr = errno;
-                if (theErr > 0) {
-                    return -theErr;
-                }
-                if (theErr == 0) {
-                    return -EINVAL;
-                }
-                return theErr;
-            }
+                break;
             case SSL_ERROR_SSL:
                 mError        = GetAndClearErr();
                 mSslErrorFlag = true;
-                return -EINVAL;
+                theRet = -EINVAL;
+                break;
             default:
-                return -EINVAL;
+                theRet = -EINVAL;
+                break;
         }
-        return 0;
+        if (IsDebugTrace()) {
+                KFS_LOG_STREAM_DEBUG <<
+                        "ret to error"
+                        " impl: " << reinterpret_cast<const void*>(this) <<
+                        " in: "   << inRet <<
+                        " serr: " << theSslErr <<
+                        " ssl: "  << mError <<
+                        " err: "  << theErr <<
+                        " eof: "  << mSslEofFlag <<
+                        " ret: "  << theRet <<
+                KFS_LOG_EOM;
+        }
+        return theRet;
     }
     void StoreClientSession()
     {
@@ -1547,6 +1568,7 @@ SslFilter::Read(
         } else {
             KFS_LOG_STREAM_DEBUG <<
                 "netconn: " << theFd <<
+                " impl: "   << reinterpret_cast<const void*>(&mImpl) <<
                 " read:"
                 " max: "    << inMaxRead <<
                 " bytes: "  << inIoBuffer.BytesConsumable() <<
@@ -1587,6 +1609,7 @@ SslFilter::Write(
         } else {
             KFS_LOG_STREAM_DEBUG <<
                 "netconn: " << theFd <<
+                " impl: "   << reinterpret_cast<const void*>(&mImpl) <<
                 " write:"
                 " out: "    << theNWr <<
                 " bytes: "  << inIoBuffer.BytesConsumable() <<
