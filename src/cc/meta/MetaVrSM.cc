@@ -2617,6 +2617,12 @@ private:
         if (mReplayLastLogSeq != mLastLogSeq) {
             return;
         }
+        if (mLastLogSeq.IsPastViewStart() &&
+                ! mLastLogSeq.IsSameView(mDoViewChangeViewEndSeq)) {
+            mStartViewChangeNodeIds.clear();
+            RetryStartViewChange("fetched and replayed next non empty view");
+            return;
+        }
         const int theSz = (int)mStartViewChangeNodeIds.size();
         if (theSz < mQuorum) {
             RetryStartViewChange("not sufficient number of nodes responded");
