@@ -35,7 +35,7 @@ DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
-DEPS_CENTOS8=$DEPS_CENTOS' diffutils'
+DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
 
 MYMVN_URL='https://downloads.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
 
@@ -43,6 +43,7 @@ MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
 MYCENTOSEPEL_RPM="$MYTMPDIR/epel-release-latest.rpm"
 MYMVNTAR="$MYTMPDIR/$(basename "$MYMVN_URL")"
+MYDOCKERBUILDDEBUGFILENAME="$MYTMPDIR/docker_build_debug"
 
 MYCMAKE='cmake'
 
@@ -112,6 +113,10 @@ tail_logs_and_exit()
         find "$MYQFSTEST_DIR" -type f -name '*.log' -print0 \
         | xargs -0  tail -n 100
     fi
+    while [ -e "$MYDOCKERBUILDDEBUGFILENAME" ]; do
+        echo 'sleeping for 10 sec.'
+        sleep 10
+    done
     exit 1
 }
 
@@ -310,6 +315,10 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
     if [ x"$CODECOV" = x'yes' ]; then
         init_codecov
     fi
+    if [ x"$DOCKER_BUILD_DEBUG" = x'yes' ]; then
+        mkdir -p  "$MYTMPDIR"
+        touch "$MYDOCKERBUILDDEBUGFILENAME"
+    fi
     if [ x"$DISTRO" = x'centos' -o x"$DISTRO $VER" = x'ubuntu 14.04' ]; then
         mkdir -p  "$MYTMPDIR"
         curl --retry 3 -S -o "$MYMVNTAR" "$MYMVN_URL"
@@ -325,8 +334,15 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
     if [ x"$BUILD_RUN_DOCKER" = x'no' ]; then
         "$0" build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     else
+        if [ x"${DOCKER_IMAGE_PREFIX+x}" = x ]; then
+            if [ x"$DISTRO" = x'centos' -a 7 -lt $VER ]; then
+                DOCKER_IMAGE_PREFIX='tgagor/'
+            else
+                DOCKER_IMAGE_PREFIX=''
+            fi
+        fi
         docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
-            "$DISTRO:$VER" \
+            "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
             /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     fi
 elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
