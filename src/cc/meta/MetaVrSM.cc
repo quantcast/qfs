@@ -3914,6 +3914,9 @@ private:
             inReq.statusMsg = "swap active node: inactive node is down";
             return;
         }
+        if (kStatePrimary == mState) {
+            SetState(kStateReconfiguration);
+        }
     }
     template<typename T>
     size_t ApplyT(
