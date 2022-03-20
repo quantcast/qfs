@@ -665,13 +665,14 @@ private:
             const struct group* const theEntryPtr = getgrent();
             if (! theEntryPtr) {
                 theError = errno;
-                if (i < 0 && ENOENT == theError) {
-                    theError = 0; // cent os 7 kludge.
-                }
                 if (theError != 0) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "getgrent error: " << QCUtils::SysError(theError) <<
+                    // For now ignore errno, as centos 7 and 8 do not set it
+                    // correctly.
+                    KFS_LOG_STREAM_DEBUG <<
+                        "getgrent: " << i <<
+                        " status: " << QCUtils::SysError(theError) <<
                     KFS_LOG_EOM;
+                    theError = 0;
                 }
                 break;
             }
