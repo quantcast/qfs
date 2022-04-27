@@ -25,6 +25,7 @@
 
 qfs_cp_dir=kfscp
 qfs_log_dir=kfslog
+qfs_backup=yes
 qfs_log_seq=
 
 print_usage_exit()
@@ -32,6 +33,9 @@ print_usage_exit()
     echo "Usage $1:"
     echo "  -c <checkpoint dir> (default kfscp)"
     echo "  -l <log dir> (default kfslog)"
+    echo "  -b do not create backup by creating checkpoint and log" \
+        "directories with current unix time stamp suffix next to the original" \
+        "ones and link all files into them"
     echo "  -s <log sequence to truncate at>" \
         "(For example: -s '1 2 3abc')"
     echo "  -h|--help display help / usage."
@@ -48,6 +52,9 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-s' -a $# -gt 1 ]; then
         shift
         qfs_log_seq=$1
+    elif [ x"$1" = x'-b' ]; then
+        shift
+        qfs_backup=''
     elif [ x"$1" = x'-h' -o x"$1" = x'--help' ]; then
         echo "
 This program is intended to be used for debugging and possibly file system
@@ -70,12 +77,14 @@ done
 }
 
 [ -d "$qfs_cp_dir" ] || {
-    echo "Checkpoint is not a directory: $qfs_log_dir" 1>&2
+    echo "Checkpoint is not a directory: $qfs_cp_dir" 1>&2
     exit 1
 }
 
+qfs_cp_dir=$(cd "$qfs_cp_dir" > /dev/null && pwd) || exit
+
 [ -f "$qfs_cp_dir"/latest ] || {
-    echo "No latest file in checkpoint directory: $qfs_log_dir" 1>&2
+    echo "No latest file in checkpoint directory: $qfs_cp_dir" 1>&2
     exit 1
 }
 
@@ -86,7 +95,13 @@ expr "$qfs_log_seq" : \
     print_usage_exit $0 1 1>&2
 }
 
-awk '
+cd "$qfs_log_dir" || exit
+
+# Search log segments in reverse order, as the target log sequence is typically
+# closer to the end of the log.
+find . -name 'log.*.*.*.*' -type f -exec basename '{}' \; \
+| sort -r -n -t . -k 5 \
+| xargs awk '
 /^c\// {
     commit_line_num = FNR
 }
@@ -98,14 +113,31 @@ awk '
 END {
     print ""
     exit 1
-}' "$qfs_log_dir"/log.*.*.*.* \
+}' \
 | {
     read commit_line_num
-    [ x"$commit_line_num" = x ] && {
+    if [ x"$commit_line_num" = x ]; then
         echo "Error: no log sequence $qfs_log_seq found" 1>&2
         exit 1
-    }
+    fi
     read log_file || exit
+
+    # Backup log and checkpoint
+    if [ x"$qfs_backup" != x ]; then
+        suf=$(date '+%s')
+        for d in . "$qfs_cp_dir"; do
+            (
+                set -e
+                cd "$d"
+                bd=$(pwd -P).$suf
+                mkdir "$bd"
+                find . -name '[cl]*' -type f -exec ln '{}' "$bd" \;
+                echo "created backup in $bd"
+            ) || exit
+        done
+    fi
+
+    # Truncate log segment.
     head -n $commit_line_num "$log_file" > "$log_file".tmp || exit
     mv "$log_file".tmp "$log_file" || exit
     log_seg_num=$(echo "$log_file" | sed -e 's/^.*\.//')
@@ -122,10 +154,19 @@ END {
     rm -f "$last_link"
     i=$(expr $log_seg_num - 1)
     prev_log=$(echo "$log_dir"/log.*.*.*.$i)
-    [ -f "$prev_log" ] && ln "$prev_log" "$last_link"
+    if [ -f "$prev_log" ]; then
+        if [ x"$(find "$prev_log" -links 1 -print)" = x ]; then
+            # Copy so that the file has only one link -- replay checks "last"
+            # file number of links, and it must be exactly 2.
+            cp "$prev_log" "$prev_log".tmp || exit
+            mv "$prev_log".tmp "$prev_log" || exit
+        fi
+        ln "$prev_log" "$last_link" || exit
+    fi
 
     # Cleanup temp files, if any.
-    rm -f "$qfs_cp_dir"/chkpt.*.*.*.tmp
+    cd "$qfs_cp_dir" || exit
+    rm -f chkpt.*.*.*.tmp
     # Remove "future" checkpoints.
     awk -F '[.]' -v sn=$log_seg_num '
     BEGIN {
@@ -145,15 +186,15 @@ END {
     }
     END {
         print mf
-    }' "$qfs_cp_dir"/chkpt.*.*.* \
+    }' chkpt.*.*.* \
     | {
         pf=
         while true; do
             read fn || {
-                [ x"$pf" = x ] && {
+                if [ x"$pf" = x ]; then
                     echo "Error: no checkpoints left" 1>&2
                     exit 1
-                }
+                fi
                 dn=$(dirname "$pf")
                 # Create latest hard link.
                 cp_latest=$dn/latest
@@ -161,9 +202,9 @@ END {
                 ln "$pf" "$cp_latest" || exit
                 break
             }
-            [ x"$pf" = x ] || {
+            if [ x"$pf" != x ]; then
                 rm "$pf" || exit
-            }
+            fi
             pf=$fn
         done
     }
