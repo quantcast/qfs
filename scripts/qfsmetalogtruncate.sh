@@ -97,6 +97,10 @@ expr "$qfs_log_seq" : \
 
 cd "$qfs_log_dir" || exit
 
+# On linux -c and mac / bsd -f, check if -c works, and assume -f otherwise.
+stat_cmd_fmt_arg='-c'
+stat $stat_cmd_fmt_arg '%u:%g' . > /dev/null 2>&1 || stat_cmd_fmt_arg='-f'
+
 # Search log segments in reverse order, as the target log sequence is typically
 # closer to the end of the log.
 find . -name 'log.*.*.*.*' -type f -exec basename '{}' \; \
@@ -122,6 +126,13 @@ END {
     fi
     read log_file || exit
 
+    if [ 0 -eq $(id -u) ]; then
+        chown_cmd=chown
+        user_group=$(stat $stat_cmd_fmt_arg '%u:%g' "$log_file") || exit
+    else
+        user_group=''
+        chown_cmd=true
+    fi
     # Backup log and checkpoint
     if [ x"$qfs_backup" != x ]; then
         suf=$(date '+%s')
@@ -131,6 +142,7 @@ END {
                 cd "$d"
                 bd=$(pwd -P).$suf
                 mkdir "$bd"
+                $chown_cmd "$user_group" "$bd"
                 find . -name '[cl]*' -type f -exec ln '{}' "$bd" \;
                 echo "created backup in $bd"
             ) || exit
@@ -140,6 +152,7 @@ END {
     # Truncate log segment.
     head -n $commit_line_num "$log_file" > "$log_file".tmp || exit
     mv "$log_file".tmp "$log_file" || exit
+    $chown_cmd "$user_group" "$log_file" || exit
     log_seg_num=$(echo "$log_file" | sed -e 's/^.*\.//')
     log_dir=$(dirname "$log_file")
 
@@ -160,6 +173,7 @@ END {
             # file number of links, and it must be exactly 2.
             cp "$prev_log" "$prev_log".tmp || exit
             mv "$prev_log".tmp "$prev_log" || exit
+            $chown_cmd "$user_group" "$prev_log" || exit
         fi
         ln "$prev_log" "$last_link" || exit
     fi
