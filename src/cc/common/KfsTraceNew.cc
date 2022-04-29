@@ -202,7 +202,7 @@ KfsTraceNew::MallocFailed(
 void*
 operator new(std::size_t inSize)
 #if __cplusplus < 201103L
-    (throw std::bad_alloc)
+    throw(std::bad_alloc)
 #endif
 {
     return KfsTraceNew::Instance().Allocate(inSize, true);
