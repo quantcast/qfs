@@ -201,7 +201,7 @@ KfsTraceNew::MallocFailed(
 
 void*
 operator new(std::size_t inSize)
-#if __cplusplus <= 201103L
+#if __cplusplus < 201103L
     (throw std::bad_alloc)
 #endif
 {
