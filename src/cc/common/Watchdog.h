@@ -73,13 +73,15 @@ public:
         Counter mTimeoutCount;
         Counter mTotalTimeoutCount;
         Counter mLastChangedTimeAgoUsec;
+        Counter mLastTimeoutTimeAgoUsec;
         char    mName[64];
 
         Counters()
             : mPollCount(0),
               mTimeoutCount(0),
               mTotalTimeoutCount(0),
-              mLastChangedTimeAgoUsec(0)
+              mLastChangedTimeAgoUsec(0),
+              mLastTimeoutTimeAgoUsec(0)
             { mName[0] = 0; }
         Counters& Add(
             const Counters& inRhs)
@@ -89,6 +91,9 @@ public:
             mTotalTimeoutCount += inRhs.mTotalTimeoutCount;
             if (mLastChangedTimeAgoUsec < inRhs.mLastChangedTimeAgoUsec) {
                 mLastChangedTimeAgoUsec = inRhs.mLastChangedTimeAgoUsec;
+            }
+            if (mLastTimeoutTimeAgoUsec < inRhs.mLastTimeoutTimeAgoUsec) {
+                mLastTimeoutTimeAgoUsec = inRhs.mLastTimeoutTimeAgoUsec;
             }
             return *this;
         }
@@ -123,12 +128,15 @@ public:
         { return mTimerOverrunCount; }
     uint64_t GetTimerOverrunUsecCount() const
         { return mTimerOverrunUsecCount; }
+    uint64_t GetLastTimerOverrunTime() const
+        { return mLastTimerOverrunTime; }
 private:
     volatile uint64_t mStrobedValue;
     uint64_t          mTimeoutCount;
     uint64_t          mPollCount;
     uint64_t          mTimerOverrunCount;
     uint64_t          mTimerOverrunUsecCount;
+    uint64_t          mLastTimerOverrunTime;
     Impl&             mImpl;
 
 private:

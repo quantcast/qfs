@@ -38,6 +38,7 @@
 
 #include <vector>
 #include <algorithm>
+#include <limits>
 
 #include <unistd.h>
 #include <string.h>
@@ -57,14 +58,15 @@ public:
         uint64_t&                inTimoutCount,
         uint64_t&                inPollCount,
         uint64_t&                inTimerOverrunCount,
-        uint64_t&                inTimerOverrunUsecCount)
+        uint64_t&                inTimerOverrunUsecCount,
+        uint64_t&                inLastTimerOverrunTime)
         : QCRunnable(),
           mWatchedList(),
           mMutex(),
           mCond(),
           mStrobed(inStrobedValue),
           mThread(this, "Watchdog"),
-          mParamPollIntervalUsec(int64_t(16) * 1000 * 1000),
+          mParamPollIntervalUsec(int64_t(1) * 1000 * 1000),
           mPollIntervalUsec(),
           mMinPollIntervalUsec(),
           mPollIntervalNanoSec(),
@@ -79,6 +81,7 @@ public:
           mPollCount(inPollCount),
           mTimerOverrunCount(inTimerOverrunCount),
           mTimerOverrunUsecCount(inTimerOverrunUsecCount),
+          mLastTimerOverrunTime(inLastTimerOverrunTime),
           mFailureWriteRet()
     {}
     ~Impl()
@@ -96,23 +99,29 @@ public:
     {
         Properties::String theName(inPrefixPtr ? inPrefixPtr : "");
         const size_t       thePrefixLen = theName.length();
+        mMaxTimeoutCount = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("maxTimeoutCount"),
+            mMaxTimeoutCount
+        );
         // Enforce min 4 seconds interval to protect against accidentally
         // setting the interval too small, and allowing changing the minimum for
         // debugging and testing purposes.
         const double theMinIntervalSec = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("minPollIntervalSec"),
-            double(4)
+            mMaxTimeoutCount < 0 ? 1.0 :
+                max(1.0, 4.0 / max(1, mMaxTimeoutCount) + 0.5)
         );
-        mParamPollIntervalUsec = (uint64_t)(1e6 * max(theMinIntervalSec,
-            inParameters.getValue(
+        const double theInfinity     = std::numeric_limits<double>::infinity();
+        const double thePollInterval = inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("pollIntervalSec"),
-                mParamPollIntervalUsec * 1e-6
-        )));
-        mMaxTimeoutCount = inParameters.getValue(
-            theName.Truncate(thePrefixLen).Append("maxTimeoutCount"),
-            mMaxTimeoutCount
-        );
-        // Enforce min 1 second timer overrun threshold.
+                theInfinity);
+        if (theInfinity == thePollInterval) {
+            // The use defaults if not set.
+            mParamPollIntervalUsec = theInfinity == thePollInterval ?
+                (int64_t)(mMaxTimeoutCount < 0 ? 1 : 16) * 1000 * 1000 :
+                (int64_t)(1e6 * max(theMinIntervalSec, thePollInterval));
+        }
+        // Enforce min 0.5 second timer overrun threshold.
         const double theMinTimerOverrunThresholdSec = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("minTimerOverrunThresholdSec"),
             double(0.5)
@@ -221,7 +230,7 @@ private:
               mPollCount(0),
               mTotalTimeoutCount(0),
               mLastChangedTime(),
-              mLastReportedTime()
+              mLastTimeoutTime()
             {}
         void Poll(
             Impl& inOuter)
@@ -244,11 +253,14 @@ private:
         void GetCounters(
             Counters& outCounters)
         {
-            outCounters.mPollCount              = mPollCount;
-            outCounters.mTimeoutCount           = mTimeoutCount;
-            outCounters.mTotalTimeoutCount      = mTotalTimeoutCount;
-            outCounters.mLastChangedTimeAgoUsec =
-                microseconds() - mLastChangedTime;
+            const int64_t theNow = microseconds();
+            outCounters.mPollCount               = mPollCount;
+            outCounters.mTimeoutCount            = mTimeoutCount;
+            outCounters.mTotalTimeoutCount       = mTotalTimeoutCount;
+            outCounters.mLastChangedTimeAgoUsec  =
+                theNow - mLastChangedTime;
+            outCounters.mLastTimeoutTimeAgoUsec =
+                theNow - mLastTimeoutTime;
             const size_t theMaxLen = sizeof(outCounters.mName) /
                 sizeof(outCounters.mName[0]) - 1;
             strncpy(outCounters.mName, mWatchedPtr->GetName(), theMaxLen);
@@ -261,7 +273,7 @@ private:
         Counter        mPollCount;
         Counter        mTotalTimeoutCount;
         int64_t        mLastChangedTime;
-        int64_t        mLastReportedTime;
+        int64_t        mLastTimeoutTime;
 
         void PollTimedout(
             Impl& inOuter)
@@ -273,10 +285,10 @@ private:
                 inOuter.FatalPollFailure(mWatchedPtr->GetName());
             } else {
                 if (1 < mTotalTimeoutCount && theNow <=
-                        mLastReportedTime + inOuter.mTimeoutLogIntervalUsec) {
+                        mLastTimeoutTime + inOuter.mTimeoutLogIntervalUsec) {
                     return;
                 }
-                mLastReportedTime = theNow;
+                mLastTimeoutTime = theNow;
             }
             KFS_LOG_STREAM(theFatalFlag ?
                     MsgLogger::kLogLevelFATAL : MsgLogger::kLogLevelERROR) <<
@@ -300,7 +312,7 @@ private:
                 " timeouts: " << inOuter.mTimoutCount <<
                 " timer overruns: " << inOuter.mTimerOverrunCount <<
                 " timer overruns seconds: " <<
-                    inOuter.mTimerOverrunCount * 1e-6 <<
+                    inOuter.mTimerOverrunUsecCount * 1e-6 <<
             KFS_LOG_EOM;
             if (! theFatalFlag) {
                 return;
@@ -354,6 +366,7 @@ private:
     uint64_t&     mPollCount;
     uint64_t&     mTimerOverrunCount;
     uint64_t&     mTimerOverrunUsecCount;
+    uint64_t&     mLastTimerOverrunTime;
     ssize_t       mFailureWriteRet;
     char          mFailureMsg[kMaxFailurMsgLen + 1];
 
@@ -407,6 +420,7 @@ private:
                 const uint64_t theOverrun =
                     theNow - theStartWait - mPollIntervalUsec;
                 ++mTimerOverrunCount;
+                mLastTimerOverrunTime = theNow;
                 mTimerOverrunUsecCount += theOverrun;
                 KFS_LOG_STREAM_ERROR <<
                     "wathdog: detected timer overrun"
@@ -453,8 +467,9 @@ Watchdog::Watchdog(
       mPollCount(0),
       mTimerOverrunCount(0),
       mTimerOverrunUsecCount(0),
+      mLastTimerOverrunTime(0),
       mImpl(*new Impl(mStrobedValue, mTimeoutCount, mPollCount,
-        mTimerOverrunCount, mTimerOverrunUsecCount))
+        mTimerOverrunCount, mTimerOverrunUsecCount, mLastTimerOverrunTime))
 {
     Watchdog::SetMustBeStrobed(inMustBeStrobedFlag);
 }
