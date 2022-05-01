@@ -5313,89 +5313,89 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     GetLayoutOp  lop(0, kfsfid);
     time_t       startTime = time(0);
     time_t const endTime   = startTime + mRetryDelaySec * mMaxNumRetriesPerOp;
+    int          rstatus   = -EAGAIN;
     for (int retry = 0; ; retry++) {
-        lop.lastChunkOnlyFlag = true;
-        GetLayout(lop, 0);
-        if (mMaxNumRetriesPerOp <= retry ||
-                (lop.status != -EAGAIN && lop.status != -EHOSTUNREACH)) {
-            break;
-        }
-        time_t const curTime = time(0);
-        if (endTime <= curTime) {
-            break;
-        }
-        KFS_LOG_STREAM_INFO <<
-            " compute file size:"
-            " fid: "    << kfsfid <<
-            " retry: "  << retry <<
-            " status: " << lop.status <<
-            " "         << lop.statusMsg <<
-        KFS_LOG_EOM;
-        startTime += mRetryDelaySec;
-        if (curTime < startTime) {
-            Sleep((int)(startTime - curTime));
-        } else {
-            startTime = curTime;
-        }
-        lop.status = 0;
-        lop.statusMsg.clear();
-    }
-    if (lop.status < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            "failed to compute file size:"
-            " fid: "    << kfsfid <<
-            " status: " << lop.status <<
-            " "         << lop.statusMsg <<
-        KFS_LOG_EOM;
-        return GetOpStatus(lop);
-    }
-    if (lop.chunks.empty()) {
-        return 0;
-    }
-    const ChunkLayoutInfo& last     = *lop.chunks.rbegin();
-    chunkOff_t             filesize = last.fileOffset;
-    chunkOff_t             endsize  = 0;
-    int                    rstatus  = 0;
-    if (last.chunkServers.empty()) {
-        rstatus = -EAGAIN;
-    } else if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
-                    RespondingServer(*this, last, endsize, rstatus,
-                        lop.allCSShortRpcFlag)) == last.chunkServers.end()) {
-        KFS_LOG_STREAM_INFO <<
-            "failed to connect to any server to get size of"
-            " fid: "   << kfsfid <<
-            " chunk: " << last.chunkId <<
-            " max: "   << mMaxNumRetriesPerOp <<
-        KFS_LOG_EOM;
-    }
-    if (rstatus < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            "failed to get size for"
-            " fid: "    << kfsfid <<
-            " status: " << rstatus <<
-        KFS_LOG_EOM;
-        return -1;
-    }
-
-    if (filesize == 0 && endsize == 0 && ! lop.chunks.empty()) {
-        // Make sure that the filesize is really 0: the file has one
-        // chunk, but the size of that chunk is 0.  Sanity check with
-        // all the servers that is really the case
-        vector<ssize_t> chunksize;
-        chunksize.resize(last.chunkServers.size(), -1);
-        transform(last.chunkServers.begin(), last.chunkServers.end(),
-            chunksize.begin(),
-            RespondingServer2(*this, last, lop.allCSShortRpcFlag));
-        for (size_t i = 0; i < chunksize.size(); i++) {
-            if (chunksize[i] > 0) {
-                endsize = chunksize[i];
+        for (; ; retry++) {
+            lop.lastChunkOnlyFlag = true;
+            GetLayout(lop, 0);
+            if (mMaxNumRetriesPerOp <= retry ||
+                    (lop.status != -EAGAIN && lop.status != -EHOSTUNREACH)) {
                 break;
             }
+            time_t const curTime = time(0);
+            if (endTime <= curTime) {
+                break;
+            }
+            KFS_LOG_STREAM_INFO <<
+                " compute file size:"
+                " fid: "    << kfsfid <<
+                " retry: "  << retry <<
+                " status: " << lop.status <<
+                " "         << lop.statusMsg <<
+            KFS_LOG_EOM;
+            startTime += mRetryDelaySec;
+            if (curTime < startTime) {
+                Sleep((int)(startTime - curTime));
+            } else {
+                startTime = curTime;
+            }
+            lop.status = 0;
+            lop.statusMsg.clear();
+        }
+        if (lop.status < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to compute file size:"
+                " fid: "    << kfsfid <<
+                " status: " << lop.status <<
+                " "         << lop.statusMsg <<
+            KFS_LOG_EOM;
+            return GetOpStatus(lop);
+        }
+        if (lop.chunks.empty()) {
+            return 0;
+        }
+        const ChunkLayoutInfo& last     = *lop.chunks.rbegin();
+        chunkOff_t             filesize = last.fileOffset;
+        chunkOff_t             endsize  = 0;
+        if (last.chunkServers.empty()) {
+            rstatus = -EAGAIN;
+        } else if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
+                        RespondingServer(*this, last, endsize, rstatus,
+                            lop.allCSShortRpcFlag)) == last.chunkServers.end()) {
+            KFS_LOG_STREAM_INFO <<
+                "failed to connect to any server to get size of"
+                " fid: "   << kfsfid <<
+                " chunk: " << last.chunkId <<
+                " max: "   << mMaxNumRetriesPerOp <<
+            KFS_LOG_EOM;
+        }
+        if (0 <= rstatus) {
+            if (filesize == 0 && endsize == 0 && ! lop.chunks.empty()) {
+                // Make sure that the filesize is really 0: the file has one
+                // chunk, but the size of that chunk is 0.  Sanity check with
+                // all the servers that is really the case
+                vector<ssize_t> chunksize;
+                chunksize.resize(last.chunkServers.size(), -1);
+                transform(last.chunkServers.begin(), last.chunkServers.end(),
+                    chunksize.begin(),
+                    RespondingServer2(*this, last, lop.allCSShortRpcFlag));
+                for (size_t i = 0; i < chunksize.size(); i++) {
+                    if (chunksize[i] > 0) {
+                        endsize = chunksize[i];
+                        break;
+                    }
+                }
+            }
+            filesize += endsize;
+            return filesize;
         }
     }
-    filesize += endsize;
-
-    return filesize;
+    KFS_LOG_STREAM_ERROR <<
+        "failed to get size for"
+        " fid: "    << kfsfid <<
+        " status: " << rstatus <<
+    KFS_LOG_EOM;
+    return rstatus;
 }
 
 void
