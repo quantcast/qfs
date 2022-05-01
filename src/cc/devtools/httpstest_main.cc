@@ -131,7 +131,7 @@ public:
         int  theResolverCacheSize           = 8 << 10;
         int  theResolverCacheExpirationTime = 2;
         mNetManager.SetResolverParameters(theResolverUseOsFlag,
-		theResolverCacheSize, theResolverCacheExpirationTime);
+                theResolverCacheSize, theResolverCacheExpirationTime);
         mNetManager.RegisterTimeoutHandler(this);
         mNetManager.MainLoop();
         mNetManager.UnRegisterTimeoutHandler(this);

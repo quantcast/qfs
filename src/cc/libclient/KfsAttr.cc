@@ -65,7 +65,7 @@ FileAttr::ToStat(
     outStat.st_blksize = CHUNKSIZE;
     outStat.st_blocks  = chunkCount();
     if (0 < numReplicas) {
-    	outStat.st_blocks *= numReplicas;
+        outStat.st_blocks *= numReplicas;
     }
     outStat.st_uid     = (uid_t)user;
     outStat.st_gid     = (gid_t)group;

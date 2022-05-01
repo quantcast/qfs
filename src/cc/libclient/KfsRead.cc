@@ -784,7 +784,7 @@ KfsClientImpl::ReadSelf(
         ((theEntry.openMode & O_APPEND) != 0 ?
             KfsProtocolWorker::kRequestTypeWriteAppendClose :
             KfsProtocolWorker::kRequestTypeWriteClose) :
-    	KfsProtocolWorker::kRequestTypeUnknown;
+        KfsProtocolWorker::kRequestTypeUnknown;
     if (theWriteCloseFlag) {
         theEntry.usedProtocolWorkerFlag = false;
     }

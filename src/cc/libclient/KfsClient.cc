@@ -3380,8 +3380,8 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
     if (! fa || (computeFilesize && ! fa->isDirectory && fa->fileSize < 0) ||
             (validSubCountsRequiredFlag && fa->staleSubCountsFlag) ||
             ! IsValid(*fa, time(0))) {
-	const bool  kInvalidateSubCountsFlag = false;
-	const bool  kEnforceLastDirFlag      = true;
+        const bool  kInvalidateSubCountsFlag = false;
+        const bool  kEnforceLastDirFlag      = true;
         kfsFileId_t parentFid;
         string      filename;
         string      tmpPath;
@@ -3389,7 +3389,7 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
         mDeleteClearFattr = &fa;
         int res = GetPathComponents(
             mTmpAbsPathStr.c_str(), &parentFid, filename, &fpath,
-	    kInvalidateSubCountsFlag, kEnforceLastDirFlag, followSymLinkFlag);
+            kInvalidateSubCountsFlag, kEnforceLastDirFlag, followSymLinkFlag);
         assert(mDeleteClearFattr ? *mDeleteClearFattr == fa : ! fa);
         Validate(fa);
         mDeleteClearFattr = 0;

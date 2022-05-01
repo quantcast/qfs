@@ -95,7 +95,7 @@ MetaFattr::showSelf(ostream& os) const
     if (HasExtAttrs()) {
         os <<
             "/a/" << fattrExtTypes <<
-	    "/"   << MakeEscapedStringInserter(GetExtAttributesSelf());
+            "/"   << MakeEscapedStringInserter(GetExtAttributesSelf());
     }
     return os;
 }
@@ -258,7 +258,7 @@ MetaFattr::SetExtAttributes(FileAttrExtTypes types, const string& attrs)
     } else {
         bool insertedFlag = false;
         string* const val = GetMetaFattrExtAttributesTable().Insert(
-		id(), attrs, insertedFlag);
+                id(), attrs, insertedFlag);
         if (! insertedFlag)  {
             *val = attrs;
         }

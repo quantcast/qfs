@@ -144,7 +144,7 @@ protected:
                         " evicting: "   << thePtr->mHostName <<
                     KFS_LOG_EOM;
                     mCache.erase(*thePtr);
-		}
+                }
                 Entry theEntry(inRequest.mHostName);
                 theEntry.mTime        = mNetManager.Now();
                 theEntry.mIpAddresses = inRequest.mIpAddresses;

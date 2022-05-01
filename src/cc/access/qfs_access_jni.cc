@@ -135,7 +135,7 @@ extern "C" {
 
     jint Java_com_quantcast_qfs_access_KfsAccess_create2(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath,
-	jboolean jexclusive, jstring jcreateParams);
+        jboolean jexclusive, jstring jcreateParams);
 
     jint Java_com_quantcast_qfs_access_KfsAccess_create2ex(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jexclusive,
