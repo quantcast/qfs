@@ -9033,6 +9033,8 @@ ShowWatchdogCounters(ostream& os, int idx, const Watchdog::Counters& cntrs)
         cntrs.mTotalTimeoutCount << ";"
     "wd." << idx << ".changedAgoUsec=" <<
         cntrs.mLastChangedTimeAgoUsec << ";"
+    "wd." << idx << ".lastTimeoutTimeAgoUsec=" <<
+        cntrs.mLastTimeoutTimeAgoUsec << ";"
     ;
 }
 
@@ -9124,7 +9126,8 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
     mPingUpdateTime = TimeNow();
     LogWriter::Counters logCtrs;
     MetaRequest::GetLogWriter().GetCounters(logCtrs);
-    const MetaFattr* const fa = metatree.getFattr(ROOTFID);
+    const MetaFattr* const fa   = metatree.getFattr(ROOTFID);
+    const MetaCheckpoint&  cpOp = mCheckpoint.GetOp();
     mWOstream <<
         "Build-version: "       << KFS_BUILD_VERSION_STRING << "\r\n"
         "Source-version: "      << KFS_SOURCE_REVISION_STRING << "\r\n"
@@ -9256,10 +9259,27 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
             logCtrs.mTotalRequestCount << "\t"
         "Log Exceeded Queue Depth Failure Count 300 sec. Avg= " <<
             logCtrs.mExceedLogQueueDepthFailureCount300SecAvg << "\t"
-        "WD Polls= "                << watchdog.GetPollCount() << "\t"
-        "WD Timeouts= "             << watchdog.GetTimeoutCount() << "\t"
-        "WD Timer Overruns= "       << watchdog.GetTimerOverrunCount() << "\t"
-        "WD Timer Overruns Usecs= " << watchdog.GetTimerOverrunUsecCount()
+        "WD Polls= "                               <<
+            watchdog.GetPollCount() << "\t"
+        "WD Timeouts= "                            <<
+            watchdog.GetTimeoutCount() << "\t"
+        "WD Timer Overruns= "                <<
+            watchdog.GetTimerOverrunCount()  << "\t"
+        "WD Timer Overruns Usecs= "                <<
+            watchdog.GetTimerOverrunUsecCount() << "\t"
+        "WD Time Sinse Last Timer Overrun Usecs= " <<
+            (kSecs2MicroSecs * mPingUpdateTime -
+                watchdog.GetLastTimerOverrunTime()) << "\t"
+        "Checkpoint Time Since Last Run Start= " <<
+            (mPingUpdateTime - cpOp.GetLastRunTime()) << "\t"
+        "Checkpoint Time since Last Run End= "   <<
+            (mPingUpdateTime - cpOp.GetLastRunDoneTime()) << "\t"
+        "Checkpoint Consecutive Failures= "      <<
+            cpOp.GetLastFailedCount() << "\t"
+        "Checkpoint Interval= "                  <<
+            cpOp.GetIntervalSec() << "\t"
+        "Object Store Delete No Tier= "          <<
+            mObjectStoreDeleteNoTierCount
     ;
     mWOstream.flush();
     mWOstream.Reset();

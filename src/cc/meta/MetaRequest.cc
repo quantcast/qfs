@@ -4299,6 +4299,7 @@ MetaGetRequestCounters::handle()
 /* virtual */ void
 MetaCheckpoint::handle()
 {
+    const time_t now = globalNetManager().Now();
     suspended = false;
     if (0 < pid) {
         // Child finished.
@@ -4329,6 +4330,7 @@ MetaCheckpoint::handle()
         if (failedCount > maxFailedCount) {
             panic("checkpoint failures", false);
         }
+        lastRunDoneTime = now;
         runningCheckpointId = MetaVrLogSeq();
         runningCheckpointLogSegmentNum = -(runningCheckpointLogSegmentNum + 1);
         pid = -1;
@@ -4339,7 +4341,6 @@ MetaCheckpoint::handle()
     if (intervalSec <= 0) {
         return; // Disabled.
     }
-    const time_t now = globalNetManager().Now();
     if (! lastCheckpointId.IsValid()) {
         // First call -- init.
         lastCheckpointId = replayer.getCheckpointCommitted();
@@ -4347,6 +4348,7 @@ MetaCheckpoint::handle()
             lastCheckpointId = GetLogWriter().GetCommittedLogSeq();
         }
         lastRun = now;
+        lastRunDoneTime = now;
         return;
     }
     if (! finishLog) {

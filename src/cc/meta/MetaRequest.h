@@ -3626,6 +3626,7 @@ struct MetaCheckpoint : public MetaRequest {
           runningCheckpointId(),
           runningCheckpointLogSegmentNum(-1),
           lastRun(0),
+          lastRunDoneTime(0),
           finishLog(0),
           flushViewLogSeq()
         { clnt = c; }
@@ -3636,6 +3637,14 @@ struct MetaCheckpoint : public MetaRequest {
     }
     void SetParameters(const Properties& props);
     void ScheduleNow();
+    time_t GetLastRunTime() const
+        { return lastRun; }
+    time_t GetLastRunDoneTime() const
+        { return lastRunDoneTime; }
+    int GetLastFailedCount() const
+        { return failedCount; }
+    int GetIntervalSec() const
+        { return intervalSec; }
 private:
     string                lockFileName;
     int                   lockFd;
@@ -3651,6 +3660,7 @@ private:
     MetaVrLogSeq          runningCheckpointId;
     seq_t                 runningCheckpointLogSegmentNum;
     time_t                lastRun;
+    time_t                lastRunDoneTime;
     MetaLogWriterControl* finishLog;
     MetaVrLogSeq          flushViewLogSeq;
 };
