@@ -1264,6 +1264,10 @@ ChunkServer::SubmitMetaBye()
         panic("chunk server: submit bye while hello in flight");
         return;
     }
+    if (mNetConnection) {
+        panic("chunk server: submit bye while connection still valid");
+        return;
+    }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " / "        << GetPeerName() <<
         " "          << reinterpret_cast<const void*>(this) <<
@@ -2645,7 +2649,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         req.resume();
         return;
     }
-    if (mDown) {
+    if (mDown || (! loggedFlag && ! mNetConnection)) {
         req.status = -EIO;
         req.resume();
         return;
