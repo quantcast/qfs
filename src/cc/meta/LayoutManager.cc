@@ -3787,7 +3787,17 @@ LayoutManager::IsAllocationInFlight(chunkId_t chunkId)
 void
 LayoutManager::Handle(MetaChunkLogInFlight& req)
 {
-    if (req.replayFlag ? 0 != req.request : (! req.request || ! req.server)) {
+    if (req.replayFlag ?
+            0 != req.request :
+            (! req.request || ! req.server || req.processPendingDownFlag)) {
+        KFS_LOG_STREAM_FATAL <<
+            "CLIF invalid:"
+            " replay: "  << req.replayFlag <<
+            " request: " << reinterpret_cast<const void*>(req.request) <<
+            " status: "  << req.status <<
+            " "          << req.statusMsg <<
+            " "          << req.Show() <<
+        KFS_LOG_EOM;
         panic("invalid chunk log in flight");
         req.status = -EFAULT;
         return;
@@ -3815,16 +3825,50 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         }
         return;
     }
+    int count = 0;
     if (req.replayFlag && ! req.server) {
         const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
         if (cs) {
             (*cs)->Replay(req);
+        } else {
+            if (req.processPendingDownFlag) {
+                // Prior version backward compatibility: can only get here
+                // replaying RPC generated when chunk server bye RPC was in
+                // flight.
+                HibernatedChunkServer* const hs =
+                    FindHibernatingCS(req.location);
+                if (hs) {
+                    if (0 <= req.chunkId) {
+                        hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
+                        count++;
+                    }
+                    const MetaChunkRequest::ChunkIdSet* const ids =
+                        req.GetChunkIds();
+                    if (ids) {
+                        MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
+                        const chunkId_t*                            id;
+                        while ((id = it.Next())) {
+                            hs->UpdateLastInFlight(mChunkToServerMap, *id);
+                            count++;
+                        }
+                    }
+                    req.status = -EIO;
+                } else {
+                    req.status = -ENOENT;
+                }
+            } else {
+                panic("invalid chunk log in flight: no server in replay");
+                req.status = -EFAULT;
+            }
         }
     }
-    int count = 0;
-    if (req.server && ! req.server->IsDown()) {
+    if (0 == req.status) {
         if (mChunkToServerMap.Validate(req.server)) {
-            if (req.removeServerFlag) {
+            // Valid server cannot be down.
+            if (req.server->IsDown()) {
+                panic("invalid chunk log in flight: server down");
+                req.status = -EFAULT;
+            } else if (req.removeServerFlag) {
                 if (0 <= req.chunkId && RemoveServer(
                         req.server, req.replayFlag, req.chunkId)) {
                     count++;
@@ -3860,39 +3904,6 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         } else {
             panic("invalid chunk log in flight up server");
             req.status = -EFAULT;
-        }
-    } else {
-        if (req.server && req.location != req.server->GetServerLocation()) {
-            panic("invalid chunk log in flight down server location");
-            req.status = -EFAULT;
-        } else {
-            HibernatedChunkServer* const hs = FindHibernatingCS(req.location);
-            if (hs) {
-                if (req.server && hs->GetGeneration() !=
-                        req.server->GetHibernatedGeneration()) {
-                    panic("invalid chunk log in flight down server"
-                        " hibernated generation");
-                    req.status = -EFAULT;
-                } else {
-                    if (0 <= req.chunkId) {
-                        hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
-                        count++;
-                    }
-                    const MetaChunkRequest::ChunkIdSet* const ids =
-                        req.GetChunkIds();
-                    if (ids) {
-                        MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
-                        const chunkId_t*                            id;
-                        while ((id = it.Next())) {
-                            hs->UpdateLastInFlight(mChunkToServerMap, *id);
-                            count++;
-                        }
-                    }
-                    req.status = -EIO;
-                }
-            } else {
-                req.status = -ENOENT;
-            }
         }
     }
     if (META_CHUNK_STALENOTIFY == req.reqType) {

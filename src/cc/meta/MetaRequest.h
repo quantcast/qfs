@@ -2606,6 +2606,7 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     ChunkIdSet        chunkIds;
     int64_t           idCount;
     bool              removeServerFlag;
+    bool              processPendingDownFlag;
     MetaChunkRequest* request;
     int               reqType;
 

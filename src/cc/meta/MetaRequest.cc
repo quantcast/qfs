@@ -6665,9 +6665,20 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
       chunkIds(),
       idCount(-1),
       removeServerFlag(removeFlag),
+      processPendingDownFlag(false),
       request(req),
       reqType(req ? req->op : -1)
 {
+    if (request) {
+        if (! request->server) {
+            panic("invalid log in flight request: no server");
+            status = -EFAULT;
+        }
+        if (request->server->IsDownOrPendingDown()) {
+            panic("invalid log in flight request: server down or pending down");
+            status = -EFAULT;
+        }
+    }
     maxWaitMillisec = timeout;
 }
 
@@ -6678,6 +6689,10 @@ MetaChunkLogInFlight::start()
         // Handle re-submit after server down event, primarily to make it
         // work with transaction log write error simulation.
         status = -EINVAL;
+    }
+    if (0 == status && server->IsDownOrPendingDown()) {
+        panic("invalid log in flight request start: server down or pending down");
+        status = -EFAULT;
     }
     return (0 == status);
 }
@@ -6710,8 +6725,10 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
         const_cast<MetaChunkRequest*>(&req), kTimeout, kRemoveFlag);
     lreq.hadPendingChunkOpFlag = req.hadPendingChunkOpFlag;
     if (META_CHUNK_OP_LOG_IN_FLIGHT == req.op) {
-        lreq.logseq  = req.logseq;
-        lreq.reqType = static_cast<const MetaChunkLogInFlight&>(req).reqType;
+        const MetaChunkLogInFlight& cur = static_cast<const MetaChunkLogInFlight&>(req);
+        lreq.logseq                 = cur.logseq;
+        lreq.reqType                = cur.reqType;
+        lreq.processPendingDownFlag = cur.processPendingDownFlag;
     } else {
         lreq.logseq = req.logCompletionSeq;
     }
@@ -6733,7 +6750,8 @@ MetaChunkLogInFlight::ShowSelf(ostream& os) const
         " chunk: "   << chunkId <<
         " version: " << chunkVersion <<
         " remove: "  << removeServerFlag <<
-        (hadPendingChunkOpFlag ? " had-pending-op" : "")
+        (hadPendingChunkOpFlag ? " had-pending-op" : "") <<
+        (processPendingDownFlag ? " process-pending-down" : "")
     ;
     if (! chunkIds.IsEmpty()) {
         os << " chunks: size: " << chunkIds.Size() << " ids:";
@@ -6794,6 +6812,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             (hadPendingChunkOpFlag ? "/p" : "") <<
+            (processPendingDownFlag ? "" : "/n" ) <<
             "/z/" << logseq
         ;
         size_t                    cnt = 0;
@@ -6819,6 +6838,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             (hadPendingChunkOpFlag ? "/p" : "") <<
+            (processPendingDownFlag ? "" : "/n" ) <<
             "/z/" << logseq
         ;
     }

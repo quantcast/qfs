@@ -779,6 +779,9 @@ public:
     bool IsDown() const {
         return mDown;
     }
+    bool IsDownOrPendingDown() const {
+        return mDown || ! mNetConnection;
+    }
 
     ///
     /// The chunk server went down.  So, fail all the

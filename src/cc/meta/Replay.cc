@@ -2113,6 +2113,11 @@ replay_cs_inflight(DETokenizer& c)
             op->hadPendingChunkOpFlag = true;
             c.pop_front();
         }
+        if (! c.empty() && 'n' ==  c.front().ptr[0]) {
+            c.pop_front();
+        } else {
+            op->processPendingDownFlag = true;
+        }
         if (1 != c.front().len || 'z' != c.front().ptr[0]) {
             return false;
         }
