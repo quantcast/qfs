@@ -2569,6 +2569,38 @@ protected:
     virtual void request(ReqOstream& /* os */) {}
 };
 
+/*!
+ * \brief Allocate RPC from meta server to chunk server
+ */
+struct MetaChunkAllocate : public MetaChunkRequest {
+    const int64_t       leaseId;
+    kfsSTier_t          minSTier;
+    kfsSTier_t          maxSTier;
+    string              chunkServerAccessStr;
+    string              chunkAccessStr;
+    MetaAllocate* const req;
+    MetaChunkAllocate(MetaAllocate& r,
+            const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
+            kfsSTier_t maxTier)
+        : MetaChunkRequest(META_CHUNK_ALLOCATE, kLogNever, s, r.chunkId),
+          leaseId(l),
+          minSTier(minTier),
+          maxSTier(maxTier),
+          chunkServerAccessStr(),
+          chunkAccessStr(),
+          req(&r)
+          { chunkVersion = req->chunkVersion; }
+    virtual void handle();
+    virtual void request(ReqOstream &os);
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "meta-chunk-allocate:"
+            " seq: " << opSeqno <<
+            " "      << ShowReq(req);
+    }
+};
+
 struct MetaChunkLogInFlight : public MetaChunkRequest {
     ServerLocation    location;
     ChunkIdSet        chunkIds;
@@ -2583,7 +2615,9 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
             0 == req.status &&
             kLogIfOk != req.logAction &&
             kLogAlways != req.logAction &&
-            0 <= req.chunkVersion && // do not log object store RPCs
+            // do not log object store RPCs
+            0 <= req.chunkVersion && (META_CHUNK_ALLOCATE != req.op || 0 !=
+                static_cast<const MetaChunkAllocate&>(req).req->numReplicas) &&
             (0 <= req.chunkId || req.GetChunkIds())
         );
     }
@@ -2611,38 +2645,6 @@ private:
         const char name[8];
     };
     static NameTable const sNameTable[];
-};
-
-/*!
- * \brief Allocate RPC from meta server to chunk server
- */
-struct MetaChunkAllocate : public MetaChunkRequest {
-    const int64_t       leaseId;
-    kfsSTier_t          minSTier;
-    kfsSTier_t          maxSTier;
-    string              chunkServerAccessStr;
-    string              chunkAccessStr;
-    MetaAllocate* const req;
-    MetaChunkAllocate(MetaAllocate *r,
-            const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
-            kfsSTier_t maxTier)
-        : MetaChunkRequest(META_CHUNK_ALLOCATE, kLogNever, s, r->chunkId),
-          leaseId(l),
-          minSTier(minTier),
-          maxSTier(maxTier),
-          chunkServerAccessStr(),
-          chunkAccessStr(),
-          req(r)
-          { chunkVersion = req->chunkVersion; }
-    virtual void handle();
-    virtual void request(ReqOstream &os);
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return os <<
-            "meta-chunk-allocate:"
-            " seq: " << opSeqno <<
-            " "      << ShowReq(req);
-    }
 };
 
 /*!

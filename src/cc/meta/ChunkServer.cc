@@ -2748,7 +2748,7 @@ ChunkServer::AllocateChunk(MetaAllocate& alc, int64_t leaseId, kfsSTier_t tier)
         NewChunkInTier(tier);
     }
     MetaChunkAllocate& req = *(new MetaChunkAllocate(
-        &alc, GetSelfPtr(), leaseId, tier, alc.maxSTier
+        alc, GetSelfPtr(), leaseId, tier, alc.maxSTier
     ));
     size_t sz;
     if (0 <= leaseId && 0 < alc.validForTime && 1 < (sz = alc.servers.size())) {

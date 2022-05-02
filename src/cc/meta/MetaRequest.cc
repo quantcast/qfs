@@ -841,7 +841,7 @@ MetaIdempotentRequest::IsHandled()
             return true;
         }
         // Set submit time to make expiration of idempotent tracker entries work.
-        submitTime = globalNetManager().NowUsec();;
+        submitTime = globalNetManager().NowUsec();
         if (gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
             panic("handled/duplicate idempotent in replay");
             return true;
