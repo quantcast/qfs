@@ -571,7 +571,7 @@ metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.recoveryInterval = 1
 metaServer.msgLogWriter.logLevel = DEBUG
 metaServer.msgLogWriter.maxLogFileSize = 1e9
-metaServer.msgLogWriter.maxLogFiles = 256
+metaServer.msgLogWriter.maxLogFiles = 16
 
 metaServer.minChunkservers = 1
 
