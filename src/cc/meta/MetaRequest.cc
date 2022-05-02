@@ -4552,11 +4552,20 @@ MetaRequest::SubmitBegin(int64_t nowUsec)
 void
 MetaRequest::SubmitEnd()
 {
-    if (commitPendingFlag) {
-        GetLogWriter().Committed(*this, fileID.getseed());
-    }
     if (--recursionCount < 0) {
         panic("submit: invalid request recursion count");
+    }
+    if (0 < recursionCount) {
+        KFS_LOG_STREAM_DEBUG <<
+            "submit request end recursion: " << recursionCount <<
+            " logseq: " << seqno <<
+            " opseq: "  << opSeqno <<
+            " "         << Show() <<
+        KFS_LOG_EOM;
+        return;
+    }
+    if (commitPendingFlag) {
+        GetLogWriter().Committed(*this, fileID.getseed());
     }
     if (suspended) {
         processTime = microseconds() - processTime;
