@@ -737,8 +737,11 @@ private:
             mFileName = inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("fileName"),
                 mFileName);
-            mFileNameTmp = mFileName + ".tmp";
-        }
+            mFileNameTmp = mFileName;
+            if (! mFileNameTmp.empty()) {
+                 mFileNameTmp =+ ".tmp";
+            }
+       }
         void Put(
             const Committed& inCommitted)
         {

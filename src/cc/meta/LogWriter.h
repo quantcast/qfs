@@ -146,6 +146,8 @@ public:
     void Shutdown();
     seq_t GetNextSeq()
         { return ++mNextSeq; }
+    seq_t GetLastSeq() const
+        { return mNextSeq; }
     MetaVrSM& GetMetaVrSM();
     int GetVrStatus() const
         { return mVrStatus; }
