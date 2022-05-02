@@ -220,6 +220,16 @@ class SystemInfo:
         self.logPendingAckByteCount = 0
         self.logTotalRequestCount = -1
         self.logExceedLogQueueDepthFailureCount300SecAvg = 0
+        self.watchDogPolls = -1
+        self.watchDogTimeouts = -1
+        self.watchDogTimerOverruns = -1
+        self.watchDogTimerOverrunUsecs = -1
+        self.watchDogTimeSinseLastTimerOverrunUsecs = -1
+        self.checkpointTimeSinceLastRunStart = -1
+        self.checkpointTimeSinceLastRunEnd = -1
+        self.checkpointConsecutiveFailures = -1
+        self.checkpointInterval = -1
+        self.objectStoreDeleteNoTier = -1
 
 class Status:
     def __init__(self):
@@ -338,6 +348,8 @@ class Status:
                 splitThousands(systemInfo.objStoreDeletes) + \
                 '&nbsp;in&nbsp;flight:&nbsp;' + splitThousands(systemInfo.objStoreDeletesInFlight) + \
                 '&nbsp;re-queue:&nbsp;' + splitThousands(systemInfo.objStoreDeletesRetry) + \
+                '&nbsp;no&nbsp;tier&nbsp;errors:&nbsp;' + \
+                splitThousands(systemInfo.objectStoreDeleteNoTier) + \
                 '&nbsp;frst&nbsp;queued:&nbsp;' + str(systemInfo.objStoreDeletesStartedAgo) + \
                 '&nbsp;seconds&nbsp;ago</td></tr>'
         if 0 <= systemInfo.logPendingOpsCount:
@@ -1425,6 +1437,36 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 86:
         return
     systemInfo.logExceedLogQueueDepthFailureCount300SecAvg = long(info[85].split('=')[1])
+    if len(info) < 87:
+        return
+    systemInfo.watchDogPolls = long(info[86].split('=')[1])
+    if len(info) < 88:
+        return
+    systemInfo.watchDogTimeouts = long(info[87].split('=')[1])
+    if len(info) < 89:
+        return
+    systemInfo.watchDogTimerOverruns = long(info[88].split('=')[1])
+    if len(info) < 90:
+        return
+    systemInfo.watchDogTimerOverrunUsecs = long(info[89].split('=')[1])
+    if len(info) < 91:
+        return
+    systemInfo.watchDogTimeSinseLastTimerOverrunUsecs = long(info[90].split('=')[1])
+    if len(info) < 92:
+        return
+    systemInfo.checkpointTimeSinceLastRunStart = long(info[91].split('=')[1])
+    if len(info) < 93:
+        return
+    systemInfo.checkpointTimeSinceLastRunEnd = long(info[92].split('=')[1])
+    if len(info) < 94:
+        return
+    systemInfo.checkpointConsecutiveFailures = long(info[93].split('=')[1])
+    if len(info) < 95:
+        return
+    systemInfo.checkpointInterval = long(info[94].split('=')[1])
+    if len(info) < 96:
+        return
+    systemInfo.objectStoreDeleteNoTier = long(info[95].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
