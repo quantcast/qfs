@@ -124,6 +124,7 @@ public:
         bool IsChunkEntry() const
             { return (second < 0); }
     };
+    enum { kLeaseTimerMaxTime = 2 * LEASE_INTERVAL_SECS };
     enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     typedef DelegationToken::TokenSeq TokenSeq;
@@ -321,10 +322,19 @@ public:
     void SetDumpsterCleanupDelaySec(
         int inDelay)
     {
-        mDumpsterCleanupDelaySec = max(0, min(inDelay, LEASE_INTERVAL_SECS));
+        mDumpsterCleanupDelaySec =
+            max(0, min(inDelay, (int)kLeaseTimerMaxTime));
+    }
+    void SetObjectStoreDumpsterCleanupDelaySec(
+        int inDelay)
+    {
+        mObjectStoreDumpsterCleanupDelaySec = max((int)kLeaseTimerMaxTime / 2,
+            min(inDelay, (int)kLeaseTimerMaxTime));
     }
     int GetDumpsterCleanupDelaySec() const
         { return mDumpsterCleanupDelaySec; }
+    int GetObjectStoreDumpsterCleanupDelaySec() const
+        { return mObjectStoreDumpsterCleanupDelaySec; }
     bool IsEmpty() const
         { return (mReadLeases.IsEmpty() && mWriteLeases.IsEmpty()); }
     inline void StopServicing(
@@ -521,7 +531,7 @@ private:
         REntry,
         REntry::List,
         time_t,
-        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+        (kLeaseTimerMaxTime + kLeaseTimerResolutionSec) /
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > ReadLeaseTimer;
@@ -529,7 +539,7 @@ private:
         WEntry,
         WEntry::List,
         time_t,
-        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+        (kLeaseTimerMaxTime + kLeaseTimerResolutionSec) /
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > WriteLeaseTimer;
@@ -557,7 +567,7 @@ private:
         FEntry,
         FEntry::List,
         time_t,
-        (LEASE_INTERVAL_SECS + kLeaseTimerResolutionSec) /
+        (kLeaseTimerMaxTime + kLeaseTimerResolutionSec) /
             kLeaseTimerResolutionSec,
         kLeaseTimerResolutionSec
     > DumpsterCleanupTimer;
@@ -577,6 +587,7 @@ private:
     FEntry               mPendingDeleteList;
     WEntry               mWAllocationInFlightList;
     int                  mDumpsterCleanupDelaySec;
+    int                  mObjectStoreDumpsterCleanupDelaySec;
     int                  mRemoveFromDumpsterInFlightCount;
 
     inline LeaseId NewReadLeaseId();
@@ -620,6 +631,8 @@ private:
     inline bool IsWriteLease(
         LeaseId leaseId);
     inline LeaseId NewWriteLeaseId();
+    inline void ScheduleDumpsterCleanupTimer(
+        FEntry& entry);
     inline void DecrementFileLease(
         FEntry& entry);
     inline bool IncrementFileLease(
@@ -1476,6 +1489,10 @@ public:
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
+    bool IsObjectStoreTierEnabled(kfsSTier_t tier) const {
+        return kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
+            0 != (mObjectStorageTiersBits & ((uint32_t)1 << tier));
+    }
     bool GetAccessProxy(
         const MetaRequest& req,
         Servers&           servers);
@@ -1579,17 +1596,14 @@ protected:
                 { return entry.mNext; }
             const Entry* GetNext() const
                 { return mNext; }
-            const time_t mTime;
             const fid_t  mFid;
             chunkOff_t   mLast;
         private:
             Entry* mNext;
             Entry(
-                time_t     time,
                 fid_t      fid,
                 chunkOff_t last)
-                : mTime(time),
-                  mFid(fid),
+                : mFid(fid),
                   mLast(last),
                   mNext(0)
                 {}
@@ -1600,6 +1614,7 @@ protected:
         ObjStoreFilesDeleteQueue()
             : mQueue(),
               mSize(0),
+              mLastEmptyTime(0),
               mAllocator()
             {}
         ~ObjStoreFilesDeleteQueue()
@@ -1613,15 +1628,19 @@ protected:
         void Add(time_t time, fid_t fid, chunkOff_t last)
         {
             Entry* const entry =
-                new (mAllocator.Allocate()) Entry(time, fid, last);
+                new (mAllocator.Allocate()) Entry(fid, last);
             mQueue.PushBack(*entry);
-            mSize++;
+            if (0 == mSize++) {
+                mLastEmptyTime = time;
+            }
         }
         void Remove()
         {
             Entry* const entry = mQueue.PopFront();
             if (entry) {
-                mSize--;
+                if (0 == mSize--) {
+                    mLastEmptyTime = 0;
+                }
                 Delete(entry);
             }
         }
@@ -1630,6 +1649,7 @@ protected:
             Queue queue;
             queue.PushBack(mQueue);
             mSize = 0;
+            mLastEmptyTime = 0;
             Entry* entry;
             while ((entry = queue.PopFront())) {
                 Delete(entry);
@@ -1637,6 +1657,8 @@ protected:
         }
         size_t GetSize() const
             { return mSize; }
+        time_t GetLastEmptyTime() const
+            { return mLastEmptyTime; }
     private:
         typedef PoolAllocator<
             sizeof(Entry),
@@ -1647,6 +1669,7 @@ protected:
         typedef SingleLinkedQueue<Entry, Entry> Queue;
         Queue     mQueue;
         size_t    mSize;
+        time_t    mLastEmptyTime;
         Allocator mAllocator;
 
         void Delete(Entry* entry)
@@ -2528,7 +2551,6 @@ protected:
 
     int                      mObjStoreDeleteMaxSchedulePerRun;
     int                      mObjStoreMaxDeletesPerServer;
-    int                      mObjStoreDeleteDelay;
     bool                     mResubmitClearObjectStoreDeleteFlag;
     size_t                   mObjStoreDeleteSrvIdx;
     ObjStoreFilesDeleteQueue mObjStoreFilesDeleteQueue;
@@ -2540,6 +2562,8 @@ protected:
     size_t                   mDisconnectedCount;
     time_t                   mServiceStartTime;
     bool                     mCleanupFlag;
+    uint32_t                 mObjectStorageTiersBits;
+    uint64_t                 mObjectStoreDeleteNoTierCount;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;

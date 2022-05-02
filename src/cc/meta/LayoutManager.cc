@@ -354,8 +354,23 @@ ChunkLeases::ChunkLeases(
       mPendingDeleteList(),
       mWAllocationInFlightList(),
       mDumpsterCleanupDelaySec(LEASE_INTERVAL_SECS),
+      mObjectStoreDumpsterCleanupDelaySec(kLeaseTimerMaxTime),
       mRemoveFromDumpsterInFlightCount(0)
 {}
+
+inline void
+ChunkLeases::ScheduleDumpsterCleanupTimer(
+    ChunkLeases::FEntry& entry)
+{
+    // Set max = 2 x lease delay for object store files in order to ensure that
+    // any possible stale writes / leases that might exist on chunk servers that
+    // lost connectivity with the meta server expire.
+    const MetaFattr* const fa = entry.Get().mFa;
+    mDumpsterCleanupTimer.Schedule(
+        entry, TimeNow() + ((fa && 0 == fa->numReplicas) ?
+            mObjectStoreDumpsterCleanupDelaySec :
+            mDumpsterCleanupDelaySec));
+}
 
 inline void
 ChunkLeases::DecrementFileLease(
@@ -365,8 +380,7 @@ ChunkLeases::DecrementFileLease(
         if (entry.Get().mName.empty()) {
             mFileLeases.Erase(entry.GetKey());
         } else {
-            mDumpsterCleanupTimer.Schedule(
-                entry, TimeNow() + mDumpsterCleanupDelaySec);
+            ScheduleDumpsterCleanupTimer(entry);
         }
     }
 }
@@ -1521,8 +1535,7 @@ ChunkLeases::ScheduleDumpsterCleanup(
     KFS_LOG_EOM;
     entry->Get().mFa = &inFa;
     if (entry->Get().mCount <= 1) {
-        mDumpsterCleanupTimer.Schedule(
-            *entry, TimeNow() + mDumpsterCleanupDelaySec);
+        ScheduleDumpsterCleanupTimer(*entry);
     }
 }
 
@@ -2188,7 +2201,6 @@ LayoutManager::LayoutManager()
       mResubmitQueue(),
       mObjStoreDeleteMaxSchedulePerRun(16 << 10),
       mObjStoreMaxDeletesPerServer(128),
-      mObjStoreDeleteDelay(2 * LEASE_INTERVAL_SECS),
       mResubmitClearObjectStoreDeleteFlag(false),
       mObjStoreDeleteSrvIdx(0),
       mObjStoreFilesDeleteQueue(),
@@ -2200,6 +2212,8 @@ LayoutManager::LayoutManager()
       mDisconnectedCount(0),
       mServiceStartTime(TimeNow() - 10 * 24 * 60 * 60),
       mCleanupFlag(false),
+      mObjectStorageTiersBits((uint32_t)1 << kKfsSTierMax),
+      mObjectStoreDeleteNoTierCount(0),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
       mServersTmp(),
@@ -2696,6 +2710,30 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         " minIoBufferBytesToProcessRequest: " <<
             mMinIoBufferBytesToProcessRequest <<
     KFS_LOG_EOM;
+    {
+        istringstream is(
+            props.getValue("chunkServer.objecStorageTierPrefixes", ""));
+        string        prefix;
+        int           tier;
+        uint32_t      bits = 0;
+        while ((is >> prefix >> tier)) {
+            if (tier == kKfsSTierUndef) {
+                continue;
+            }
+            if (tier < kKfsSTierMin) {
+                tier = kKfsSTierMin;
+            }
+            if (tier > kKfsSTierMax) {
+                tier = kKfsSTierMax;
+            }
+            bits |= (uint32_t)1 << tier;
+        }
+        if (0 == bits) {
+            // Default.
+            bits = (uint32_t)1 << kKfsSTierMax;
+        }
+        mObjectStorageTiersBits = bits;
+    }
     mReadDirLimit = props.getValue(
         "metaServer.readDirLimit", mReadDirLimit);
 
@@ -2773,9 +2811,6 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mObjStoreMaxDeletesPerServer = max(1, props.getValue(
         "metaServer.objectStoreMaxDeletesPerServer",
         mObjStoreMaxDeletesPerServer));
-    mObjStoreDeleteDelay = props.getValue(
-        "metaServer.objectStoreDeleteDelay",
-        mObjStoreDeleteDelay);
     mRootHosts.clear();
     {
         istringstream is(props.getValue("metaServer.rootHosts", ""));
@@ -2972,6 +3007,10 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mChunkLeases.SetDumpsterCleanupDelaySec(props.getValue(
         "metaServer.dumpsterCleanupDelaySec",
         mChunkLeases.GetDumpsterCleanupDelaySec())
+    );
+    mChunkLeases.SetObjectStoreDumpsterCleanupDelaySec(props.getValue(
+        "metaServer.objectStoreDumpsterCleanupDelaySec",
+        mChunkLeases.GetObjectStoreDumpsterCleanupDelaySec())
     );
     mVerifyAllOpsPermissionsFlag =
         mVerifyAllOpsPermissionsParamFlag ||
@@ -3191,10 +3230,17 @@ LayoutManager::Validate(MetaCreate& createOp) const
             "data stripe count exceeds max allowed for files with recovery";
         return false;
     }
-    if (0 == createOp.numReplicas && ! mObjectStoreEnabledFlag) {
-        createOp.statusMsg = "object store is not enabled";
-        createOp.status    = -EINVAL;
-        return false;
+    if (0 == createOp.numReplicas) {
+        if (! mObjectStoreEnabledFlag) {
+            createOp.statusMsg = "object store is not enabled";
+            createOp.status    = -EINVAL;
+            return false;
+        }
+        if (! IsObjectStoreTierEnabled(createOp.maxSTier)) {
+            createOp.statusMsg = "object store tier is not enabled";
+            createOp.status    = -EINVAL;
+            return false;
+        }
     }
     return true;
 }
@@ -9172,7 +9218,7 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
             mObjBlocksDeleteRequeue.GetSize() << "\t"
         "Object store first delete time= " <<
             (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
-                TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
+                TimeNow() - mObjStoreFilesDeleteQueue.GetLastEmptyTime()) << "\t"
         "File count= "            << GetNumFiles() << "\t"
         "Dir count= "             << GetNumDirs() << "\t"
         "Logical Size= "          << (fa ? fa->filesize : chunkOff_t(-1)) << "\t"
@@ -13792,11 +13838,9 @@ LayoutManager::RunObjectBlockDeleteQueue()
                 mObjBlocksDeleteRequeue.Back());
         }
     }
-    const time_t                     expire = TimeNow() - mObjStoreDeleteDelay;
     ObjStoreFilesDeleteQueue::Entry* entry;
     while (0 < rem &&
             (entry = mObjStoreFilesDeleteQueue.Front()) &&
-            entry->mTime < expire &&
             (entry->mLast = DeleteFileBlocks(
                 entry->mFid, 0, entry->mLast, rem)) < 0) {
         mObjStoreFilesDeleteQueue.Remove();
@@ -13813,7 +13857,7 @@ LayoutManager::DeleteFile(const MetaFattr& fa)
     // Queue one past the last block, to handle possible in flight allocation.
     chunkOff_t last = fa.nextChunkOffset() + fa.maxSTier;
     int        rem  = mObjStoreDeleteMaxSchedulePerRun;
-    if (mObjStoreDeleteDelay <= 0 &&
+    if (mPrimaryFlag &&
             (last = DeleteFileBlocks(fa.id(), 0, last, rem)) < 0) {
         return;
     }
@@ -13888,13 +13932,26 @@ LayoutManager::Done(MetaChunkDelete& req)
         return;
     }
     if (0 != req.status && -ENOENT != req.status) {
-        mObjBlocksDeleteRequeue.PushBack(
-            make_pair(req.chunkId, -req.chunkVersion - 1));
+        const chunkOff_t pos  = -req.chunkVersion - 1;
+        const kfsSTier_t tier = (kfsSTier_t)(pos % CHUNKSIZE);
+        if (! IsObjectStoreTierEnabled(tier)) {
+            ++mObjectStoreDeleteNoTierCount;
+            KFS_LOG_STREAM_ERROR <<
+                "object store delete:"
+                " fid: "       << req.chunkId <<
+                " pos: "       << pos <<
+                " tier: "      << tier <<
+                " discarded: " << mObjectStoreDeleteNoTierCount <<
+                " error: no such tier enabled -- discarding" <<
+            KFS_LOG_EOM;
+            return;
+        }
+        mObjBlocksDeleteRequeue.PushBack(make_pair(req.chunkId, pos));
         return; // Do not re-queue it immediately.
     }
     if (mObjBlocksDeleteInFlight.IsEmpty() &&
             mObjBlocksDeleteRequeue.IsEmpty() &&
-                mObjStoreFilesDeleteQueue.IsEmpty()) {
+            mObjStoreFilesDeleteQueue.IsEmpty()) {
         // Drained the queues, log this event.
         mResubmitClearObjectStoreDeleteFlag = false;
         submit_request(new MetaLogClearObjStoreDelete());
