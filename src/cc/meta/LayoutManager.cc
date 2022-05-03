@@ -12026,16 +12026,15 @@ LayoutManager::ChunkReplicationChecker()
     }
     const bool runRebalanceFlag =
         ! recoveryFlag &&
+        0 < mChunkToServerMap.Size() &&
         ! HandoutChunkReplicationWork() &&
         ! mCheckAllChunksInProgressFlag;
-    if (fullCheckFlag) {
-        if (mMightHaveRetiringServersFlag) {
-            // Chunk deletion does not initiate retiring, and retire
-            // isn't completely reliable -- notification only.
-            // Tell servers to retire if they are still here.
-            for_each(mChunkServers.begin(), mChunkServers.end(),
-                EvacuateChunkChecker(mMightHaveRetiringServersFlag));
-        }
+    if (fullCheckFlag && mMightHaveRetiringServersFlag) {
+        // Chunk deletion does not initiate retiring, and retire
+        // isn't completely reliable -- notification only.
+        // Tell servers to retire if they are still here.
+        for_each(mChunkServers.begin(), mChunkServers.end(),
+            EvacuateChunkChecker(mMightHaveRetiringServersFlag));
     }
     if (! RunObjectBlockDeleteQueue() && runRebalanceFlag &&
             (mIsRebalancingEnabled || mIsExecutingRebalancePlan) &&
