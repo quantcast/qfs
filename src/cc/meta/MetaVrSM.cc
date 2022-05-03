@@ -428,6 +428,39 @@ public:
         }
         return GetPrimaryNodeId(inBlockEndSeq);
     }
+    void HandleLogBlockFailed(
+        const MetaVrLogSeq& inBlockEndSeq,
+        NodeId              inTransmitterId)
+    {
+        if ((mActiveFlag && 0 < mQuorum) ||
+                kStatePrimary == mState || kStateLogSync == mState ||
+                mNodeId < 0 || inTransmitterId < 0 ||
+                mNodeId == inTransmitterId ||
+                inBlockEndSeq <= mLastLogSeq ||
+                mSyncServers.empty()) {
+            return;
+        }
+        const bool kAllowNonPrimaryFlag = false;
+        KFS_LOG_STREAM_INFO <<
+            "re-scheduling log fetch:"
+            " transmitter: "       << inTransmitterId <<
+            " state: "             << GetStateName(mState) <<
+            " servers: "           << mSyncServers.size() <<
+            " server: "            << mSyncServers.front() <<
+            " ["                   << mLastLogSeq <<
+            ","                    << inBlockEndSeq <<
+            "]"
+            " allow non primary: " << kAllowNonPrimaryFlag <<
+        KFS_LOG_EOM;
+        SetState(kStateLogSync);
+        mLogFetchEndSeq = inBlockEndSeq;
+        mMetaDataSyncPtr->ScheduleLogSync(
+            mSyncServers,
+            mLastLogSeq,
+            inBlockEndSeq,
+            kAllowNonPrimaryFlag
+        );
+    }
     bool Handle(
         MetaRequest&        inReq,
         const MetaVrLogSeq& /* inLastLogSeq */)
@@ -2858,10 +2891,10 @@ private:
             mSyncServers.push_back(inLocation);
             mLogFetchEndSeq = inLogSeq;
             mMetaDataSyncPtr->ScheduleLogSync(
-                    mSyncServers,
-                    mLastLogSeq,
-                    inLogSeq,
-                    inAllowNonPrimaryFlag
+                mSyncServers,
+                mLastLogSeq,
+                inLogSeq,
+                inAllowNonPrimaryFlag
             );
         }
     }
@@ -4913,6 +4946,14 @@ MetaVrSM::LogBlockWriteDone(
         inLastViewEndSeq,
         inWriteOkFlag
     );
+}
+
+    void
+MetaVrSM::HandleLogBlockFailed(
+    const MetaVrLogSeq& inBlockEndSeq,
+    MetaVrSM::NodeId    inTransmitterId)
+{
+    return mImpl.HandleLogBlockFailed(inBlockEndSeq, inTransmitterId);
 }
 
     bool

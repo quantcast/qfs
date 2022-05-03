@@ -2090,6 +2090,10 @@ private:
             } else if (inRequest.blockStartSeq != mLastLogSeq) {
                 inRequest.status    = -EROFS;
                 inRequest.statusMsg = mInvalidHeartbeatSequenceErrorMsg;
+                mMetaVrSM.HandleLogBlockFailed(
+                    inRequest.blockEndSeq,
+                    inRequest.transmitterId
+                );
             } else {
                 // Valid heartbeat.
                 const int theVrStatus = mMetaVrSM.HandleLogBlock(
@@ -2202,6 +2206,10 @@ private:
                         inRequest.statusMsg = mInvalidBlockStartSegmentErrorMsg;
                     }
                 }
+                mMetaVrSM.HandleLogBlockFailed(
+                    inRequest.blockEndSeq,
+                    inRequest.transmitterId
+                );
                 return;
             }
         }
