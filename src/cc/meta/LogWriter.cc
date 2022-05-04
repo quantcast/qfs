@@ -1585,7 +1585,7 @@ private:
             theWriteQueue.PushBack(*theReqPtr);
         }
         if (0 != theVrStatus) {
-            if (0 == mVrStatus) {
+            if (mEnqueueVrStatus != theVrStatus) {
                 mEnqueueVrStatus = theVrStatus;
                 SyncAddAndFetch(mEnqueueVrStatus, 0);
             }
