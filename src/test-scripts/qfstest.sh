@@ -628,6 +628,7 @@ metaServer.vr.id = 0
 metaServer.log.debugCommitted.size = 111
 metaServer.log.debugCommitted.fileName = committeddebug.txt
 chunkServer.getFsSpaceAvailableIntervalSecs = 2
+chunkServer.objecStorageTierPrefixes = s3://__test_0 0 __test_2 2
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -676,6 +677,12 @@ chunkServer.diskQueue.aws.ssl.verifyPeer             = 1
 chunkServer.diskQueue.aws.ssl.CAFile                 = $cabundlefile
 chunkServer.diskQueue.aws.debugTrace.requestHeaders  = $s3debug
 chunkServer.diskQueue.aws.debugTrace.requestProgress = $s3debug
+EOF
+else
+    # Create fake bucket to add default tier with non empty
+    # chunkServer.objecStorageTierPrefixes
+    cat >> "$metasrvprop" << EOF
+chunkServer.diskQueue._test.bucketName = fale_default_15
 EOF
 fi
 
@@ -980,6 +987,13 @@ runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
 runqfsroot -mv '/dumpster/deletequeue' '/dumpster/deletequeue1' && exit 1
 runqfsroot -rmr -skipTrash '/dumpster' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit 1
+runqfsroot -D 'fs.createParams=0,0,0,0,1,1,1' \
+    -touchz /object_store_file_tier_1 && exit 1
+runqfsroot -D 'fs.createParams=0' \
+    -touchz /object_store_file_tier_15 || exit 1
+runqfsroot -rm -skipTrash /object_store_file_tier_15 || exit 1
+runqfsroot -D 'fs.createParams=0,0,0,0,1,2,2' \
+    -touchz /object_store_file_tier_2 || exit 1
 
 # Test with OS DNS resolver.
 clientpropresolver=${clientprop}.res.cfg
