@@ -2711,6 +2711,10 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             mMinIoBufferBytesToProcessRequest <<
     KFS_LOG_EOM;
     {
+        const char* const kDiskQeuePrefix   = "chunkServer.diskQueue.";
+        const char* const kBucketNameSuffix = "bucketName";
+        Properties        diskQueueProps;
+        props.copyWithPrefix(kDiskQeuePrefix, diskQueueProps);
         istringstream is(
             props.getValue("chunkServer.objecStorageTierPrefixes", ""));
         string        prefix;
@@ -2727,10 +2731,33 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
                 tier = kKfsSTierMax;
             }
             bits |= (uint32_t)1 << tier;
+            diskQueueProps.remove(kDiskQeuePrefix + prefix + kBucketNameSuffix);
         }
         if (0 == bits) {
             // Default.
             bits = (uint32_t)1 << kKfsSTierMax;
+        } else if (0 == (((uint32_t)1 << kKfsSTierMax) & bits) &&
+                ! diskQueueProps.empty()) {
+            // Check if any buckets that were not explicitly mentioned remain,
+            // and add default tier if so.
+            const size_t prefixLen = strlen(kDiskQeuePrefix);
+            const size_t suffixLen = strlen(kBucketNameSuffix);
+            const size_t minLen    = prefixLen + suffixLen;
+            for (Properties::iterator it = diskQueueProps.begin();
+                    it != diskQueueProps.end(); ++it) {
+                if (it->second.empty()) {
+                    continue;
+                }
+                const Properties::String& name = it->first;
+                const size_t              len  = name.length();
+                const char* const         data = name.data();
+                if (minLen < len && 0 == memcmp(data + len - suffixLen,
+                        kBucketNameSuffix, suffixLen)) {
+                    // Default tier assumed.
+                    bits |= (uint32_t)1 << kKfsSTierMax;
+                    break;
+                }
+            }
         }
         mObjectStorageTiersBits = bits;
     }
