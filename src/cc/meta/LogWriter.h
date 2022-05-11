@@ -120,6 +120,7 @@ public:
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
         Watchdog*             inWatchdogPtr,
+        int                   inMaxReceiverRetryQueueLimit,
         string&               outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);

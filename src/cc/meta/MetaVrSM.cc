@@ -428,7 +428,7 @@ public:
         }
         return GetPrimaryNodeId(inBlockEndSeq);
     }
-    void HandleLogBlockFailed(
+    bool HandleLogBlockFailed(
         const MetaVrLogSeq& inBlockEndSeq,
         NodeId              inTransmitterId)
     {
@@ -438,7 +438,7 @@ public:
                 mNodeId == inTransmitterId ||
                 inBlockEndSeq <= mLastLogSeq ||
                 mSyncServers.empty()) {
-            return;
+            return kStateLogSync == mState && (! mActiveFlag || mQuorum <= 0);
         }
         const bool kAllowNonPrimaryFlag = false;
         KFS_LOG_STREAM_INFO <<
@@ -460,6 +460,7 @@ public:
             inBlockEndSeq,
             kAllowNonPrimaryFlag
         );
+        return true;
     }
     bool Handle(
         MetaRequest&        inReq,
@@ -4948,7 +4949,7 @@ MetaVrSM::LogBlockWriteDone(
     );
 }
 
-    void
+    bool
 MetaVrSM::HandleLogBlockFailed(
     const MetaVrLogSeq& inBlockEndSeq,
     MetaVrSM::NodeId    inTransmitterId)

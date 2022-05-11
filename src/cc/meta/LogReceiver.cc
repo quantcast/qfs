@@ -311,13 +311,15 @@ public:
                 (inEndSeq != mSubmittedWriteSeq || inStartSeq != inEndSeq)) {
             return 0;
         }
-        MetaRequest* thePtr = mWriteOpFreeList.PopFront();
+        MetaLogWriterControl* thePtr =
+            static_cast<MetaLogWriterControl*>(mWriteOpFreeList.PopFront());
         if (! thePtr) {
             thePtr = new MetaLogWriterControl(
                 MetaLogWriterControl::kWriteBlock);
         }
-        thePtr->clnt = this;
-        return static_cast<MetaLogWriterControl*>(thePtr);
+        thePtr->logReceiverFlag = true;
+        thePtr->clnt            = this;
+        return thePtr;
     }
     bool Dispatch()
     {

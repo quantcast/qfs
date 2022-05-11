@@ -4481,6 +4481,7 @@ struct MetaLogWriterControl : public MetaRequest {
     seq_t              logSegmentNum;
     Properties         params;
     bool               resolverOsFlag;
+    bool               logReceiverFlag;
     int                resolverCacheSize;
     int                resolverCacheExpiration;
     string             paramsPrefix;
@@ -4508,6 +4509,7 @@ struct MetaLogWriterControl : public MetaRequest {
           logSegmentNum(-1),
           params(),
           resolverOsFlag(false),
+          logReceiverFlag(false),
           resolverCacheSize(0),
           resolverCacheExpiration(-1),
           paramsPrefix(),

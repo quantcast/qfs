@@ -657,7 +657,7 @@ MetaServer::Startup(const Properties& props,
         props.getValue("metaServer.bufferPool.partionBuffers",
             (sizeof(long) < 8 ? 32 : 256) << 10),
         props.getValue("metaServer.bufferPool.bufferSize", 4 << 10),
-        props.getValue("metaServer.bufferPool.lockMemory",0) != 0 ||
+        props.getValue("metaServer.bufferPool.lockMemory", 0) != 0 ||
             mMaxLockedMemorySize > 0
     );
     if (err != 0) {
@@ -1036,6 +1036,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
             mMetaMd,
             writeCheckpointFlag ? 0 : resetVrConfigTypePtr,
             &gNetDispatch.GetWatchdog(),
+            gLayoutManager.GetBufferPool()->GetTotalBufferCount() / 16,
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
             "transaction log writer initialization failure: " <<

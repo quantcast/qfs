@@ -335,7 +335,7 @@ public:
         const MetaVrLogSeq& inCommittedSeq,
         const MetaVrLogSeq& inLastViewEndSeq,
         bool                inWriteOkFlag);
-    void HandleLogBlockFailed(
+    bool HandleLogBlockFailed(
         const MetaVrLogSeq& inBlockEndSeq,
         MetaVrSM::NodeId    inTransmitterId);
     bool Handle(

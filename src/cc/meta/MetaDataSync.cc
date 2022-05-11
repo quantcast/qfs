@@ -189,6 +189,8 @@ public:
           mMaxLogBlockSize((sizeof(void*) < 8 ? 8 : 64) << 20),
           mMaxReadSize(2 << 20),
           mMaxRetryCount(10),
+          mDebugSubmitLogBlockDropRate(0),
+          mDebugSubmitLastLogWriteDropRate(0),
           mRetryCount(0),
           mRetryTimeout(3),
           mCurMaxReadSize(-1),
@@ -294,6 +296,13 @@ public:
         mMaxRetryCount = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxRetryCount"),
             mMaxRetryCount);
+        mDebugSubmitLogBlockDropRate = inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("debugSubmitLogBlockDropRate"),
+            mDebugSubmitLogBlockDropRate);
+        mDebugSubmitLastLogWriteDropRate = inParameters.getValue(
+            theName.Truncate(thePrefLen).Append(
+            "debugSubmitLastLogWriteDropRate"),
+            mDebugSubmitLastLogWriteDropRate);
         mRetryTimeout = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("retryTimeout"),
             mRetryTimeout);
@@ -864,6 +873,8 @@ private:
     int               mMaxLogBlockSize;
     int               mMaxReadSize;
     int               mMaxRetryCount;
+    int               mDebugSubmitLogBlockDropRate;
+    int               mDebugSubmitLastLogWriteDropRate;
     int               mRetryCount;
     int               mRetryTimeout;
     int               mCurMaxReadSize;
@@ -1442,7 +1453,7 @@ private:
             mCheckStartLogSeqFlag = true;
             InitRead();
             if (! StartRead()) {
-                panic("metad data sync: failed to iniate download");
+                panic("meta data sync: failed to initiate download");
             }
         } else {
             DownloadDone(0);
@@ -1665,6 +1676,21 @@ private:
         IOBuffer& inBuffer)
     {
         mBuffer.Move(&inBuffer);
+        if (0 < mDebugSubmitLogBlockDropRate &&
+                0 == mWriteOpGeneration % mDebugSubmitLogBlockDropRate) {
+            KFS_LOG_STREAM_ERROR <<
+                "simulating log fetch failure by dropping incoming data"
+                " size: "       << mBuffer.BytesConsumable() <<
+                " generation: " << mWriteOpGeneration <<
+                " drop rate: "  << mDebugSubmitLogBlockDropRate <<
+                " sync end: "   << mPendingSyncLogEndSeq <<
+            KFS_LOG_EOM;
+            mBuffer.Clear();
+        }
+        const bool theDebugDropPastSyncEndFlag =
+            0 < mDebugSubmitLastLogWriteDropRate &&
+            mPendingSyncLogEndSeq.IsValid() &&
+            0 == mWriteOpGeneration % mDebugSubmitLastLogWriteDropRate;
         for (; ;) {
             int thePos = mBuffer.IndexOf(0, "\nc/");
             if (thePos < 0) {
@@ -1785,6 +1811,18 @@ private:
                 mBuffer.Consume(theLen - theCopyLen + 1);
             mCurBlockChecksum = mNextBlockChecksum;
             if (theBlockSeqLen <= 0 || theLogSeq < mLastSubmittedLogSeq) {
+                Release(theOp);
+            } else if (theDebugDropPastSyncEndFlag &&
+                    mPendingSyncLogEndSeq < theOp.blockStartSeq) {
+                KFS_LOG_STREAM_ERROR <<
+                    "simulating log fetch latency by dropping log"
+                    " write"
+                    " size: "       << theOp.blockData.BytesConsumable() <<
+                    " generation: " << mWriteOpGeneration <<
+                    " drop rate: "  << mDebugSubmitLastLogWriteDropRate <<
+                    " sync end: "   << mPendingSyncLogEndSeq <<
+                    " "             << theOp.Show() <<
+                KFS_LOG_EOM;
                 Release(theOp);
             } else {
                 mLogWritesInFlightCount++;

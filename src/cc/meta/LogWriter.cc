@@ -105,14 +105,18 @@ public:
           mSetReplayStateFlag(false),
           mMaxBlockSize(512),
           mMaxBlockBytes(128 << 10),
+          mMaxReceiverRetryQueueLimit(8 << 10),
+          mMaxReceiverRetryQueueSize(mMaxReceiverRetryQueueLimit),
           mPendingCount(0),
           mExraPendingCount(0),
+          mReceiverRetryQueueSize(0),
           mLogDir("./kfslog"),
           mPendingQueue(),
           mInQueue(),
           mOutQueue(),
           mPendingAckQueue(),
           mReplayCommitQueue(),
+          mReceiverRetryQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
           mLastWriteCommitted(),
@@ -223,6 +227,7 @@ public:
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
         Watchdog*             inWatchdogPtr,
+        int                   inMaxReceiverRetryQueueLimit,
         string&               outCurLogFileName)
     {
         const int theError = StartSelf(
@@ -239,6 +244,7 @@ public:
             inMetaMd,
             inVrResetTypeStrPtr,
             inWatchdogPtr,
+            inMaxReceiverRetryQueueLimit,
             outCurLogFileName
         );
         if (0 != theError) {
@@ -469,6 +475,8 @@ public:
         mPendingCount -= Cancel(mPendingQueue, kStatusMsg);
         mPendingCount -= Cancel(mPendingAckQueue, kStatusMsg);
         mPendingCount -= Cancel(mReplayCommitQueue, kStatusMsg);
+        mPendingCount -= Cancel(mReceiverRetryQueue, kStatusMsg);
+        mReceiverRetryQueueSize = 0;
         if (MsgLogger::GetLogger() && MsgLogger::GetLogger()->IsLogLevelEnabled(
                     MsgLogger::kLogLevelDEBUG)) {
             // Force to write debug info, if any, by pretending to transition
@@ -887,14 +895,18 @@ private:
     bool              mSetReplayStateFlag;
     int               mMaxBlockSize;
     int               mMaxBlockBytes;
+    int               mMaxReceiverRetryQueueLimit;
+    int               mMaxReceiverRetryQueueSize;
     int               mPendingCount;
     int               mExraPendingCount;
+    int               mReceiverRetryQueueSize;
     string            mLogDir;
     Queue             mPendingQueue;
     Queue             mInQueue;
     Queue             mOutQueue;
     Queue             mPendingAckQueue;
     Queue             mReplayCommitQueue;
+    Queue             mReceiverRetryQueue;
     Committed         mPendingCommitted;
     Committed         mInFlightCommitted;
     Committed         mLastWriteCommitted;
@@ -990,6 +1002,7 @@ private:
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
         Watchdog*             inWatchdogPtr,
+        int                   inMaxReceiverRetryQueueLimit,
         string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
@@ -1005,6 +1018,7 @@ private:
             inNetManager.GetResolverCacheSize(),
             inNetManager.GetResolverCacheExpiration()
         );
+        mMaxReceiverRetryQueueLimit = inMaxReceiverRetryQueueLimit;
         mDebugHistoryCommittedRing.SetParameters(
             inParametersPrefixPtr, inParameters);
         const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
@@ -1654,10 +1668,13 @@ private:
                 NewLog(mNextLogSeq);
             }
         }
-        bool         theHasReplayBypassFlag = false;
-        ostream&     theStream              = mMdStream;
-        MetaRequest* theCurPtr              = inQueue.Front();
-        bool         theWriteOkFlag         = 0 == mVrStatus;
+        const MetaVrLogSeq theLastLogSeq          = mLastLogSeq;
+        bool               theRunRetryQueueFlag   = false;
+        bool               theHasReplayBypassFlag = false;
+        ostream&           theStream              = mMdStream;
+        MetaRequest*       theCurPtr              = inQueue.Front();
+        MetaRequest*       theCtlPrevPtr          = 0;
+        bool               theWriteOkFlag         = 0 == mVrStatus;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
             MetaRequest*          theVrPtr               = 0;
@@ -1670,7 +1687,8 @@ private:
             MetaLogWriterControl* theCtlPtr              = 0;
             for (MetaRequest* thePrevPtr = 0;
                     thePtr;
-                    thePrevPtr = thePtr, thePtr = thePtr->next) {
+                    thePrevPtr = thePtr, theCtlPrevPtr = thePtr,
+                    thePtr = thePtr->next) {
                 theHasReplayBypassFlag = theHasReplayBypassFlag ||
                     thePtr->replayBypassFlag;
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
@@ -1803,18 +1821,55 @@ private:
             }
             if (theCtlPtr &&
                     MetaLogWriterControl::kWriteBlock == theCtlPtr->type) {
-                WriteBlock(*theCtlPtr);
+                bool theRetryFlag = WriteBlock(*theCtlPtr) &&
+                    0 < mMaxReceiverRetryQueueSize &&
+                    theCtlPtr->logReceiverFlag;
+                if (theRetryFlag) {
+                    const MetaLogWriterControl* const theBackPtr =
+                        static_cast<const MetaLogWriterControl*>(
+                            mReceiverRetryQueue.Back());
+                    theRetryFlag = ! theBackPtr || (
+                        theBackPtr->blockEndSeq <= theCtlPtr->blockStartSeq &&
+                        theBackPtr->blockStartSeq != theCtlPtr->blockStartSeq);
+                }
                 theCtlPtr->primaryNodeId =
                     mMetaVrSM.GetPrimaryNodeId(mLastLogSeq);
                 theCtlPtr->lastLogSeq    = mLastLogSeq;
                 KFS_LOG_STREAM_DEBUG <<
-                    "last: "     << mLastLogSeq <<
+                    "pending: "  << mReceiverRetryQueueSize <<
+                    " last: "    << mLastLogSeq <<
                     " primary: " << theCtlPtr->primaryNodeId <<
                     " done: "    << reinterpret_cast<const void*>(theCtlPtr) <<
+                    " retry: "   << theRetryFlag <<
                     " "          << theCtlPtr->Show() <<
                 KFS_LOG_EOM;
+                if (theRetryFlag) {
+                    // Move from input to retry queue.
+                    if (theCtlPrevPtr) {
+                        if (theCtlPtr->next) {
+                            theCtlPrevPtr->next = theCtlPtr->next;
+                            theCtlPtr->next = 0;
+                        } else {
+                            if (inQueue.Back() != theCtlPtr) {
+                                panic("invalid control back RPC pointer");
+                            }
+                            theCtlPrevPtr->next = 0;
+                            inQueue.Set(inQueue.Front(), theCtlPrevPtr);
+                        }
+                    } else if (inQueue.PopFront() != theCtlPtr) {
+                        panic("invalid control front RPC pointer");
+                    }
+                    ++mReceiverRetryQueueSize;
+                    mReceiverRetryQueue.PushBack(*theCtlPtr);
+                    theCurPtr = theCtlPrevPtr;
+                } else if (0 == theCtlPtr->status &&
+                        theCtlPtr->logReceiverFlag) {
+                    // Trigger cleanup on successful write or heartbeat.
+                    theRunRetryQueueFlag = true;
+                }
             }
-            theCurPtr = theEndPtr;
+            theCtlPrevPtr = theCurPtr;
+            theCurPtr     = theEndPtr;
             if (theCurPtr && mLogFileMaxSize <= mLogFilePos &&
                     mCurLogStartSeq < mNextLogSeq && IsLogStreamGood()) {
                 StartNextLog();
@@ -1825,7 +1880,66 @@ private:
                 mCurLogStartTime + mLogRotateInterval < mNetManager.Now())) {
             StartNextLog();
         }
+        ProcessReceiverRetryQueue(inQueue,
+            theRunRetryQueueFlag || theLastLogSeq != mLastLogSeq);
         return theHasReplayBypassFlag;
+    }
+    void ProcessReceiverRetryQueue(
+        Queue& inQueue,
+        bool   inRetryFlag)
+    {
+        if (mReceiverRetryQueue.IsEmpty()) {
+            return;
+        }
+        const int theSize = 0 == mVrStatus ? 0 : mMaxReceiverRetryQueueSize;
+        if (! inRetryFlag && mReceiverRetryQueueSize <= theSize) {
+            return;
+        }
+        vrNodeId_t   thePrimaryNodeId = mMetaVrSM.GetPrimaryNodeId(mLastLogSeq);
+        MetaRequest* thePtr;
+        while ((thePtr = mReceiverRetryQueue.Front())) {
+            if (mReceiverRetryQueueSize <= 0) {
+                panic("invalid receiver retry queue counter");
+            }
+            if (META_LOG_WRITER_CONTROL != thePtr->op) {
+                panic("invalid receiver retry queue entry");
+            }
+            MetaLogWriterControl& theReq        =
+                *static_cast<MetaLogWriterControl*>(thePtr);
+            bool                  theRemoveFlag = theSize <= 0 ||
+                theReq.blockEndSeq <= mLastLogSeq;
+            const bool            theRetryFlag  = ! theRemoveFlag &&
+                inRetryFlag && theReq.blockStartSeq <= mLastLogSeq;
+            if (theRetryFlag) {
+                theReq.status    = 0;
+                theReq.statusMsg = string();
+                theRemoveFlag = ! WriteBlock(theReq);
+                thePrimaryNodeId = mMetaVrSM.GetPrimaryNodeId(mLastLogSeq);
+                theReq.primaryNodeId = thePrimaryNodeId;
+                theReq.lastLogSeq    = mLastLogSeq;
+                KFS_LOG_STREAM_DEBUG <<
+                    "pending: "  << mReceiverRetryQueueSize <<
+                    " retried:"
+                    " last: "    << mLastLogSeq <<
+                    " primary: " << theReq.primaryNodeId <<
+                    " done: "    << reinterpret_cast<const void*>(&theReq) <<
+                    " retry: "   << ! theRemoveFlag <<
+                    " "          << theReq.Show() <<
+                KFS_LOG_EOM;
+            }
+            if (! theRemoveFlag && mReceiverRetryQueueSize <= theSize) {
+                break;
+            }
+            if (! theRetryFlag) {
+                theReq.primaryNodeId = thePrimaryNodeId;
+                theReq.lastLogSeq    = mLastLogSeq;
+            }
+            if (mReceiverRetryQueue.PopFront() != thePtr) {
+                panic("invalid retry queue or RPC pointer");
+            }
+            --mReceiverRetryQueueSize;
+            inQueue.PushBack(*thePtr);
+        }
     }
     void StartNextLog()
     {
@@ -2060,18 +2174,18 @@ private:
         inRequest.status    = inStatus;
         inRequest.statusMsg = inMsgPtr;
     }
-    void WriteBlock(
+    bool WriteBlock(
         MetaLogWriterControl& inRequest)
     {
         if (mNextBlockSeq < 0) {
             panic("log writer: write block: invalid block sequence");
             inRequest.status = -EFAULT;
-            return;
+            return false;
         }
         if (mLastLogSeq != mNextLogSeq) {
             panic("invalid write block invocation");
             inRequest.status = -EFAULT;
-            return;
+            return false;
         }
         if (0 != inRequest.status) {
             KFS_LOG_STREAM_ERROR <<
@@ -2080,7 +2194,7 @@ private:
                 " "         << inRequest.statusMsg <<
                 " "         << inRequest.Show() <<
             KFS_LOG_EOM;
-            return;
+            return false;
         }
         if (inRequest.blockStartSeq == inRequest.blockEndSeq) {
             if (! inRequest.blockLines.IsEmpty() ||
@@ -2106,7 +2220,7 @@ private:
                         ! IsMetaLogWriteOrVrError(theVrStatus)) {
                     inRequest.status    = theVrStatus;
                     inRequest.statusMsg = "VR error";
-                    return;
+                    return false;
                 }
                 mMetaVrSM.LogBlockWriteDone(
                     inRequest.blockStartSeq,
@@ -2116,24 +2230,24 @@ private:
                     IsLogStreamGood()
                 );
             }
-            return;
+            return false;
         }
         if (inRequest.blockData.BytesConsumable() <= 0) {
             panic("write block: invalid block: no data");
             inRequest.statusMsg = "invalid block: no data";
             inRequest.status    = -EFAULT;
-            return;
+            return false;
         }
         if (inRequest.blockLines.IsEmpty()) {
             panic("write block: invalid block: no log lines");
             inRequest.statusMsg = "invalid block: no log lines";
             inRequest.status    = -EFAULT;
-            return;
+            return false;
         }
         if (0 == mVrStatus) {
             inRequest.statusMsg = mPrimaryRejectedBlockWriteErrorMsg;
             inRequest.status    = -EROFS;
-            return;
+            return false;
         }
         const MetaVrLogSeq thePrevLastViewEndSeq = mLastViewEndSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
@@ -2206,17 +2320,15 @@ private:
                         inRequest.statusMsg = mInvalidBlockStartSegmentErrorMsg;
                     }
                 }
-                mMetaVrSM.HandleLogBlockFailed(
+                return mMetaVrSM.HandleLogBlockFailed(
                     inRequest.blockEndSeq,
-                    inRequest.transmitterId
-                );
-                return;
+                    inRequest.transmitterId) && -EINVAL != inRequest.status;
             }
         }
         if (! IsLogStreamGood()) {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
-            return;
+            return false;
         }
         // Copy block data, and write block sequence and updated checksum.
         // To include leading \n, if any, "combine" block checksum.
@@ -2271,7 +2383,7 @@ private:
                 "log writer: block trailer exceeds buffer space";
             panic(theMsgPtr);
             ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
-            return;
+            return false;
         }
         inRequest.blockTrailer[0] = (char)theTrailerLen;
         memcpy(inRequest.blockTrailer + 1, thePtr, theTrailerLen);
@@ -2317,7 +2429,7 @@ private:
                         "log write: block trailer rewrite internal error";
                     panic(theMsgPtr);
                     ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
-                    return;
+                    return false;
                 }
                 theTxLen = WriteBlockTrailer(
                     theLogSeq, mLastWriteCommitted, theBlockLen, theTxChecksum);
@@ -2329,7 +2441,7 @@ private:
                         "log writer: replacement trailer invalid length";
                     panic(theMsgPtr);
                     ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
-                    return;
+                    return false;
                 }
                 theBlockCommitted = mLastWriteCommitted;
                 inRequest.blockLines.Back() = 0;
@@ -2342,7 +2454,7 @@ private:
         } else {
             ClearBufferAndSetError(inRequest,
                 -EINVAL, "log write: invalid block format");
-            return;
+            return false;
         }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockStartSeq,
@@ -2353,7 +2465,7 @@ private:
         if (0 != theVrStatus &&
                 ! IsMetaLogWriteOrVrError(theVrStatus)) {
             ClearBufferAndSetError(inRequest, theVrStatus, "VR error");
-            return;
+            return false;
         }
         if (0 == theVrStatus) {
             const int theStatus = mLogTransmitter.TransmitBlock(
@@ -2399,6 +2511,7 @@ private:
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
         }
+        return false;
     }
     class FieldParser
     {
@@ -2537,6 +2650,10 @@ private:
         mMaxBlockBytes = max(4 << 10, inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("maxBlockBytes"),
             mMaxBlockBytes));
+        mMaxReceiverRetryQueueSize = min(mMaxReceiverRetryQueueLimit,
+            inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append(
+                    "maxReceiverRetryQueueSize"), mMaxReceiverRetryQueueSize));
         mLogDir = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("logDir"),
             mLogDir);
@@ -2740,6 +2857,7 @@ LogWriter::Start(
     const string&         inMetaMd,
     const char*           inVrResetTypeStrPtr,
     Watchdog*             inWatchdogPtr,
+    int                   inMaxReceiverRetryQueueLimit,
     string&               outCurLogFileName)
 {
     return mImpl.Start(
@@ -2756,6 +2874,7 @@ LogWriter::Start(
         inMetaMd,
         inVrResetTypeStrPtr,
         inWatchdogPtr,
+        inMaxReceiverRetryQueueLimit,
         outCurLogFileName
     );
 }
