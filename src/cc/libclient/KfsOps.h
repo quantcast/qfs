@@ -226,7 +226,7 @@ struct KfsOp {
     void ParseResponseHeader(const Properties& prop);
 
     // Return information about op that can printed out for debugging.
-    virtual Display Show() const
+    Display Show() const
         { return Display(*this); }
     virtual ostream& ShowSelf(ostream& os) const = 0;
     virtual void ParseResponseHeaderSelf(const Properties& prop);
