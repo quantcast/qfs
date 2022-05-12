@@ -747,7 +747,7 @@ private:
                 mFileName);
             mFileNameTmp = mFileName;
             if (! mFileNameTmp.empty()) {
-                 mFileNameTmp =+ ".tmp";
+                 mFileNameTmp += ".tmp";
             }
        }
         void Put(
