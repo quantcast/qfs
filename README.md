@@ -1,3 +1,9 @@
+QFS version 2.2.5
+
+Release 2.2.5
+
+- Release 2.2.5 contains bug fixes and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
+
 QFS version 2.2.4
 
 Release 2.2.4
