@@ -18,9 +18,9 @@ synchronization more robust under high meta server load.
 3. Meta server: fix object store delete queue cleanup with VR enabled on backups
 by removing delayed queue processing logic that could prevent queue emptying on
 the primary therefore never issuing queue reset RPC, instead use dumpster
-cleanup timer to delay blocks removal. Parse and object store tiers parameter
-and create a bitmap with tiers in use bits set, then use the bitmap to validate
-file create RPC, failing RPCs with tiers not no use. Discard object store block
+cleanup timer to delay blocks removal. Parse object store tiers parameter and
+create a bitmap with tiers in use bits set, then use the bitmap to validate file
+create RPC, failing RPCs with tiers not no use. Discard object store block
 deletes if tier is not in use instead of re-queueing block delete in order to
 prevent invalid / stale blocks from staying in the delete queue indefinitely
 therefore preventing emptying the delete queue on the backups potentially
