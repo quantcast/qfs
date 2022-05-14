@@ -316,6 +316,69 @@ to clear VR configuration, and exit
 2. -vr-inactivate-all-nodes -- append an entry to the end of the transaction log
 to inactivate all VR nodes, and exit
 
+
+Recovering file system by truncating transaction log.
+-----------------------------------------------------
+The [`qfsmetalogtruncate.sh`](https://github.com/quantcast/qfs/blob/master/scripts/qfsmetalogtruncate.sh)
+can be used to recover file system in case if the meta server state diverges
+between run time and replay due to a hardware malfunction (for example memory
+error undetected by ECC parity check) or due to a software bug.
+In VR configuration if such a problem occurs on the primary, it would manifest
+itself as fail stop ("panic") on all backup nodes. In such a case the backup
+nodes will exit, and the primary might still be up. The backup nodes would have
+error message in the trace log similar to the following:
+
+    01-01-2022 01:23:45.678 ERROR - (Replay.cc:2298) error block seq: 11381:4203867266:c/3 1 8323a816/a5f956e40/5b15bf44/0/3 1 8323aa10/116/2c75/56b5fa23
+
+The characters between `c/` and the next `/` symbol represent log commit
+sequence number in hex. In the above example the commit sequence number is
+`3 1 8323a816`. To recover from such an error all meta server nodes in VR
+configuration must be shutdown and then the transaction log on all those nodes
+can be truncated to the log block that immediately precedes the block with the
+sequence number shown in the error message.
+
+For example given the sequence number in the error message the above the
+following can be executed on each and every relevant meta server node:
+
+    qfsmetalogtruncate.sh \
+        -l /home/qfs0/state/transactions \
+        -c /home/qfs0/state/checkpoint \
+        -s '3 1 8323a816'
+
+By default the script creates a backup of both meta server transaction log and
+checkpoint directories. The backup is done by adding current unix time to the
+respective directories names, creating these directories in the parent directory
+of the original directory and then hard linking checkpoints and log segments
+into the backup directories. Backup can be turned off by adding `-b` option. If
+the scrips runs as root, it will preserve original files and directories
+ownership (user and group).
+
+
+Hitless meta server version upgrade.
+------------------------------------
+Unless specifically mentioned in release notes, QFS meta server versions are
+backward compatible. Backward compatibility allows to perform "hitless" (no
+downtime) upgrade of the meta nodes in VR configuration. However hitless
+downgrade / roll back is not possible when new features are introduced and / or
+RPC log format changes between versions.
+
+To perform hitless upgrade new meta server executable's md5sum need to be added
+to the configuration, in case if `metaServer.metaMds` configuration parameter is
+used / not empty. The upgrade must be performed in strict order from the
+node with has highest primary VR order and ID to the lowest primary order and
+ID. VR primary order takes precedence over VR ID, i.e. node IDs are compared
+only in case if primary orders are equal. Default primary order for all nodes is
+0, therefore unless primary order explicitly configured the upgrade order
+matches the assigned ID order -- from the highest ID to the lowest ID.
+
+Prior to upgrade ensure that all meta server nodes in VR configuration are up
+and running or at lest more than quorum (half plus one) nodes are up and
+operational, as otherwise node restart would render the file system
+non operational until node restart completes. Meta server nodes must be
+restarted one at a time and the next node should not be restarted until the
+prior node restart successfully completes.
+
+
 File System Integrity (`qfsfsck`)
 ---------------------------------
 The `qfsfsck` tool can be employed in three ways:
@@ -477,7 +540,7 @@ The following commands can be used to verify the backup:
     mkdir -p /home/qfs0/state
     cd /home/qfs0/state
     tar -xzf /foo/bar/qfs0-backup-31-23.tar.gz
-    qfsfsck /home/qfs0/state/transactions -c /home/qfs0/state/checkpoint
+    qfsfsck -l /home/qfs0/state/transactions -c /home/qfs0/state/checkpoint
 
 If everything is okay, the output will look something like this:
 
