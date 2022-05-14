@@ -1,3 +1,95 @@
+## QFS version 2.2.5
+
+## Bug fixes
+
+1. Meta server: keep up to 8K of the most recently received from synchronous
+replication channel(s) "future" log blocks while inactive node is in the process
+of actively fetching / syncing log and retry merging these log blocks if / when
+log fetch "catches up" to the received log blocks sequence numbers. This
+mechanism is intended to handle the case when log sync finishes / exits prior to
+reaching the most recently received log block due to high RPC rate / meta server
+load.
+
+2. Meta server: re-schedule log sync on inactive node when log block sequence
+exceeds last log sequence in order to handle the case when log sync stops before
+the synchronous replication catches up in order to make inactive node state
+synchronization more robust under high meta server load.
+
+3. Meta server: fix object store delete queue cleanup with VR enabled on backups
+by removing delayed queue processing logic that could prevent queue emptying on
+the primary therefore never issuing queue reset RPC, instead use dumpster
+cleanup timer to delay blocks removal. Parse and object store tiers parameter
+and create a bitmap with tiers in use bits set, then use the bitmap to validate
+file create RPC, failing RPCs with tiers not no use. Discard object store block
+deletes if tier is not in use instead of re-queueing block delete in order to
+prevent invalid / stale blocks from staying in the delete queue indefinitely
+therefore preventing emptying the delete queue on the backups potentially
+resulting in unbounded queue growth.
+
+4. Meta server: fix extremely rare primary and backup state diversion with chunk
+log in flight RPCs in the case where such RPCs are created while processing
+chunk server "bye" (teardown) RPC for a different chunk server, for example, and
+with chunk server bye RPC for such server pending in replay or transaction log
+queue.
+
+5. Meta server: do not create / log extraneous chunk op in flight and chunk op
+completion with object store blocks allocation.
+
+6. Meta server: fix view stamped replication reconfiguration swap nodes
+sub-command. The bug manifests it self as panic (fail stop) on all active nodes
+at the time of the corresponding VR reconfiguration RPC commit, effectively
+rendering file system non operational.
+
+7. Meta server: fix VR view change failure that results in panic in the case
+when the node that started view change and was about to become primary preempted
+(due to timing out or connectivity failure) by another node that has already
+transitioned into primary state.
+
+8. Meta server: do not attempt to fetch data from other meta server nodes when
+VR ID is not configured, and remove fetch state file, if exists, in such a case.
+This change is intended to simplify initial VR configuration setup attempts by
+handling operator errors more intuitively / gracefully.
+
+9. Meta server: fix log writer instrumentation by not attempting to save the
+instrumentation data into a file if file name set to an empty string.
+
+10. Meta server: fix VR status propagation from logger to main thread by
+updating it on every change in order to get gid or spurious status ring debug
+instrumentation trace messages.
+
+11. Meta server: do not enter replication check if no chunks exist, i.e. if only
+object store used.
+
+12. Chunk server: fix rare failure (panic) due to incorrect handling of IO
+buffer manager suspend / granted logic in the client connection state machine
+run by the client connections servicing thread.
+
+13. Client library: retry replicated file get size if / when chunk server or
+replica disappears.
+
+14. IO library: fix SSL / TLS "filter" error handling with end of file / stream
+close. The problem manifests itself with authentication enabled by excessive CPU
+utilization due to continuous retries and socket / connection "leak" as, in
+theory, connection might never get out of this state.
+
+## Minor improvements.
+1. Meta server: simplify log chunk in flight RPC handling given that now the RPC
+can no longer be en-queued after the first teardown attempt when meta chunk
+server bye RPC for a given chunk server is en-queued. Implement backward
+compatibility handling in replay code path only by adding a boolean to
+distinguish chunk in flight RPC created with the new logic.
+
+2. Common library: change watchdog default poll interval to 1 second when max.
+timeouts set to negative value in order to sample and report watchdog and poll
+entries time overruns.
+
+3. Tools: implement stricter `qfsadmin` command line parameters validation.
+
+4. Implement meta server transaction log truncation / roll back script intended
+to be used for debugging and recovery.
+
+5. Add recovery and hitless upgrade sections to QFS Administrator's Guide.
+
 ## QFS version 2.2.4
 
 ## Bug fixes
