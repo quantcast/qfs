@@ -61,6 +61,11 @@ public class QuantcastFileSystem extends FileSystem {
     return uri;
   }
 
+  @Override
+  public String getScheme() {
+    return "qfs";
+  }
+
   public void initialize(URI uri, Configuration conf) throws IOException {
     super.initialize(uri, conf);
     setConf(conf);

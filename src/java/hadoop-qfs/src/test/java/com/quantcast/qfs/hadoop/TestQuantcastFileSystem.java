@@ -183,4 +183,11 @@ public class TestQuantcastFileSystem extends TestCase {
     quantcastFileSystem.delete(baseDir, true);
     assertFalse(quantcastFileSystem.exists(baseDir));
   }
+
+  // @Test
+  // Enasure HDFS compatibility
+  public void testHDFSCompatibility() throws Exception {
+
+    assertEquals(quantcastFileSystem.getScheme(), "qfs");
+  }
 }
