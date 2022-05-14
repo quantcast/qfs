@@ -37,4 +37,9 @@ public class QuantcastFileSystem2 extends QuantcastFileSystem {
     return listStatusInternal(path);
   }
 
+  @Override
+  public String getScheme() {
+    return "qfs";
+  }
+
 }
