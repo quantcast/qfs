@@ -7,7 +7,7 @@
 #
 # Copyright 2022 Quantcast Corporation. All rights reserved.
 #
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System.
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -20,8 +20,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-#
-#
 
 qfs_cp_dir=kfscp
 qfs_log_dir=kfslog
@@ -187,8 +185,8 @@ END {
         mls = -1
         mf = ""
     }
-    /^log\//{
-        if(sn < $NF){
+    /^log\// {
+        if (sn < $NF) {
             print FILENAME
         } else {
             if (mls < $NF) {
