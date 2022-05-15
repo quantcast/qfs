@@ -72,6 +72,9 @@ close. The problem manifests itself with authentication enabled by excessive CPU
 utilization due to continuous retries and socket / connection "leak" as, in
 theory, connection might never get out of this state.
 
+15. Added support for org.apache.hadoop.fs.FileSystem.getScheme(). This method
+is used by Spark NLP, and possibly other packages.
+
 ## Minor improvements.
 1. Meta server: simplify log chunk in flight RPC handling given that now the RPC
 can no longer be en-queued after the first teardown attempt when meta chunk
