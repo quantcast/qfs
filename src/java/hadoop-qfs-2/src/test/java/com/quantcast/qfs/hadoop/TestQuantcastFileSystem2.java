@@ -22,7 +22,6 @@ import java.net.URI;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import com.quantcast.qfs.hadoop.QuantcastFileSystem2;
-import junit.framework.TestCase;
 
 
 public class TestQuantcastFileSystem2 extends TestQuantcastFileSystem {
