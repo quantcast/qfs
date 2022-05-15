@@ -93,6 +93,8 @@ to be used for debugging and recovery.
 
 5. Add recovery and hitless upgrade sections to QFS Administrator's Guide.
 
+6. Build Hadoop shim for all stable Hadoop releases, include 3.x code line.
+
 ## QFS version 2.2.4
 
 ## Bug fixes
