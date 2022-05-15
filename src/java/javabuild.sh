@@ -61,7 +61,7 @@ if [ $# -eq 1 ]; then
         hadoop_qfs_profile="hadoop_branch1_profile"
     elif [ x"$myversion" = x"0.23" ]; then
         hadoop_qfs_profile="hadoop_trunk_profile"
-    elif [  x"$myversionmaj" = x"2" ]; then
+    elif [  x"$myversionmaj" = x"2" -o x"$myversionmaj" = x"3" ]; then
         hadoop_qfs_profile="hadoop_trunk_profile,hadoop_trunk_profile_2"
     else
         echo "Unsupported Hadoop release version."
