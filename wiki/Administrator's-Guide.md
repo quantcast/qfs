@@ -155,7 +155,7 @@ nodes IP addresses with the meta server host.
 
 Admin tool needs to be told of all meta server nodes; it is just a special QFS
 client. Admin tool will find the node that is currently primary (for initial
-configuration it is always be the node with id 0), and then send RPCs to the primary
+configuration it is always be the node with ID 0), and then send RPCs to the primary
 node. The primary node will, in turn, replicate VR reconfiguration RPC to the
 secondaries nodes, the same way as it replicates non admin RPCs.
 
@@ -372,11 +372,25 @@ only in case if primary orders are equal. Default primary order for all nodes is
 matches the assigned ID order -- from the highest ID to the lowest ID.
 
 Prior to upgrade ensure that all meta server nodes in VR configuration are up
-and running or at lest more than quorum (half plus one) nodes are up and
-operational, as otherwise node restart would render the file system
-non operational until node restart completes. Meta server nodes must be
-restarted one at a time and the next node should not be restarted until the
-prior node restart successfully completes.
+and running or at least more than quorum (half plus one) nodes are up and
+operational, as otherwise node restart would render the file system non
+operational until node restart completes. Meta server nodes must be restarted
+one at a time and the next node should not be restarted until the prior node
+restart successfully completes until quorum of nodes is running new version.
+Then the remaining nodes should be updated and restarted simultaneously in order
+to minimize the time window where quorum of nodes is running new version and the
+older version is running on the remaining nodes.
+
+Examples:
+1. Upgrade meta server in VR configuration of 3 nodes with ids 0, 1, 2, primary
+order is 0 for all nodes. Quorum is 3/2+1 = 2. Restart node with ID 2, wait
+until it is operational and joins VR. Repeat the prior step for node with ID 1.
+Upgrade and restart node 0.
+2. Upgrade meta server in VR configuration of 5 nodes with ids 0, 1, 2, 3, 4,
+primary order is 0 for all nodes. Quorum is 5/2+1 = 3. Restart node with ID 4,
+wait until it is operation and joins VR. Repeat the prior step for node with ID
+3, then for node with ID 2. Upgrade and restart nodes 1 and 0 simultaneously.
+
 
 
 File System Integrity (`qfsfsck`)
