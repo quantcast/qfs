@@ -79,7 +79,7 @@ modifications since the backup will be lost.
 **Note:** The location of the *metaServer.cpDir* and *metaServer.logDir* should
 not change.
 
-Meta server replication (VR)
+Meta Server Replication (VR)
 ----------------------------
 Meta server replication provides fault tolerance at the meta server level.
 The file system can be configured with multiple meta server nodes, in order to
@@ -227,7 +227,7 @@ With default parameters system switch over time (new primary election, and
 chunk servers and clients connecting to the new primary) should be around
 10 seconds.
 
-VR status
+VR Status
 ----------
 `qfsadmin vr_get_status` can be used to query VR status of the file system or
 status of specific meta server node.(with -n parameter)
@@ -317,8 +317,8 @@ to clear VR configuration, and exit
 to inactivate all VR nodes, and exit
 
 
-Recovering file system by truncating transaction log.
------------------------------------------------------
+Recovering File System by Truncating Transaction Log
+----------------------------------------------------
 The [`qfsmetalogtruncate.sh`](https://github.com/quantcast/qfs/blob/master/scripts/qfsmetalogtruncate.sh)
 can be used to recover file system in case if the meta server state diverges
 between run time and replay due to a hardware malfunction (for example memory
@@ -354,8 +354,8 @@ the scrips runs as root, it will preserve original files and directories
 ownership (user and group).
 
 
-Hitless meta server version upgrade.
-------------------------------------
+Hitless Meta Server Version Upgrade
+-----------------------------------
 Unless specifically mentioned in release notes, QFS meta server versions are
 backward compatible. Backward compatibility allows to perform "hitless" (no
 downtime) upgrade of the meta nodes in VR configuration. However hitless
@@ -403,8 +403,8 @@ The `qfsfsck` tool can be employed in three ways:
 - Check the integrity of a file system archive/backup (checkpoint plus a set of
   transaction logs).
 
-Running the File System
------------------------
+Running File System Integrity Verification
+------------------------------------------
 In order to verify the integrity of a running file system by identifying lost
 files or files with chunk placement problems, run:
 
