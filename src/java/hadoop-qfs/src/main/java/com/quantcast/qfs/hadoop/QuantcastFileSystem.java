@@ -61,6 +61,10 @@ public class QuantcastFileSystem extends FileSystem {
     return uri;
   }
 
+  public String getScheme() {
+    return uri.getScheme();
+  }
+
   public void initialize(URI uri, Configuration conf) throws IOException {
     super.initialize(uri, conf);
     setConf(conf);

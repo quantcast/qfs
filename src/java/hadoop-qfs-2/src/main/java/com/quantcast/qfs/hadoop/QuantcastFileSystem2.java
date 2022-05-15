@@ -36,10 +36,4 @@ public class QuantcastFileSystem2 extends QuantcastFileSystem {
   public FileStatus[] listStatus(Path path) throws IOException {
     return listStatusInternal(path);
   }
-
-  @Override
-  public String getScheme() {
-    return "qfs";
-  }
-
 }

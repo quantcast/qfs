@@ -17,22 +17,12 @@
 
 package com.quantcast.qfs.hadoop;
 
-import java.io.*;
-import java.net.*;
-
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestSuite;
-
+import java.io.IOException;
+import java.net.URI;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-
-import com.quantcast.qfs.hadoop.QuantcastFileSystem;
+import com.quantcast.qfs.hadoop.QuantcastFileSystem2;
+import junit.framework.TestCase;
 
 
 public class TestQuantcastFileSystem2 extends TestQuantcastFileSystem {
@@ -49,11 +39,9 @@ public class TestQuantcastFileSystem2 extends TestQuantcastFileSystem {
                                           "/qfs-test");
   }
 
-
   // @Test
   // Enasure HDFS compatibility
   public void testHDFSCompatibility() throws Exception {
-
     assertEquals(quantcastFileSystem.getScheme(), "qfs");
   }
 }
