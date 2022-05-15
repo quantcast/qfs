@@ -34,11 +34,8 @@ import org.apache.hadoop.fs.Path;
 
 import com.quantcast.qfs.hadoop.QuantcastFileSystem;
 
-public class TestQuantcastFileSystem2 extends TestCase {
 
-  QuantcastFileSystem2 quantcastFileSystem;
-  QFSEmulationImpl qfsEmul;
-  Path baseDir;
+public class TestQuantcastFileSystem2 extends TestQuantcastFileSystem {
 
   @Override
   protected void setUp() throws IOException {
@@ -52,10 +49,6 @@ public class TestQuantcastFileSystem2 extends TestCase {
                                           "/qfs-test");
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-
-  }
 
   // @Test
   // Enasure HDFS compatibility
