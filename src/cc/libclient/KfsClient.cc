@@ -1086,13 +1086,13 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
         if (props.loadProperties(cfg + len, delim) != 0) {
             KFS_LOG_STREAM_ERROR <<
                 "failed to load configuration from file: " << cfg <<
-                " set by environment varialbe: " << configEnvName <<
+                " set by environment variable: " << configEnvName <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
         KFS_LOG_STREAM_INFO <<
             "using configuration: " << cfg <<
-            " set by environment varialbe: " << configEnvName <<
+            " set by environment variable: " << configEnvName <<
         KFS_LOG_EOM;
     } else {
         const char* const pref = "DELIM:";
