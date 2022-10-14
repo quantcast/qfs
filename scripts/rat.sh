@@ -25,9 +25,9 @@ fi
 
 SRC="`cd "$1" > /dev/null && pwd`"
 
-MYRAT_VERS=0.14
+MYRAT_VERS=0.15
 MYURL="https://downloads.apache.org/creadur/apache-rat-${MYRAT_VERS}/apache-rat-${MYRAT_VERS}-bin.tar.gz"
-MYSHAURL="https://downloads.apache.org/creadur/apache-rat-${MYRAT_VERS}/apache-rat-${MYRAT_VERS}-bin.tar.gz.sha512"
+MYSHAURL="https://dlcdn.apache.org/creadur/apache-rat-${MYRAT_VERS}/apache-rat-${MYRAT_VERS}-bin.tar.gz.sha512"
 MYTAR="`basename "$MYURL"`"
 MYNAME="`basename "$MYTAR" -bin.tar.gz`"
 MYJAR="$MYNAME/$MYNAME.jar"
