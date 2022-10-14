@@ -106,10 +106,10 @@ public:
             );
         }
         int theStatus = mBufferPool.Create(
-            mParameters.getValue("bufferPool.partitions",            1),
-            mParameters.getValue("bufferPool.partionBuffers",  4 << 10),
-            mParameters.getValue("bufferPool.bufferSize",     16 << 10),
-            mParameters.getValue("bufferPool.lockMemory",            0) != 0
+            mParameters.getValue("bufferPool.partitions",             1),
+            mParameters.getValue("bufferPool.partitionBuffers", 4 << 10),
+            mParameters.getValue("bufferPool.bufferSize",      16 << 10),
+            mParameters.getValue("bufferPool.lockMemory",             0) != 0
         );
         if (theStatus != 0) {
             KFS_LOG_STREAM_ERROR <<
