@@ -5,7 +5,7 @@
 #
 # Author: Sriram Rao (Quantcast Corp.)
 #
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System (QFS).
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -38,7 +38,7 @@
 # delegation where both the delegation token and the key can be passed via
 # environment variables (see PSK authentication section below)),
 #
-# The two from environment vairable values are supported:
+# The two from environment variable values are supported:
 # 1. FILE:configuration_file_name
 # 2. parameter_name1=parameter_value1 parameter_name2=parameter_value2...
 # The second space separated key value pairs can be used to pass delegation

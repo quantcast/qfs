@@ -5,7 +5,7 @@
 #
 # Author: Mike Ovsiannikov
 #
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System (QFS).
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -83,7 +83,7 @@ metaServer.cpDir = meta/checkpoint
 # The size of the "client" thread pool.
 # When set to greater than 0, dedicated threads to do client network io, request
 # parsing, and response assembly are created. The thread pool size should
-# usually be (at least one) less than the number of cpus. "Client" threads help
+# usually be (at least one) less than the number of CPUs. "Client" threads help
 # with processing large amount of ["short"] requests where more cpu used for
 # context switch, network io, request parsing, and response assembly, than
 # the cpu for the request processing itself. For example i-node attribute
@@ -116,11 +116,11 @@ metaServer.cpDir = meta/checkpoint
 
 # Size of [network] io buffer pool.
 # The default buffer size is 4K, therefore the amount of memory is
-# 4K * metaServer.bufferPool.partionBuffers.
+# 4K * metaServer.bufferPool.partitionBuffers.
 # All io buffers are allocated at startup.
 # If memory locking enabled io buffers are locked in memory at startup.
 # Default is 256K or 1GB on 64 bit system, and 32K or 128MB on 32 bit system.
-# metaServer.bufferPool.partionBuffers = 262144
+# metaServer.bufferPool.partitionBuffers = 262144
 
 # ==============================================================================
 # The parameters below this line can be changed at runtime by editing the
@@ -401,7 +401,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.sortCandidatesByLoadAvg = 0
 
 # When allocating (placing) a chunk prefer chunk servers with lower disk space
-# utilizaiton.
+# utilization.
 # Default is 0. Do not take space utilization into the account.
 # metaServer.sortCandidatesBySpaceUtilization = 0
 
@@ -518,7 +518,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # metaServer.checkpoint.writeSync = 1
 
 # Checkpoint write buffer size.
-# The buffer size should be adequate with synchrounous write mode enabled,
+# The buffer size should be adequate with synchronous write mode enabled,
 # especially if journal and data of host's file system are on the same spinning
 # media device, in order to minimize the number of seeks.
 # Default is 16MB.
@@ -618,7 +618,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # If enabled then the authenticated name must be present in the user database in
 # order for chunk server to be accepted.
 # Default is 0 (off), use only black and white lists, if configured, see below.
-# metaServer.CSAuthentication.useUserAndGrupDb = 0
+# metaServer.CSAuthentication.useUserAndGroupDb = 0
 
 # ================= X509 authentication ========================================
 # Meta server's X509 certificate file in PEM format.
@@ -685,7 +685,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # short noRealm display
 # The result of the principal conversion to string is used as client's
 # (chunk server's) "authenticated name".
-# The default is fullly qualified principal name. For chunk servers it
+# The default is fully qualified principal name. For chunk servers it
 # would typically be in the form of service/host@realm.
 # The "unparsed" chunk server name is checked against "black" and "white" chunk
 # server list names as described below.
@@ -920,7 +920,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # User and group id with value 4294967295 have special treatment. Access always
 # denied for users with such id.
 # Root user entry with name "root" and id 0 added if not present in the the user
-# database, unless expliclity excluded with metaServer.userAndGroup.excludeUser
+# database, unless explicitly excluded with metaServer.userAndGroup.excludeUser
 # parameter.
 # With authentication enabled QFS client library does not use host's local user
 # and group database, the meta server's host database is effectively used by all
@@ -976,7 +976,7 @@ metaServer.msgLogWriter.logLevel = INFO
 
 # Space separated list of the user names, where such users have effective user
 # id 0 -- root.
-# User with name root and id 0 always added, even if it isn't presnet or
+# User with name root and id 0 always added, even if it isn't present or
 # excluded from the user database.
 # Default is empty list.
 # metaServer.userAndGroup.rootUsers =
@@ -989,7 +989,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.userAndGroup.metaServerAdminUsers = root
 
 # Space separated list of group names. Members of these groups are allowed to
-# perform meta server aministration described in the previous parameter's
+# perform meta server administration described in the previous parameter's
 # section.
 # Default is empty list.
 # metaServer.userAndGroup.metaServerAdminGroups =
@@ -1132,7 +1132,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # chunkServer.diskIo.maxIoTimeSec = 270
 
 # Synchronous replication timeouts.
-# Record append synchrounous replicaiton timeout.
+# Record append synchronous replication timeout.
 # Default is 180 sec. Production value is 20 sec.
 # chunkServer.recAppender.replicationTimeoutSec = 180
 # Write replication timeout.
@@ -1241,8 +1241,14 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # when configured to do so, in the case if one or more threads appear not to be
 # making progress due to likely chunk server and / or OS malfunction.
 
-# Poll interval. Default is 16 seconds. Minimum interval is 4 sec.
-# chunkServer.watchdog.pollIntervalSec = 16
+# Poll interval.
+# Default is 16 seconds when chunkServer.watchdog.maxTimeoutCount is equal or
+# greater than 0, and 1.15 otherwise.
+# Minimum interval is
+# max(1.25, 4.0 / max(1, chunkServer.watchdog.maxTimeoutCount)) seconds
+# when chunkServer.watchdog.maxTimeoutCount equal or greater than 0, and 1.05
+# seconds otherwise.
+# chunkServer.watchdog.pollIntervalSec = 1.15
 
 # Abort process if no progress detected after the specified consecutive poll
 # intervals.
@@ -1349,7 +1355,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is 1.
 # chunkServer.diskQueue.<object-store-directory-prefix>ssl.verifyPeer = 1
 
-# Cerificate authorities bundle used for S3 server verification.
+# Certificate authorities bundle used for S3 server verification.
 # Bundle must be in format that openssl supports.
 # Such bundle might be already installed on the system or obtained from:
 # https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt
@@ -1379,7 +1385,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is 1 second.
 # chunkServer.diskQueue.<object-store-directory-prefix>resolverCacheExpiration = 1
 
-# ================= Trasaction log writer. ====================================
+# ================= Transaction log writer. ====================================
 
 # Start new transaction log segment every 600 (default) seconds.
 # Default is 600 sec..
@@ -1393,7 +1399,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is off, to minimize log / RPC latency.
 # metaServer.log.sync = 0
 
-# ================= Meta data (checkpoint and trasaction log) store. ==========
+# ================= Meta data (checkpoint and transaction log) store. ==========
 
 # Number of past checkpoints, and the corresponding transaction log segments to
 # keep.
@@ -1402,7 +1408,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # The default is 16.
 # metaServer.dataStore.maxCheckpointsToKeepCount = 16
 
-# Do not cleanoup, older checkpoint and log files, unless these have not been
+# Do not cleanup, older checkpoint and log files, unless these have not been
 # accessed in the last 60 (default) seconds.
 # metaServer.dataStore.maxInactiveTime = 60
 
@@ -1568,7 +1574,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # is used on meta server startup. Meta server validates that the node ID and
 # transaction log state corresponds to the values in VR state file on startup.
 # In case of mismatch the file is deleted. The meta server writes the VR state
-# file during its operations. The file is small, typically cople hundred bytes.
+# file during its operations. The file is small, typically couple hundred bytes.
 # The only case where this might need to be changed is in the case of attempting
 # to recover from the meta data loss, where VR state files were lost on more
 # than quorum nodes.
@@ -1683,7 +1689,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Authentication.
 # By default log transmitter authentication is off.
 
-# Autentication types to use
+# Authentication types to use
 # Default any available, if configured.
 # metaServer.log.transmitter.authType = Krb5 X509 PSK
 #
@@ -1784,8 +1790,14 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # when configured to do so, in the case if one or more threads appear not to be
 # making progress due to likely meta server and / or OS malfunction.
 
-# Poll interval. Default is 16 seconds. Minimum interval is 4 sec.
-# metaServer.watchdog.pollIntervalSec = 16
+# Poll interval.
+# Default is 16 seconds when metaServer.watchdog.maxTimeoutCount is equal or
+# greater than 0, and 1.15 seconds otherwise.
+# Minimum interval is
+# max(1.25, 4.0 / max(1, metaServer.watchdog.pollIntervalSec)) seconds
+# when metaServer.watchdog.maxTimeoutCount equal or greater than 0, and 1.05
+# seconds otherwise.
+# metaServer.watchdog.pollIntervalSec = 1.15
 
 # Abort process if no progress detected after the specified consecutive poll
 # intervals.

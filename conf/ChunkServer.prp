@@ -5,7 +5,7 @@
 #
 # Author: Mike Ovsiannikov
 #
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System (QFS).
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -34,12 +34,12 @@ chunkServer.metaServer.port     = 30000
 
 # Client connection listener ip address to bind to.
 # Use :: to bind to ipv6 address any.
-# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
+# Default is empty, treated as 0.0.0.0 ipv4 address any, unless the following
 # parameter chunkServer.clientIpV6Only set to 1
 # chunkServer.clientIp =
 
 # Accept ipv4 chunk servers connections.
-# Default is 0, enable acception ipv4 connection. Only has effect if
+# Default is 0, enable accepting ipv4 connection. Only has effect if
 # chunkServer.clientIp left empty, or set to ::
 # chunkServer.clientIpV6Only = 0
 
@@ -52,7 +52,7 @@ chunkServer.clientPort = 22000
 #
 # In the case when the chunk server is on the same host as the meta server, but
 # the clients aren't, the server IP must be specified. Setting
-# cnchunkServer.metaServer.hostname to the client "visible" IP might also work.
+# chunkServer.metaServer.hostname to the client "visible" IP might also work.
 #
 # This also allows to work with NAT between the clients, and chunk and meta
 # servers.
@@ -119,7 +119,7 @@ chunkServer.chunkDir = chunks
 # Number of io threads (max. number of disk io requests in flight) per host file
 # system.
 # The typical setup is to have one host file system per physical disk.
-# Even if raid controller is available jbod configuration is recommended,
+# Even if raid controller is available JBOD configuration is recommended,
 # leaving the failure handling and striping to the distributed file system.
 # The default is 2.
 # With large requests (~1MB) two io requests in flight should be sufficient.
