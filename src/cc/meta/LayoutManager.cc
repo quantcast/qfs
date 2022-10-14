@@ -2910,8 +2910,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.CSAuthentication.", mConfigParameters);
     const bool curCSAuthUseUserAndGroupFlag = mCSAuthContext.HasUserAndGroup();
     const bool newCSAuthUseUserAndGroupFlag = props.getValue(
-        "metaServer.CSAuthentication.useUserAndGrupDb",
-        curCSAuthUseUserAndGroupFlag ? 1 : 0) != 0;
+        "metaServer.CSAuthentication.useUserAndGroupDb",
+        props.getValue("metaServer.CSAuthentication.useUserAndGrupDb",
+            curCSAuthUseUserAndGroupFlag ? 1 : 0)) != 0;
     if (newCSAuthUseUserAndGroupFlag != curCSAuthUseUserAndGroupFlag) {
         if (newCSAuthUseUserAndGroupFlag) {
             mCSAuthContext.SetUserAndGroup(mUserAndGroup);

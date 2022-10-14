@@ -654,8 +654,9 @@ MetaServer::Startup(const Properties& props,
     }
     err = GetIoBufAllocator().GetBufferPool().Create(
         props.getValue("metaServer.bufferPool.partitions", 1),
-        props.getValue("metaServer.bufferPool.partionBuffers",
-            (sizeof(long) < 8 ? 32 : 256) << 10),
+        props.getValue("metaServer.bufferPool.partitionBuffers",
+            props.getValue("metaServer.bufferPool.partionBuffers",
+                (sizeof(long) < 8 ? 32 : 256) << 10)),
         props.getValue("metaServer.bufferPool.bufferSize", 4 << 10),
         props.getValue("metaServer.bufferPool.lockMemory", 0) != 0 ||
             mMaxLockedMemorySize > 0
