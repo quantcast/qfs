@@ -55,7 +55,7 @@ class Watchdog::Impl : private QCRunnable
 public:
     Impl(
         volatile uint64_t const& inStrobedValue,
-        uint64_t&                inTimoutCount,
+        uint64_t&                inTimeoutCount,
         uint64_t&                inPollCount,
         uint64_t&                inTimerOverrunCount,
         uint64_t&                inTimerOverrunUsecCount,
@@ -66,7 +66,7 @@ public:
           mCond(),
           mStrobed(inStrobedValue),
           mThread(this, "Watchdog"),
-          mParamPollIntervalUsec(int64_t(1) * 1000 * 1000),
+          mParamPollIntervalUsec(int64_t(1) * 1150 * 1000),
           mPollIntervalUsec(),
           mMinPollIntervalUsec(),
           mPollIntervalNanoSec(),
@@ -77,7 +77,7 @@ public:
           mSuspendFlag(false),
           mPollStartTime(),
           mPollEndTime(),
-          mTimoutCount(inTimoutCount),
+          mTimeoutCount(inTimeoutCount),
           mPollCount(inPollCount),
           mTimerOverrunCount(inTimerOverrunCount),
           mTimerOverrunUsecCount(inTimerOverrunUsecCount),
@@ -108,8 +108,8 @@ public:
         // debugging and testing purposes.
         const double theMinIntervalSec = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("minPollIntervalSec"),
-            mMaxTimeoutCount < 0 ? 1.0 :
-                max(1.0, 4.0 / max(1, mMaxTimeoutCount) + 0.5)
+            mMaxTimeoutCount < 0 ? 1.05 :
+                max(1.25, 4.0 / max(1, mMaxTimeoutCount))
         );
         const double theInfinity     = std::numeric_limits<double>::infinity();
         const double thePollInterval = inParameters.getValue(
@@ -118,7 +118,7 @@ public:
         if (theInfinity == thePollInterval) {
             // The use defaults if not set.
             mParamPollIntervalUsec = theInfinity == thePollInterval ?
-                (int64_t)(mMaxTimeoutCount < 0 ? 1 : 16) * 1000 * 1000 :
+                (int64_t)(mMaxTimeoutCount < 0 ? 1150 : 16 * 1000) * 1000 :
                 (int64_t)(1e6 * max(theMinIntervalSec, thePollInterval));
         }
         // Enforce min 0.5 second timer overrun threshold.
@@ -240,7 +240,7 @@ private:
             if (theValue == mValue && 1 < mPollCount) {
                 ++mTimeoutCount;
                 ++mTotalTimeoutCount;
-                ++inOuter.mTimoutCount;
+                ++inOuter.mTimeoutCount;
                 PollTimedout(inOuter);
             } else {
                 mTimeoutCount = 0;
@@ -309,7 +309,7 @@ private:
                     " sec. ago"
                 " total:"
                 " poll count: " << inOuter.mPollCount <<
-                " timeouts: " << inOuter.mTimoutCount <<
+                " timeouts: " << inOuter.mTimeoutCount <<
                 " timer overruns: " << inOuter.mTimerOverrunCount <<
                 " timer overruns seconds: " <<
                     inOuter.mTimerOverrunUsecCount * 1e-6 <<
@@ -362,7 +362,7 @@ private:
     bool          mSuspendFlag;
     int64_t       mPollStartTime;
     int64_t       mPollEndTime;
-    uint64_t&     mTimoutCount;
+    uint64_t&     mTimeoutCount;
     uint64_t&     mPollCount;
     uint64_t&     mTimerOverrunCount;
     uint64_t&     mTimerOverrunUsecCount;
@@ -423,7 +423,7 @@ private:
                 mLastTimerOverrunTime = theNow;
                 mTimerOverrunUsecCount += theOverrun;
                 KFS_LOG_STREAM_ERROR <<
-                    "wathdog: detected timer overrun"
+                    "watchdog: detected timer overrun"
                     ": " << mTimerOverrunCount <<
                     " of " << theOverrun * 1e-6 << " sec." <<
                 KFS_LOG_EOM;
