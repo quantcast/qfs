@@ -309,6 +309,14 @@ waitqfscandcptests()
         rm "$kfsaccesspidf"
     fi
 
+    if [ x"$kfsgopid" = x ]; then
+        kfsgostatus=0
+    else
+        mytailwait $kfsgopid kfsgo_test.out
+        kfsgostatus=$?
+        rm "$kfsgopidf"
+    fi
+
     mytailwait $cppid cptest.out
     cpstatus=$?
     rm "$cppidf"
@@ -390,6 +398,9 @@ else
     accessdir=''
 fi
 
+qfscdir=`cd src/cc/qfsc >/dev/null 2>&1 && pwd`
+kfsgosrcdir="`dirname "$0"`"
+kfsgosrcdir="`cd "$kfsgosrcdir/../go" >/dev/null 2>&1 && pwd`"
 monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
 
 fusedir='src/cc/fuse'
@@ -1193,6 +1204,31 @@ EOF
     echo "$kfsaccesspid" > "$kfsaccesspidf"
 fi
 
+if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
+    kfsgopidf="kfsgo${pidsuf}"
+    (
+        include_path=include/kfs/c &&
+        mkdir -p "$include_path" &&
+        cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path" &&
+        [ x"`uname`" != x'Darwin' ] || {
+            DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}" &&
+            export DYLD_LIBRARY_PATH
+        } &&
+        CGO_CFLAGS="-I`pwd`/include" &&
+        export CGO_CFLAGS &&
+        CGO_LDFLAGS="-L$qfscdir" &&
+        export CGO_LDFLAGS &&
+        QFS_CLIENT_CONFIG=$clientenvcfg &&
+        export QFS_CLIENT_CONFIG &&
+        cd "$kfsgosrcdir" &&
+        go test -qfs.addr "$metahost:$metasrvport"
+    ) > kfsgo_test.out 2>&1 &
+    kfsgopid=$!
+    echo "$kfsgopid" > "$kfsgopidf"
+else
+    kfsgopid=''
+fi
+
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
     pausesec=`expr $csheartbeatinterval \* 2`
@@ -1606,6 +1642,7 @@ if [ $status -eq 0 \
         -a $fostatus -eq 0 \
         -a $smstatus -eq 0 \
         -a $kfsaccessstatus -eq 0 \
+        -a $kfsgostatus -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
         -a $fusestatus -eq 0 \
