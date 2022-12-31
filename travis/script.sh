@@ -24,9 +24,11 @@
 
 set -ex
 
-DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev'
+DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev'
 DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk zlib1g-dev unzip maven sudo'
 DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb golang-go'
+DEPS_UBUNTU22=$DEPS_UBUNTU
+DEPS_UBUNTU=$DEPS_UBUNTU' python-dev'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
@@ -190,9 +192,14 @@ install_maven()
 
 build_ubuntu()
 {
+    if [ x"$1" = x'22.04' ]; then
+        MYDEPS=$DEPS_UBUNTU22
+    else
+        MYDEPS=$DEPS_UBUNTU
+    fi
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
-        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $DEPS_UBUNTU"
+        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
