@@ -111,7 +111,9 @@ public:
         OpenSSL_add_all_algorithms();
         SSL_load_error_strings();
         ERR_load_crypto_strings();
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         ENGINE_load_builtin_engines();
+#endif
         SSL_library_init();
         sOpenSslInitPtr->mAES256CbcCypherDebugPtr = EVP_aes_256_cbc();
         sOpenSslInitPtr->mExDataIdx =
