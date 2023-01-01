@@ -1221,6 +1221,7 @@ if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
         QFS_CLIENT_CONFIG=$clientenvcfg &&
         export QFS_CLIENT_CONFIG &&
         cd "$kfsgosrcdir" &&
+        go get -t -v &&
         go test -qfs.addr "$metahost:$metasrvport"
     ) > kfsgo_test.out 2>&1 &
     kfsgopid=$!
