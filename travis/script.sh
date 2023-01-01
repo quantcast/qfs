@@ -26,8 +26,8 @@ set -ex
 
 DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev'
 DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk zlib1g-dev unzip maven sudo'
-DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb golang-go'
-DEPS_UBUNTU22=$DEPS_UBUNTU
+DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb'
+DEPS_UBUNTU22=$DEPS_UBUNTU' golang-go'
 DEPS_UBUNTU=$DEPS_UBUNTU' python-dev'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
