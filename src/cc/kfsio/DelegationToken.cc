@@ -147,10 +147,20 @@ public:
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
-#else
+#elif OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_CTX& theCtx = *HMAC_CTX_new();
+#else
+        EVP_MAC* const theMac = EVP_MAC_fetch(NULL, "HMAC", NULL);
+        QCRTASSERT(theMac);
+        EVP_MAC_CTX&   theCtx = *EVP_MAC_CTX_new(theMac);
+        EVP_MAC_free(theMac);
 #endif
-        unsigned int theLen = 0;
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+        unsigned int
+#else
+        size_t
+#endif
+        theLen = 0;
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
         const bool theRetFlag = true;
         HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0);
@@ -171,7 +181,7 @@ public:
             reinterpret_cast<unsigned char*>(inSignBufPtr),
             &theLen
         );
-#else
+#elif OPENSSL_VERSION_NUMBER < 0x30000000L
         const bool theRetFlag =
             HMAC_Init_ex(&theCtx, inKeyPtr, inKeyLen, EVP_sha1(), 0) &&
             (theSubjectLen <= 0 ||
@@ -190,6 +200,34 @@ public:
                 reinterpret_cast<unsigned char*>(inSignBufPtr),
                 &theLen
             );
+#else
+        OSSL_PARAM theParams[2];
+        char theName[] = {"SHA1"};
+        theParams[0] = OSSL_PARAM_construct_utf8_string("digest", theName, 0);
+        theParams[1] = OSSL_PARAM_construct_end();
+
+        const bool theRetFlag =
+            EVP_MAC_init(
+                &theCtx,
+                reinterpret_cast<const unsigned char*>(inKeyPtr), inKeyLen,
+                theParams) &&
+            (theSubjectLen <= 0 ||
+                EVP_MAC_update(
+                    &theCtx,
+                    reinterpret_cast<const unsigned char*>(theSubjectPtr),
+                    theSubjectLen
+                )) &&
+            EVP_MAC_update(
+                &theCtx,
+                reinterpret_cast<const unsigned char*>(mBuffer),
+                kTokenFiledsSize
+            ) &&
+            EVP_MAC_final(
+                &theCtx,
+                reinterpret_cast<unsigned char*>(inSignBufPtr),
+                &theLen,
+                kSignatureLength
+            );
 #endif
         if (! theRetFlag) {
             if (inErrMsgPtr) {
@@ -203,8 +241,10 @@ public:
         QCRTASSERT(! theRetFlag || theLen == kSignatureLength);
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX_cleanup(&theCtx);
-#else
+#elif OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_CTX_free(&theCtx);
+#else
+        EVP_MAC_CTX_free(&theCtx);
 #endif
         return theRetFlag;
     }
