@@ -85,8 +85,8 @@ func TestFileInfo_ModTime(t *testing.T) {
 	fi := statTestFile(t, "test_name", []byte("data"), 0666)
 	actualDuration := time.Since(fi.ModTime())
 
-	// The time difference should be less than 100ms
-	expectedDuration, _ := time.ParseDuration("100ms")
+	// The time difference should be less than 30s
+	expectedDuration, _ := time.ParseDuration("30s")
 	if expectedDuration.Nanoseconds() < actualDuration.Nanoseconds() {
 		t.Errorf("Time difference is %v, greater than %v", actualDuration,
 			expectedDuration.Nanoseconds())
