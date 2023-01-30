@@ -60,6 +60,21 @@ hadoop-jars: java
 	    done \
 	; fi
 
+.PHONY: go
+go: build
+	if go version >/dev/null 2>&1 ; then \
+		QFS_BUILD_DIR=`pwd`/build/$(BUILD_TYPE) && \
+		cd src/go && \
+		CGO_CFLAGS="-I$${QFS_BUILD_DIR}/include" && \
+		export CGO_CFLAGS && \
+		CGO_LDFLAGS="-L$${QFS_BUILD_DIR}/lib" && \
+		export CGO_LDFLAGS && \
+		go clean -i && \
+		go get -t -v && \
+		go build -v || \
+		exit 1; \
+	fi
+
 .PHONY: tarball
 tarball: hadoop-jars
 	cd build && \

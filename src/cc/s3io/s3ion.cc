@@ -198,7 +198,11 @@ public:
         HMAC_CTX_cleanup(&mHmacCtx);
         EVP_MD_CTX_cleanup(&mMdCtx);
 #else
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         HMAC_CTX_free(&mHmacCtx);
+#else
+        EVP_MAC_CTX_free(&mHmacCtx);
+#endif
         EVP_MD_CTX_free(&mMdCtx);
 #endif
     }
@@ -2819,7 +2823,11 @@ private:
     HMAC_CTX            mHmacCtx;
     EVP_MD_CTX          mMdCtx;
 #else
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
     HMAC_CTX&           mHmacCtx;
+#else
+    EVP_MAC_CTX&        mHmacCtx;
+#endif
     EVP_MD_CTX&         mMdCtx;
 #endif
     char                mDateBuf[kMaxDateTimeLen];
@@ -2828,6 +2836,12 @@ private:
     char                mTmpMdBuf[kMaxMdLen];
     char                mV4SignDate[kV4SignDateLen];
     char                mSignBuf[kSha256HexLen + 1];
+#if 0x30000000L <= OPENSSL_VERSION_NUMBER
+    char                mHmacSha1Name[8];
+    char                mHmacSha256Name[8];
+    OSSL_PARAM          mHmacSha1Params[2];
+    OSSL_PARAM          mHmacSha256Params[2];
+#endif
 
     static bool IsDebugLogLevel()
     {
@@ -2863,6 +2877,27 @@ private:
     }
     const string& GetXmlLastParsedKey()
         { return mTmpBuffer; }
+#if 0x30000000L <= OPENSSL_VERSION_NUMBER
+    static EVP_MAC_CTX& MakeHmacCtx()
+    {
+        EVP_MAC* const theMac = EVP_MAC_fetch(NULL, "HMAC", NULL);
+        QCRTASSERT(theMac);
+        EVP_MAC_CTX&   theCtx = *EVP_MAC_CTX_new(theMac);
+        EVP_MAC_free(theMac);
+        return theCtx;
+    }
+    static void InitHmacParams(
+        const char* inName,
+        char*       inNameBuf,
+        size_t      inNameBufLen,
+        OSSL_PARAM* inParams)
+    {
+        QCRTASSERT(strlen(inName) < inNameBufLen);
+        strncpy(inNameBuf, inName, inNameBufLen);
+        inParams[0] = OSSL_PARAM_construct_utf8_string("digest", inNameBuf, 0);
+        inParams[1] = OSSL_PARAM_construct_end();
+    }
+#endif
     S3ION(
         const char* inUrlPtr,
         const char* inConfigPrefixPtr,
@@ -2924,7 +2959,11 @@ private:
           mMutex()
 #if 0x10100000L <= OPENSSL_VERSION_NUMBER
           ,
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
           mHmacCtx(*HMAC_CTX_new()),
+#else
+          mHmacCtx(MakeHmacCtx()),
+#endif
           mMdCtx(*EVP_MD_CTX_new())
 #endif
     {
@@ -2952,6 +2991,17 @@ private:
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX_init(&mHmacCtx);
         EVP_MD_CTX_init(&mMdCtx);
+#elif 0x30000000L <= OPENSSL_VERSION_NUMBER
+        InitHmacParams(
+            "SHA1",
+            mHmacSha1Name,
+            sizeof(mHmacSha1Name) / sizeof(mHmacSha1Name[0]),
+            mHmacSha1Params);
+        InitHmacParams(
+            "SHA256",
+            mHmacSha256Name,
+            sizeof(mHmacSha256Name) / sizeof(mHmacSha256Name[0]),
+            mHmacSha256Params);
 #endif
         const int theMaxCacheSize            = 8 << 10;
         const int theResolverCacheExpiration = 1;
@@ -3340,7 +3390,12 @@ private:
         char*         inResultPtr,
         bool          inSha256Flag)
     {
-        unsigned int theLen = 0;
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+        unsigned int
+#else
+        size_t
+#endif
+        theLen = 0;
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
         HMAC_Init_ex(&mHmacCtx, inKeyPtr, (int)inKeyLen,
             inSha256Flag ? EVP_sha256() : EVP_sha1(), 0);
@@ -3355,6 +3410,7 @@ private:
             &theLen
         );
 #else
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
         const bool theOkFlag =
             HMAC_Init_ex(&mHmacCtx, inKeyPtr, (int)inKeyLen,
                 inSha256Flag ? EVP_sha256() : EVP_sha1(), 0) &&
@@ -3368,6 +3424,24 @@ private:
                 reinterpret_cast<unsigned char*>(inResultPtr),
                 &theLen
             );
+#else
+        const bool theOkFlag =
+            EVP_MAC_init(
+                &mHmacCtx,
+                reinterpret_cast<const unsigned char*>(inKeyPtr), inKeyLen,
+                inSha256Flag ? mHmacSha256Params : mHmacSha1Params) &&
+            EVP_MAC_update(
+                &mHmacCtx,
+                reinterpret_cast<const unsigned char*>(inDataPtr),
+                inDataLen
+            ) &&
+            EVP_MAC_final(
+                &mHmacCtx,
+                reinterpret_cast<unsigned char*>(inResultPtr),
+                &theLen,
+                inSha256Flag ? kSha256Len : kSha1Len
+            );
+#endif
         if (! theOkFlag) {
             const int kBufSize = 127;
             char      theBuf[kBufSize + 1];

@@ -23,6 +23,11 @@ jobs:
           - distro: i386/ubuntu
         include:
           - distro: ubuntu
+            ver: 22.04
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: ubuntu
             ver: 20.04
             codecov: no
             btype: release
@@ -127,6 +132,7 @@ jobs:
         run: |
           brew install boost || true
           brew install macfuse || true
+          brew install go || true
 
       - name: Checkout code
         uses: actions/checkout@v2
