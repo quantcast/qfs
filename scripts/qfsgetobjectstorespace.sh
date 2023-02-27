@@ -78,9 +78,10 @@ BEGIN {
         s += 0;
         # print at " " s " " (int(s / (64 * 1024 * 1024)) + 1);
         if (0 < s) {
+            i = at < th ? 0 : 1;
+            size[i] += s;
             # Add block headers overhead.
             s += (int(s / (64 * 1024 * 1024)) + 1) * 8192;
-            i = at < th ? 0 : 1;
             space[i] += s;
             time[i] += at;
             count[i] += 1;
@@ -88,14 +89,15 @@ BEGIN {
     }
 }
 END {
-    tb = 1. / (1024 * 1024 * 1024 * 1024);
+    tb = 1. #/ (1024 * 1024 * 1024 * 1024);
     print start_date;
     for (i = 0; i < 2; i += 1) {
         c = count[i];
         t = time[i];
-        s = size[i];
-        printf("%s than %d days: %15.0f files %10.3f TiB %10.2f avg. days old\n",
-            0 == i ? "older" : "newer", days, c, s * tb,
+        s = space[i];
+        z = size[i];
+        printf("%s than %d days: %15.0f files %10.3f (%8.3f) TiB %10.2f avg. days old\n",
+            0 == i ? "older" : "newer", days, c, s * tb, (s - z) * tb,
             0 < c ? (now - t / c) / secs_in_day : 0);
     }
 }
