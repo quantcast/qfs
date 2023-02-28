@@ -61,6 +61,7 @@ BEGIN {
     now = '"$(date '+%s')"';
     days='"$days"';
     th = now - days * secs_in_day;
+    abandoned_th = now - secs_in_day;
 }
 /^a\/file\// {
     # Only for object store files (replication 0).
@@ -85,11 +86,24 @@ BEGIN {
             space[i] += s;
             time[i] += at;
             count[i] += 1;
+        } else if (27 <= NF) {
+            lo = NF == 27 ? $27 : $31
+            if ("0" != lo) {
+                # print $0
+                mt = "0x" $10
+                mt += 0
+                if (mt < abandoned_th) {
+                    lc = "0x" lo
+                    lc += 0
+                    abandoned += 1
+                    abandoned_chunks += int(lc / (64 * 1024 * 1024))
+                }
+            }
         }
     }
 }
 END {
-    tb = 1. #/ (1024 * 1024 * 1024 * 1024);
+    tb = 1. / (1024 * 1024 * 1024 * 1024);
     print start_date;
     for (i = 0; i < 2; i += 1) {
         c = count[i];
@@ -99,6 +113,10 @@ END {
         printf("%s than %d days: %15.0f files %10.3f (%8.3f) TiB %10.2f avg. days old\n",
             0 == i ? "older" : "newer", days, c, s * tb, (s - z) * tb,
             0 < c ? (now - t / c) / secs_in_day : 0);
+        if (0 < abandoned) {
+            printf("object store abandoned files: %d chunks: %d size: %.3f MB\n",
+                abandoned, abandoned_chunks, abandoned_chunks * (64 + 8.192 / 2024))
+        }
     }
 }
 ' ${1+"$@"}
