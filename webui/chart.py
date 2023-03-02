@@ -21,6 +21,8 @@
 #
 #
 
+from __future__ import absolute_import
+from __future__ import print_function
 import platform
 
 kDeltaPrefix="D-"
@@ -47,4 +49,4 @@ class ChartHTML:
     
 
     def printToHTML(self,buffer):
-        print "TBD"
+        print("TBD")

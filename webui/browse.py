@@ -22,6 +22,8 @@
 # File system lister / browser.
 #
 
+from __future__ import absolute_import
+from __future__ import print_function
 import os
 import sys
 import stat
@@ -90,7 +92,7 @@ class QFSBrowser:
                 directory = os.path.split(directory)[0]
             parent = os.path.split(directory)[0]
 
-        print >> buffer, '''
+        print('''
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
@@ -125,14 +127,14 @@ class QFSBrowser:
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
-            </tr>''' % (directory, directory, parent)
+            </tr>''' % (directory, directory, parent), file=buffer)
 
     def endHTML(self, buffer):
-        print >> buffer, '''
+        print('''
         </div>
         </div>
     </body>
-</html>'''
+</html>''', file=buffer)
 
     def contentHTML(self, path, info, fullStat, buffer):
         if fullStat[9] == 1:
@@ -145,15 +147,15 @@ class QFSBrowser:
 
         if fullStat[0] == 'dir':
             target = '/browse-it%s' % path
-            print >> buffer, '''
+            print('''
                 <tr><td style="vertical-align: top;background-color:LightBlue;"><B><a href="%s">%s</a></B><br></td>
-                ''' % (target, info[0])
+                ''' % (target, info[0]), file=buffer)
         else:
-            print >> buffer, '''
+            print('''
                 <tr><td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                ''' % info[0]
+                ''' % info[0], file=buffer)
 
-        print >> buffer, '''
+        print('''
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
@@ -171,7 +173,7 @@ class QFSBrowser:
                         fullStat[2],
                         permissions,
                         fullStat[6],
-                        fullStat[7])
+                        fullStat[7]), file=buffer)
 
 
     def printToHTML(self, directory, host, port, buffer):
