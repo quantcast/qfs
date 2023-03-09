@@ -73,7 +73,6 @@ if (QFS_OMIT_JNI)
 else()
     set(JAVA_AWT_LIBRARY NotNeeded)
     set(JAVA_JVM_LIBRARY NotNeeded)
-    set(JAVA_INCLUDE_PATH2 NotNeeded)
     set(JAVA_AWT_INCLUDE_PATH NotNeeded)
     find_package(JNI REQUIRED)
 endif()
@@ -201,6 +200,7 @@ include_directories(
     ${KRB5_INCLUDE_DIRS}
     ${KFS_DIR_PREFIX}/src/cc
     ${JAVA_INCLUDE_PATH}
+    ${JAVA_INCLUDE_PATH2}
 )
 
 # get the subdirs we want
