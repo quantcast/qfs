@@ -30,19 +30,18 @@
 #1. how to stop thread if app has died
 #2  cookies
 #----------------
-from __future__ import absolute_import
-from __future__ import print_function
-import socket,threading,calendar,time
+import socket, threading
 import time
-import os,sys,os.path,getopt
 from datetime import datetime
-from cStringIO import StringIO
+from io import StringIO
 from chart import ChartData, ChartServerData
-import platform
-from six.moves import range
+
 
 kDeltaPrefix="D-"
-
+REQUEST_GET_SERVER_COUNTERS = "GET_CHUNK_SERVERS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode('utf-8')
+REQUEST_GET_COUNTERS = "GET_REQUEST_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode('utf-8')
+REQUEST_GET_CHUNK_COUNTERS = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode(
+    'utf-8')
 
 
 class ChunkArrayData:
@@ -500,7 +499,7 @@ class ChunkThread(threading.Thread):
         print("\nThread started\n")
         while self.doStop == 0:
 
-            req = "GET_CHUNK_SERVERS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+            req = REQUEST_GET_SERVER_COUNTERS
             chunkServerData = ChunkServerData()
             if self.getChunkServerData(chunkServerData,req) == 0:
                 del chunkServerData
@@ -512,7 +511,7 @@ class ChunkThread(threading.Thread):
             self.chunkDataManager.add(chunkData)
             self.chunkDataManager.lock.release()
 
-            req = "GET_REQUEST_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+            req = REQUEST_GET_COUNTERS
             countersServerData = ChunkServerData()
             if self.getChunkServerData(countersServerData,req) == 0:
                 del countersServerData
@@ -525,7 +524,7 @@ class ChunkThread(threading.Thread):
             self.countersDataManager.add(countersData)
             self.countersDataManager.lock.release()
 
-            req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+            req = REQUEST_GET_CHUNK_COUNTERS
             chunkServerDirData = ChunkServerData()
             if self.getChunkServerData(chunkServerDirData,req) == 0:
                 del chunkServerDirData
@@ -862,7 +861,7 @@ class HtmlPrintData:
 
         n_col = 5
         lenn = len(thedHeaders)
-        n_height = ((lenn + n_col -1)/n_col)
+        n_height = (lenn + n_col -1)//n_col
         if n_height%2:
             n_height = n_height+1
         for i in range(n_height):

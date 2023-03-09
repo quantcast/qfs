@@ -23,28 +23,25 @@
 # A simple webserver that displays KFS status by pinging the metaserver.
 #
 
-from __future__ import absolute_import
-from __future__ import print_function
-import os,sys,os.path,getopt
-import socket,threading,calendar,time
+import os, sys
+import socket, time
 from datetime import datetime
-import six.moves.SimpleHTTPServer
-import six.moves.socketserver
-from cStringIO import StringIO
-from six.moves.configparser import ConfigParser
-import six.moves.urllib.request, six.moves.urllib.parse, six.moves.urllib.error
+from http.server import SimpleHTTPRequestHandler
+import socketserver
+from io import StringIO
+import configparser
+from  urllib.request import urlopen
 import platform
 from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaData, ChunkArrayData, ChunkServerData
-from chart import ChartData, ChartServerData, ChartHTML
+from chart import ChartData, ChartHTML
 from browse import QFSBrowser
-import threading
-import six
-from six.moves import range
+
+REQUEST_PING = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode('utf-8')
+REQUEST_GET_DIRS_COUNTERS = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode('utf-8')
 
 gHasCollections = True
 try:
-    import collections
-    collections.OrderedDict()
+    from  collections import OrderedDict
 except:
     sys.stderr.write("Warning: '%s'. Proceeding without collections.\n" % str(sys.exc_info()[1]))
     gHasCollections = False
@@ -111,6 +108,12 @@ kHtmlEscapeTable = {
     ">": "&gt;",
     "<": "&lt;",
 }
+
+def split_ip(ip):
+    """Split a IP address given as string into a 4-tuple of integers."""
+    return tuple(int(part) for part in ip.split('.'))
+
+
 
 def htmlEscape(text):
     """Produce entities within text."""
@@ -237,8 +240,8 @@ class SystemInfo:
 
 class Status:
     def __init__(self):
-        self.upServers = {}
-        self.downServers = {}
+        self.upServers = []
+        self.downServers = []
         self.retiringServers = {}
         self.evacuatingServers = {}
         self.serversByRack = {}
@@ -742,7 +745,10 @@ class DownServer:
 
         if hasattr(self, 's'):
             setattr(self, 'host', self.s)
+            self.sort_key = split_ip(socket.gethostbyname(self.host))
             delattr(self, 's')
+        else:
+            self.sort_key = ()
 
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
@@ -757,9 +763,18 @@ class DownServer:
 
         self.stillDown = 0
 
-    def __cmp__(self, other):
-        """Order by down date"""
-        return cmp(time.strptime(other.down), time.strptime(self.down))
+    # Order by IP
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+    def __gt__(self, other):
+        return self.sort_key > other.sort_key
+
+    def __le__(self, other):
+        return self.sort_key <= other.sort_key
+
+    def __ge__(self, other):
+        return self.sort_key >= other.sort_key
 
     def setStillDown(self):
         self.stillDown = 1
@@ -786,9 +801,17 @@ class RetiringServer:
             s = serverInfo[i].split('=')
             setattr(self, s[0].strip(), s[1].strip())
 
+        self.sort_key = ()
+        # tbd order by started
+#        if hasattr(self, 'started'):
+#            self.sort_key = (0,0,0,0,0,0,self.started)
+
         if hasattr(self, 's'):
             setattr(self, 'host', self.s)
+            if not self.sort_key:
+                self.sort_key = split_ip(socket.gethostbyname(self.host))
             delattr(self, 's')
+
 
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
@@ -801,9 +824,18 @@ class RetiringServer:
         if displayPorts and hasattr(self, 'port'):
             self.displayName += ':' + str(self.port)
 
-    def __cmp__(self, other):
-        """Order by start date"""
-        return cmp(time.strptime(other.started), time.strptime(self.started))
+    # Order by IP
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+    def __gt__(self, other):
+        return self.sort_key > other.sort_key
+
+    def __le__(self, other):
+        return self.sort_key <= other.sort_key
+
+    def __ge__(self, other):
+        return self.sort_key >= other.sort_key
 
     def printStatusHTML(self, buffer, count):
         if count % 2 == 0:
@@ -827,7 +859,10 @@ class EvacuatingServer:
 
         if hasattr(self, 's'):
             setattr(self, 'host', self.s)
+            self.sort_key = split_ip(socket.gethostbyname(self.host))
             delattr(self, 's')
+        else:
+            self.sort_key = ()
 
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
@@ -840,9 +875,18 @@ class EvacuatingServer:
         if displayPorts and hasattr(self, 'port'):
             self.displayName += ':' + str(self.port)
 
-    def __cmp__(self, other):
-        """ Order by IP"""
-        return cmp(socket.inet_aton(self.host), socket.inet_aton(other.host))
+    # Order by IP
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+    def __gt__(self, other):
+        return self.sort_key > other.sort_key
+
+    def __le__(self, other):
+        return self.sort_key <= other.sort_key
+
+    def __ge__(self, other):
+        return self.sort_key >= other.sort_key
 
     def printStatusHTML(self, buffer):
         print('''
@@ -872,7 +916,7 @@ def formatConv(val):
             ret = ret * 1024 * 1024 * 1024 * 1024
     return ret;
 
-class UpServer:
+class UpServer():
     """Keep track of an up server state"""
     def __init__(self, status, info):
         if isinstance(info, str):
@@ -896,7 +940,10 @@ class UpServer:
             if hasattr(self, 's'):
                 setattr(self, 'host', self.s)
                 setattr(self, 'ip', socket.gethostbyname(self.s))
+                self.sort_key = split_ip(self.ip)
                 delattr(self, 's')
+            else:
+                self.sort_key = ()
 
             if hasattr(self, 'p'):
                 setattr(self, 'port', self.p)
@@ -1017,9 +1064,18 @@ class UpServer:
             self.down = 1
             self.retiring = 0
 
-    def __cmp__(self, other):
-        """ Order by IP"""
-        return cmp(socket.inet_aton(self.ip), socket.inet_aton(other.ip))
+    # Order by IP
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key;
+
+    def __gt__(self, other):
+        return self.sort_key > other.sort_key;
+
+    def __le__(self, other):
+        return self.sort_key <= other.sort_key;
+
+    def __ge__(self, other):
+        return self.sort_key >= other.sort_key;
 
     def setRetiring(self, status):
         self.retiring = 1
@@ -1463,7 +1519,7 @@ def processSystemInfo(systemInfo, sysInfo):
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
         # we really need a find_if()
-        for r in serversByRack[rackId]:
+        for r in status.serversByRack[rackId]:
             if r.host == host:
                 if isinstance(server, UpServer(status)):
                     r.overloaded = server.overloaded
@@ -1488,7 +1544,7 @@ def splitServersByRack(status):
 def ping(status, metaserver):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((metaserver.node, metaserver.port))
-    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+    req = REQUEST_PING
     sock.send(req)
     sockIn = sock.makefile('r')
     status.tiersColumnNames = {}
@@ -1568,7 +1624,7 @@ def ping(status, metaserver):
 
 def parse_fields(line, field_sep='\t', key_sep='='):
     if gHasCollections:
-        res = collections.OrderedDict()
+        res = OrderedDict()
     else:
         res = {}
     for keyval in line[line.find(':') + 1:].strip().split(field_sep):
@@ -1626,8 +1682,6 @@ def printRackViewHTML(rack, servers, buffer):
 def rackView(buffer, status):
     splitServersByRack(status)
     numNodes = sum([len(v) for v in status.serversByRack.values()])
-    # original: numNodes = sum([len(v) for v in status.serversByRack.itervalues()])
-    # modified: numNodes = sum([len(v) for v in six.itervalues(status.serversByRack)])
     print('''
 <body class="oneColLiqCtr">
 <div id="container">
@@ -1654,8 +1708,6 @@ def rackView(buffer, status):
 
 
     for rack, servers in status.serversByRack.items():
-    # original:   for rack, servers in status.serversByRack.iteritems():
-    # modified:   for rack, servers in six.iteritems(status.serversByRack):
         printRackViewHTML(rack, servers, buffer)
 
     print('''
@@ -1938,7 +1990,7 @@ class QueryCache:
                 #print "Using cached numbers:", QueryCache.DIR_COUNTERS.printDebug()
                 return QueryCache.GetMatchingCounters(chunkserverHosts)
         dir_counters = ChunkServerData()
-        req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+        req = REQUEST_GET_DIRS_COUNTERS
         isConnected = False
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2028,10 +2080,10 @@ class QFSQueryHandler:
         return (404, 'Not Found')
 
 
-class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
+class Pinger(SimpleHTTPRequestHandler):
 
     def __init__(self, request, client_address, server):
-        six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler.__init__(self, request, client_address, server)
+        SimpleHTTPRequestHandler.__init__(self, request, client_address, server)
 
     def setMeta(self, meta):
         self.metaserver = meta
@@ -2053,7 +2105,7 @@ class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
         global gChunkHandler
         interval=60 #todo
 
-        clen = int(self.headers.getheader('Content-Length').strip())
+        clen = int(self.headers.get('Content-Length').strip())
         if(clen <= 0):
             self.send_response(400)
             return
@@ -2088,7 +2140,7 @@ class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
             self.send_response(400)
             return
 
-        reqHost = self.headers.getheader('Host')
+        reqHost = self.headers.get('Host')
         refresh = '%d ; URL=http://%s%s' %(interval, reqHost, self.path)
 
         self.send_response(200)
@@ -2108,24 +2160,26 @@ class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
                 return
             if self.path.startswith('/files'):
                 # skip over '/files/
-                fpath = os.path.join(docRoot, self.path[7:])
+                fpath = os.path.abspath(s.path.join(docRoot, self.path[7:]))
                 try:
                     self.send_response(200)
                     self.send_header('Content-length', str(os.path.getsize(fpath)))
                     self.end_headers()
-                    self.copyfile(six.moves.urllib.request.urlopen(fpath), self.wfile)
+                    self.copyfile(urlopen("file://" + fpath), self.wfile)
                 except IOError:
+                    print(f" failed to find file: {'file://' + fpath} ")
                     self.send_error(404, 'Not found')
                 return
 
             if self.path.startswith('/charts'):
-                fpath = self.path[1:]
+                fpath = os.path.abspath(self.path[1:])
                 try:
                     self.send_response(200)
                     self.send_header('Content-length', str(os.path.getsize(fpath)))
                     self.end_headers()
-                    self.copyfile(six.moves.urllib.request.urlopen(fpath), self.wfile)
+                    self.copyfile(urlopen("file://" +fpath), self.wfile)
                 except IOError:
+                    print(f" failed to find chart file: {'file://' + fpath} ")
                     self.send_error(404, 'Not found')
                 return
 
@@ -2264,7 +2318,7 @@ class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
             else:
                 if reqType == None:
                     status.systemStatus(txtStream)
-                reqHost = self.headers.getheader('Host')
+                reqHost = self.headers.get('Host')
                 if reqHost is not None and autoRefresh > 0:
                     if reqType != None:
                         refresh = None
@@ -2280,7 +2334,7 @@ class Pinger(six.moves.SimpleHTTPServer.SimpleHTTPRequestHandler):
             if refresh is not None:
                 self.send_header('Refresh', refresh)
             self.end_headers()
-            self.wfile.write(txtStream.getvalue())
+            self.wfile.write(txtStream.getvalue().encode("utf-8"))
 
         except IOError:
             self.send_error(504, 'Unable to ping metaserver')
@@ -2355,13 +2409,10 @@ def parseChunkConfig(config):
     gChunkHandler.setIntervalData(int(refreshInterval),
         predefinedHeaders, predefinedChunkDirHeaders, monthly, dayly, hourly, current)
 
-class ThreadedTCPServer(six.moves.socketserver.ThreadingMixIn, six.moves.socketserver.TCPServer):
-    pass
 
 if __name__ == '__main__':
     global gChunkHandler
     global gQfsBrowser
-    allMachinesFile = ""
     if len(sys.argv) != 2:
         print("Usage : ./qfsstatus.py <server.conf>")
         sys.exit()
@@ -2373,8 +2424,8 @@ if __name__ == '__main__':
     gChunkHandler = ChunkHandler()
     gQfsBrowser = QFSBrowser()
 
-    config = ConfigParser()
-    config.readfp(open(sys.argv[1], 'r'))
+    config = configparser.ConfigParser()
+    config.read_file(open(sys.argv[1]))
     metaserverPort = config.getint('webserver', 'webServer.metaserverPort')
     try:
         metaserverHost = config.get('webserver', 'webServer.metaserverHost')
@@ -2404,10 +2455,6 @@ if __name__ == '__main__':
     except:
         HOST = "0.0.0.0"
         pass
-    try:
-        allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
-    except:
-        pass
     myWebserverPort = config.getint('webserver', 'webServer.port')
     try:
         objectStoreMode = config.getboolean('webserver', 'webServer.objectStoreMode')
@@ -2422,23 +2469,9 @@ if __name__ == '__main__':
 
     parseChunkConfig(config)
 
-    if '' != allMachinesFile:
-        if not os.path.exists(allMachinesFile):
-            print("Unable to open all machines file: ", allMachinesFile)
-        else:
-            # Read in the list of nodes that we should be running a chunkserver on
-            print("Starting HttpServer...")
-            for line in open(allMachinesFile, 'r'):
-                s = socket.gethostbyname(line.strip())
-                rackId = int(s.split('.')[2])
-                if rackId in serversByRack:
-                    serversByRack[rackId].append(RackNode(s, rackId))
-                else:
-                    serversByRack[rackId] = [RackNode(s, rackId)]
-
     socket.setdefaulttimeout(socketTimeout)
-    six.moves.socketserver.TCPServer.allow_reuse_address = True
-    httpd = ThreadedTCPServer((HOST, myWebserverPort), Pinger)
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    httpd = socketserver.ThreadingTCPServer((HOST, myWebserverPort), Pinger)
     pidf = ''
     try:
         pidf = config.get('webserver', 'webServer.pidFile')
