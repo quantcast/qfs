@@ -2103,64 +2103,73 @@ class Pinger(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         global gChunkHandler
-        interval=60 #todo
+        try:
+            interval=60 #todo
 
-        clen = int(self.headers.get('Content-Length').strip())
-        if(clen <= 0):
-            self.send_response(400)
-            return
-
-        inputBody = self.rfile.read(clen)
-
-        theType = gChunkHandler.processInput(inputBody)
-
-        txtStream = StringIO()
-
-        if theType == kMeta:
-            if gChunkHandler.countersToHTML(txtStream) == 0:
-                print("NOT working!")
-                self.send_error(404, 'Not data')
+            print(f"!!! post request path: {self.path}")
+            clen = int(self.headers.get('Content-Length').strip())
+            if(clen <= 0):
+                self.send_response(400)
                 return
-        elif  theType == kChart:
-            if gChunkHandler.chartsToHTML(txtStream) == 0:
-                print("NOT working!")
-                self.send_error(404, 'Not data')
-                return
-        elif  theType == kChunks:
-            if gChunkHandler.chunksToHTML(txtStream) == 0:
-                print("NOT working!")
-                self.send_error(404, 'Not data')
-                return
-        elif  theType == kChunkDirs:
-            if gChunkHandler.chunkDirsToHTML(txtStream) == 0:
-                print("NOT working!")
-                self.send_error(404, 'Not data')
-                return
-        else:
-            self.send_response(400)
-            return
 
-        reqHost = self.headers.get('Host')
-        refresh = '%d ; URL=http://%s%s' %(interval, reqHost, self.path)
+            inputBody = self.rfile.read(clen).decode('utf-8')
 
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.send_header('Content-length', txtStream.tell())
-        self.end_headers()
-        self.wfile.write(txtStream.getvalue())
+            theType = gChunkHandler.processInput(inputBody)
 
+            txtStream = StringIO()
+
+            if theType == kMeta:
+                if gChunkHandler.countersToHTML(txtStream) == 0:
+                    print("POST NOT working! counters=0")
+                    self.send_error(404, 'No data, counters=0')
+                    return
+            elif  theType == kChart:
+                if gChunkHandler.chartsToHTML(txtStream) == 0:
+                    print("NOT working! charts = 0'")
+                    self.send_error(404, 'Not data, charts = 0')
+                    return
+            elif  theType == kChunks:
+                if gChunkHandler.chunksToHTML(txtStream) == 0:
+                    print("NOT working! chunks = 0")
+                    self.send_error(404, 'Not data. chunks = 0')
+                    return
+            elif  theType == kChunkDirs:
+                if gChunkHandler.chunkDirsToHTML(txtStream) == 0:
+                    print("NOT working! chunk sirs = 0")
+                    self.send_error(404, 'Not data, chunk dirs = 0')
+                    return
+            else:
+                self.send_response(400)
+                return
+
+            reqHost = self.headers.get('Host')
+            refresh = '%d ; URL=http://%s%s' %(interval, reqHost, self.path)
+
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-length', txtStream.tell())
+            self.end_headers()
+            self.wfile.write(txtStream.getvalue().encode("utf-8"))
+
+        except IOError:
+            print('Unable to post to metaserver, IO error')
+            self.send_error(504, 'Unable to post to metaserver, IO error')
+        except Exception as e:
+            print(f'Unable to post to metaserver, {e}')
+            self.send_error(504, f'Unable to post to metaserver, {e}')
 
 
     def do_GET(self):
         global metaserverPort, metaserverHost, docRoot
         global gChunkHandler
         try:
+            print(f"!!! get request path: {self.path}")
             if self.path.startswith('/favicon.ico'):
                 self.send_response(200)
                 return
             if self.path.startswith('/files'):
                 # skip over '/files/
-                fpath = os.path.abspath(s.path.join(docRoot, self.path[7:]))
+                fpath = os.path.abspath(os.path.join(docRoot, self.path[7:]))
                 try:
                     self.send_response(200)
                     self.send_header('Content-length', str(os.path.getsize(fpath)))
@@ -2337,7 +2346,12 @@ class Pinger(SimpleHTTPRequestHandler):
             self.wfile.write(txtStream.getvalue().encode("utf-8"))
 
         except IOError:
-            self.send_error(504, 'Unable to ping metaserver')
+            print('Unable to ping metaserver, IO error')
+            self.send_error(504, 'Unable to ping metaserver, IO error')
+        except Exception as e:
+            print(f'Unable to ping metaserver, {e}')
+            self.send_error(504, f'Unable to ping metaserver, {e}')
+
 
 def parseChunkConfig(config):
     refreshInterval = 10
