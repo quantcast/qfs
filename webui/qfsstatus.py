@@ -750,6 +750,10 @@ class DownServer:
         else:
             self.sort_key = ()
 
+        # if hasattr(self, 'down'):
+        #    time.strptime(self.down)
+        #    self.sort_key1 = split_ip(socket.gethostbyname(self.host))
+
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
             delattr(self, 'p')
@@ -1043,7 +1047,7 @@ class UpServer():
                 else:
                     self.total = self.used + self.free
 
-            self.down = 0
+            self.is_down = 0
             self.retiring = 0
             if hasattr(self, 'host'):
                 self.displayName = self.host
@@ -1061,7 +1065,7 @@ class UpServer():
         if isinstance(info, DownServer):
             self.host = info.host
             self.port = info.port
-            self.down = 1
+            self.is_down = 1
             self.retiring = 0
 
     # Order by IP
@@ -1098,7 +1102,7 @@ class UpServer():
             trclass = 'class="evacuating"'
         elif not objectStoreMode and self.overloaded:
             trclass = 'class="overloaded"'
-        elif not self.good or self.down:
+        elif not self.good or self.is_down:
             trclass = 'class="notgood"'
         elif showNoRack and self.rack < 0:
             trclass = 'class="norack"'
@@ -2091,12 +2095,12 @@ class Pinger(SimpleHTTPRequestHandler):
     def sendErrorResponse(self, code, msg):
         self.send_response(code)
 
-        body = "error %d", msg
+        body = f"error {msg}".encode('utf-8')
         #Send standard HTP headers
         self.send_header('Content-type','text/html; charset=utf-8')
         self.send_header("Connection", "close")
         self.send_header("Accept-Ranges", "bytes")
-        self.send_header('Content-length', len(body)-1)
+        self.send_header('Content-length', len(body))
         self.end_headers()
         self.wfile.write(body)
         return
@@ -2147,9 +2151,10 @@ class Pinger(SimpleHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
-            self.send_header('Content-length', txtStream.tell())
+            bytes_array = txtStream.getvalue().encode("utf-8")
+            self.send_header('Content-length', len(bytes_array))
             self.end_headers()
-            self.wfile.write(txtStream.getvalue().encode("utf-8"))
+            self.wfile.write(bytes_array)
 
         except IOError:
             print('Unable to post to metaserver, IO error')
@@ -2205,9 +2210,10 @@ class Pinger(SimpleHTTPRequestHandler):
                     return
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-length', txtStream.tell())
+                bytes_array = txtStream.getvalue().encode("utf-8")
+                self.send_header('Content-length', len(bytes_array))
                 self.end_headers()
-                self.wfile.write(txtStream.getvalue())
+                self.wfile.write(bytes_array)
                 return
 
             if(gChunkHandler.thread == None):
@@ -2339,11 +2345,12 @@ class Pinger(SimpleHTTPRequestHandler):
                 self.send_header('Content-type', 'text/html')
             else:
                 self.send_header('Content-type', 'application/json')
-            self.send_header('Content-length', txtStream.tell())
+            bytes_array = txtStream.getvalue().encode("utf-8")
+            self.send_header('Content-length', len(bytes_array))
             if refresh is not None:
                 self.send_header('Refresh', refresh)
             self.end_headers()
-            self.wfile.write(txtStream.getvalue().encode("utf-8"))
+            self.wfile.write(bytes_array)
 
         except IOError:
             print('Unable to ping metaserver, IO error')
