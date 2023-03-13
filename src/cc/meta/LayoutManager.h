@@ -2016,6 +2016,13 @@ protected:
         Counter mTotalPlanNoServer;
     };
 
+    enum UsePoxoyOnDifferentHostMode {
+        kUsePoxoyOnDifferentHostModeSameRackFirst = 0,
+        kUsePoxoyOnDifferentHostModeSameRackOnly = 1,
+        kUsePoxoyOnDifferentHostModeSameRackOnlyIfSetInReq = 2,
+        kUsePoxoyOnDifferentHostModeCount // must be last
+    };
+
     // Striped (Reed-Solomon) files allocations in flight used for chunk
     // placment.
     typedef set<
@@ -2533,6 +2540,9 @@ protected:
     bool              mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag;
     bool              mObjectStorePlacementTestFlag;
 
+    UsePoxoyOnDifferentHostMode mReadUsePoxoyOnDifferentHostMode;
+    UsePoxoyOnDifferentHostMode mWriteUsePoxoyOnDifferentHostMode;
+
     typedef set<int> CreateFileTypeExclude;
     CreateFileTypeExclude mCreateFileTypeExclude;
     int                   mMaxDataStripeCount;
@@ -2786,7 +2796,8 @@ protected:
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);
-    bool FindAccessProxyFor(const MetaRequest& req, Servers& srvs);
+    bool FindAccessProxyFor(const MetaRequest& req, Servers& srvs,
+        const UsePoxoyOnDifferentHostMode mode);
     template <typename T>
     bool GetAccessProxyFromReq(T& req, Servers& servers);
     void Replay(MetaHello& req);

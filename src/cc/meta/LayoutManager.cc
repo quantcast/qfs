@@ -1795,7 +1795,8 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
             kNullChunkServerPtr : FindServerForReq(req);
         if (! server) {
             if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
-                if (FindAccessProxyFor(req, req.servers)) {
+                if (FindAccessProxyFor(req, req.servers,
+                        mWriteUsePoxoyOnDifferentHostMode)) {
                     return true;
                 }
                 req.statusMsg = "no access proxy available";
@@ -2189,6 +2190,10 @@ LayoutManager::LayoutManager()
       mObjectStoreReadCanUsePoxoyOnDifferentHostFlag(false),
       mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag(false),
       mObjectStorePlacementTestFlag(false),
+      mReadUsePoxoyOnDifferentHostMode(
+        kUsePoxoyOnDifferentHostModeSameRackFirst),
+      mWriteUsePoxoyOnDifferentHostMode(
+        kUsePoxoyOnDifferentHostModeSameRackFirst),
       mCreateFileTypeExclude(),
       mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
       mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
@@ -2976,6 +2981,26 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mObjectStorePlacementTestFlag = props.getValue(
         "metaServer.objectStorePlacementTest",
         mObjectStorePlacementTestFlag ? 1 : 0) != 0;
+
+    const struct {
+        const char* const            key;
+        UsePoxoyOnDifferentHostMode& val;
+    } readObjStoreModeParams[] = {
+        { "metaServer.readUsePoxoyOnDifferentHostMode",
+            mReadUsePoxoyOnDifferentHostMode },
+        { "metaServer.writeUsePoxoyOnDifferentHostMode",
+            mWriteUsePoxoyOnDifferentHostMode },
+        { NULL, mWriteUsePoxoyOnDifferentHostMode } // Sentinel.
+    };
+    for (int i = 0; readObjStoreModeParams[i].key; ++i) {
+        UsePoxoyOnDifferentHostMode& val  = readObjStoreModeParams[i].val;
+        const int                    mode =
+            props.getValue(readObjStoreModeParams[i].key, (int)val);
+        val = (mode < kUsePoxoyOnDifferentHostModeSameRackFirst ||
+                kUsePoxoyOnDifferentHostModeCount < mode) ?
+                kUsePoxoyOnDifferentHostModeSameRackFirst :
+                UsePoxoyOnDifferentHostMode(mode);
+    }
 
     mIdempotentRequestTracker.SetParameters(
         "metaServer.idempotentRequest.", props);
@@ -13790,16 +13815,20 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
 
 bool
 LayoutManager::FindAccessProxyFor(
-    const MetaRequest&      req,
-    LayoutManager::Servers& srvs)
+    const MetaRequest&                req,
+    LayoutManager::Servers&           srvs,
+    const UsePoxoyOnDifferentHostMode mode)
 {
-    for (int pass = 0; pass < 2; pass++) {
-        const RackId                    rackId =
-            pass == 0 ? GetRackId(req) : RackId(-1);
+    const RackId rackId  = GetRackId(req);
+    const int    passCnt =
+        (kUsePoxoyOnDifferentHostModeSameRackOnly == mode ||
+            (kUsePoxoyOnDifferentHostModeSameRackOnlyIfSetInReq == mode &&
+                0 <= rackId)) ? 1 : 2;
+    for (int pass = 0; pass < passCnt; pass++) {
         RackInfos::const_iterator const it     =
-            rackId < 0 ? mRacks.end() : FindRack(rackId);
+            (rackId < 0 || 0 < pass) ? mRacks.end() : FindRack(rackId);
         if (it == mRacks.end() && 0 == pass) {
-            pass++;
+            continue;
         }
         const Servers& servers =
             0 == pass ? it->getServers() : mChunkServers;
@@ -13829,7 +13858,7 @@ LayoutManager::FindAccessProxyFor(
                     it = servers.begin();
                 }
             }
-            if (0 != pass) {
+            if (passCnt <= pass + 1) {
                 // No good one, use the fist randomly chosen one.
                 srvs.push_back(*sit);
                 return true;
@@ -13852,7 +13881,7 @@ LayoutManager::GetAccessProxy(
         return true;
     }
     return (mObjectStoreReadCanUsePoxoyOnDifferentHostFlag &&
-        FindAccessProxyFor(req, servers));
+        FindAccessProxyFor(req, servers, mReadUsePoxoyOnDifferentHostMode));
 }
 
 bool
