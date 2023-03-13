@@ -709,7 +709,7 @@ class Status:
          <tbody>
             ''', file=buffer)
             count = 0
-            for v in downServers:
+            for v in reversed(downServers):
                 v.printStatusHTML(buffer, count)
                 count = count + 1
             print('''
@@ -745,14 +745,7 @@ class DownServer:
 
         if hasattr(self, 's'):
             setattr(self, 'host', self.s)
-            self.sort_key = split_ip(socket.gethostbyname(self.host))
             delattr(self, 's')
-        else:
-            self.sort_key = ()
-
-        # if hasattr(self, 'down'):
-        #    time.strptime(self.down)
-        #    self.sort_key1 = split_ip(socket.gethostbyname(self.host))
 
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
@@ -766,19 +759,6 @@ class DownServer:
             self.displayName += ':' + str(self.port)
 
         self.stillDown = 0
-
-    # Order by IP
-    def __lt__(self, other):
-        return self.sort_key < other.sort_key
-
-    def __gt__(self, other):
-        return self.sort_key > other.sort_key
-
-    def __le__(self, other):
-        return self.sort_key <= other.sort_key
-
-    def __ge__(self, other):
-        return self.sort_key >= other.sort_key
 
     def setStillDown(self):
         self.stillDown = 1
@@ -820,6 +800,7 @@ class RetiringServer:
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
             delattr(self, 'p')
+            self.sort_key += (self.port,)
 
         if hasattr(self, 'host'):
             self.displayName = self.host
@@ -871,6 +852,7 @@ class EvacuatingServer:
         if hasattr(self, 'p'):
             setattr(self, 'port', self.p)
             delattr(self, 'p')
+            self.sort_key += (self.port,)
 
         if hasattr(self, 'host'):
             self.displayName = self.host
@@ -952,6 +934,8 @@ class UpServer():
             if hasattr(self, 'p'):
                 setattr(self, 'port', self.p)
                 delattr(self, 'p')
+                self.sort_key += (self.port,)
+
 
             if hasattr(self, 'overloaded'):
                 self.overloaded = int(self.overloaded) != 0
@@ -1209,21 +1193,23 @@ def processUpNodes(status, nodes):
 
 def processDownNodes(status, nodes):
     servers = nodes.split('\t')
-    if servers != "":
-        status.downServers = [DownServer(c) for c in servers if c != '']
-        status.downServers.sort()
+    if not servers:
+        return
+    status.downServers = [DownServer(c) for c in servers if c != '']
 
 def processRetiringNodes(status, nodes):
     servers = nodes.split('\t')
-    if servers != "":
-        status.retiringServers = [RetiringServer(c) for c in servers if c != '']
-        status.retiringServers.sort()
+    if not servers:
+        return
+    status.retiringServers = [RetiringServer(c) for c in servers if c != '']
+    status.retiringServers.sort()
 
 def processEvacuatingNodes(status, nodes):
     servers = nodes.split('\t')
-    if servers != "":
-        status.evacuatingServers = [EvacuatingServer(c) for c in servers if c != '']
-        status.evacuatingServers.sort()
+    if not servers:
+        return
+    status.evacuatingServers = [EvacuatingServer(c) for c in servers if c != '']
+    status.evacuatingServers.sort()
 
 def bytesToReadable(b):
     v = int(b)
@@ -2110,7 +2096,6 @@ class Pinger(SimpleHTTPRequestHandler):
         try:
             interval=60 #todo
 
-            print(f"!!! post request path: {self.path}")
             clen = int(self.headers.get('Content-Length').strip())
             if(clen <= 0):
                 self.send_response(400)
@@ -2168,7 +2153,6 @@ class Pinger(SimpleHTTPRequestHandler):
         global metaserverPort, metaserverHost, docRoot
         global gChunkHandler
         try:
-            print(f"!!! get request path: {self.path}")
             if self.path.startswith('/favicon.ico'):
                 self.send_response(200)
                 return
