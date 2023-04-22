@@ -141,13 +141,7 @@ public:
         }
         // Create ssl cts to ensure that all ssl libs static / globals are
         // properly initialized, to help to avoid any possible races.
-        SSL_CTX* const theCtxPtr = SSL_CTX_new(
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-            TLSv1_method()
-#else
-            TLS_method()
-#endif
-        );
+        SSL_CTX* const theCtxPtr = SSL_CTX_new(TLS_method());
         if (theCtxPtr) {
             SSL_free(SSL_new(theCtxPtr));
             SSL_CTX_free(theCtxPtr);
@@ -196,13 +190,7 @@ public:
         string*           inErrMsgPtr)
     {
         SSL_CTX* const theRetPtr = SSL_CTX_new(
-            inServerFlag ?
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-                TLSv1_server_method() : TLSv1_client_method()
-#else
-                TLS_server_method() : TLS_client_method()
-#endif
-            );
+            inServerFlag ? TLS_server_method() : TLS_client_method());
         if (! theRetPtr) {
             return 0;
         }
