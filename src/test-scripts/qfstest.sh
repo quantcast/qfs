@@ -638,6 +638,10 @@ metaServer.userAndGroup.updatePeriodSec = 4
 metaServer.vr.id = 0
 metaServer.log.debugCommitted.size = 111
 metaServer.log.debugCommitted.fileName = committeddebug.txt
+metaServer.readUseProxyOnDifferentHost = 1
+metaServer.readUseProxyOnDifferentHostMode = 1
+metaServer.writeUseProxyOnDifferentHost = 1
+metaServer.writeUseProxyOnDifferentHostMode = 2
 chunkServer.getFsSpaceAvailableIntervalSecs = 2
 chunkServer.objecStorageTierPrefixes = s3://__test_0 0 __test_2 2
 EOF

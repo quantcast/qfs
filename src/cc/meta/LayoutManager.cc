@@ -1794,9 +1794,9 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
         const ChunkServerPtr& server = mObjectStorePlacementTestFlag ?
             kNullChunkServerPtr : FindServerForReq(req);
         if (! server) {
-            if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
+            if (mObjectStoreWriteCanUseProxyOnDifferentHostFlag) {
                 if (FindAccessProxyFor(req, req.servers,
-                        mWriteUsePoxoyOnDifferentHostMode)) {
+                        mWriteUseProxyOnDifferentHostMode)) {
                     return true;
                 }
                 req.statusMsg = "no access proxy available";
@@ -2187,13 +2187,13 @@ LayoutManager::LayoutManager()
       mDeleteChunkOnFsIdMismatchFlag(false),
       mChunkAvailableUseReplicationOrRecoveryThreshold(-1),
       mObjectStoreEnabledFlag(false),
-      mObjectStoreReadCanUsePoxoyOnDifferentHostFlag(false),
-      mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag(false),
+      mObjectStoreReadCanUseProxyOnDifferentHostFlag(false),
+      mObjectStoreWriteCanUseProxyOnDifferentHostFlag(false),
       mObjectStorePlacementTestFlag(false),
-      mReadUsePoxoyOnDifferentHostMode(
-        kUsePoxoyOnDifferentHostModeSameRackFirst),
-      mWriteUsePoxoyOnDifferentHostMode(
-        kUsePoxoyOnDifferentHostModeSameRackFirst),
+      mReadUseProxyOnDifferentHostMode(
+        kUseProxyOnDifferentHostModeSameRackFirst),
+      mWriteUseProxyOnDifferentHostMode(
+        kUseProxyOnDifferentHostModeSameRackFirst),
       mCreateFileTypeExclude(),
       mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
       mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
@@ -2972,34 +2972,38 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         mHelloResumeFailureTraceFileName);
     mObjectStoreEnabledFlag = props.getValue(
         "metaServer.objectStoreEnabled", mObjectStoreEnabledFlag ? 1 : 0) != 0;
-    mObjectStoreReadCanUsePoxoyOnDifferentHostFlag = props.getValue(
-        "metaServer.objectStoreReadCanUsePoxoyOnDifferentHost",
-        mObjectStoreReadCanUsePoxoyOnDifferentHostFlag ? 1 : 0) != 0;
-    mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag = props.getValue(
-        "metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost",
-        mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag ? 1 : 0) != 0;
+    mObjectStoreReadCanUseProxyOnDifferentHostFlag = props.getValue(
+        "metaServer.objectStoreReadCanUseProxyOnDifferentHost",
+        props.getValue(
+            "metaServer.objectStoreReadCanUsePoxoyOnDifferentHost",
+            mObjectStoreReadCanUseProxyOnDifferentHostFlag ? 1 : 0)) != 0;
+    mObjectStoreWriteCanUseProxyOnDifferentHostFlag = props.getValue(
+        "metaServer.objectStoreWriteCanUseProxyOnDifferentHost",
+        props.getValue(
+            "metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost",
+            mObjectStoreWriteCanUseProxyOnDifferentHostFlag ? 1 : 0)) != 0;
     mObjectStorePlacementTestFlag = props.getValue(
         "metaServer.objectStorePlacementTest",
         mObjectStorePlacementTestFlag ? 1 : 0) != 0;
 
     const struct {
         const char* const            key;
-        UsePoxoyOnDifferentHostMode& val;
+        UseProxyOnDifferentHostMode& val;
     } readObjStoreModeParams[] = {
-        { "metaServer.readUsePoxoyOnDifferentHostMode",
-            mReadUsePoxoyOnDifferentHostMode },
-        { "metaServer.writeUsePoxoyOnDifferentHostMode",
-            mWriteUsePoxoyOnDifferentHostMode },
-        { NULL, mWriteUsePoxoyOnDifferentHostMode } // Sentinel.
+        { "metaServer.readUseProxyOnDifferentHostMode",
+            mReadUseProxyOnDifferentHostMode },
+        { "metaServer.writeUseProxyOnDifferentHostMode",
+            mWriteUseProxyOnDifferentHostMode },
+        { NULL, mWriteUseProxyOnDifferentHostMode } // Sentinel.
     };
     for (int i = 0; readObjStoreModeParams[i].key; ++i) {
-        UsePoxoyOnDifferentHostMode& val  = readObjStoreModeParams[i].val;
+        UseProxyOnDifferentHostMode& val  = readObjStoreModeParams[i].val;
         const int                    mode =
             props.getValue(readObjStoreModeParams[i].key, (int)val);
-        val = (mode < kUsePoxoyOnDifferentHostModeSameRackFirst ||
-                kUsePoxoyOnDifferentHostModeCount < mode) ?
-                kUsePoxoyOnDifferentHostModeSameRackFirst :
-                UsePoxoyOnDifferentHostMode(mode);
+        val = (mode < kUseProxyOnDifferentHostModeSameRackFirst ||
+                kUseProxyOnDifferentHostModeCount < mode) ?
+                kUseProxyOnDifferentHostModeSameRackFirst :
+                UseProxyOnDifferentHostMode(mode);
     }
 
     mIdempotentRequestTracker.SetParameters(
@@ -13817,12 +13821,12 @@ bool
 LayoutManager::FindAccessProxyFor(
     const MetaRequest&                req,
     LayoutManager::Servers&           srvs,
-    const UsePoxoyOnDifferentHostMode mode)
+    const UseProxyOnDifferentHostMode mode)
 {
     const RackId rackId  = GetRackId(req);
     const int    passCnt =
-        (kUsePoxoyOnDifferentHostModeSameRackOnly == mode ||
-            (kUsePoxoyOnDifferentHostModeSameRackOnlyIfSetInReq == mode &&
+        (kUseProxyOnDifferentHostModeSameRackOnly == mode ||
+            (kUseProxyOnDifferentHostModeSameRackOnlyIfSetInReq == mode &&
                 0 <= rackId)) ? 1 : 2;
     for (int pass = 0; pass < passCnt; pass++) {
         RackInfos::const_iterator const it     =
@@ -13880,8 +13884,8 @@ LayoutManager::GetAccessProxy(
         servers.push_back(srv);
         return true;
     }
-    return (mObjectStoreReadCanUsePoxoyOnDifferentHostFlag &&
-        FindAccessProxyFor(req, servers, mReadUsePoxoyOnDifferentHostMode));
+    return (mObjectStoreReadCanUseProxyOnDifferentHostFlag &&
+        FindAccessProxyFor(req, servers, mReadUseProxyOnDifferentHostMode));
 }
 
 bool
