@@ -1,3 +1,28 @@
+## QFS version 2.2.6
+
+## New features
+1. Added go language bindings.
+
+## Bug fixes
+1. Increase default watchdog poll interval by 0.15 to 1.15 seconds in order to
+avoid spurious timeouts during idle time due to 1 second default net manager
+sleep interval. Change poll interval dependent default parameters calculation
+accordingly.
+
+## Minor improvements.
+1. Additional object store chunk server / AP assignment modes. One is choose AP
+with matching rack only (i.e. with no fall back to choosing from all available
+APs), and the other is to choose AP with with matching rack only if client rack
+is set / known, otherwise falling back to choosing any available AP. For details
+please consult metaServer.readUseProxyOnDifferentHostMode and
+metaServer.writeUseProxyOnDifferentHostMode parameters descriptions in annotated
+meta server configuration file.
+2. Use TLS 1.2 with openssl versions prior to 1.1.
+3. Implement script to calculate object store space utilization and count number
+of files as function of file access time by scanning meta server checkpoint.
+4. Compile with openssl 3.0
+5. Build on Ubuntu 22.04
+
 ## QFS version 2.2.5
 
 ## Bug fixes
