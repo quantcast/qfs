@@ -143,7 +143,7 @@ public:
         // properly initialized, to help to avoid any possible races.
         SSL_CTX* const theCtxPtr = SSL_CTX_new(
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-            TLSv1_method()
+            SSLv23_method()
 #else
             TLS_method()
 #endif
@@ -198,7 +198,7 @@ public:
         SSL_CTX* const theRetPtr = SSL_CTX_new(
             inServerFlag ?
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-                TLSv1_server_method() : TLSv1_client_method()
+                SSLv23_server_method() : SSLv23_client_method()
 #else
                 TLS_server_method() : TLS_client_method()
 #endif
@@ -243,6 +243,17 @@ public:
                 // For now turn off TLS 1.3 as PSK does not appear to work
                 // with it.
                 | (inPskOnlyFlag ? long(SSL_OP_NO_TLSv1_3) : long(0))
+#   endif
+#endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+                // For openssl prior to 1.1 turn off SSL2 and SSL3 in order to
+                // prevent SSL downgrade attacks, and ensure that PSK can be
+                // used.
+#   ifdef SSL_OP_NO_SSLv2
+                | long(SSL_OP_NO_SSLv2)
+#   endif
+#   ifdef SSL_OP_NO_SSLv3
+                | long(SSL_OP_NO_SSLv3)
 #   endif
 #endif
         ));

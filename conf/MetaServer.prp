@@ -1275,8 +1275,22 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Allow to use AP running on different than client host to serve read requests.
 # Enabling this option might result in additional network traffic.
 # Default is 0.
-# metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 0
-#
+# metaServer.objectStoreReadCanUseProxyOnDifferentHost = 0
+
+# The following has effect only when
+# metaServer.objectStoreReadCanUseProxyOnDifferentHost is not 0
+# Possible values:
+# 0 -- if rack set in client request, then consider AP with matching rack first,
+# and if no suitable AP found, or rack is not set in the client request, then
+# consider all available APs.
+# 1 -- only consider APs with the rack that matches QFS client, if no AP with
+# matching rack found or if no rack set in the client request, then declare
+# failure.
+# 2 -- if rack set in client request, then only consider AP with matching rack,
+# otherwise if no rack set in client request then consider all available APs.
+# Default is 0.
+# metaServer.readUseProxyOnDifferentHostMode = 0
+
 # Allow to use AP running on different than client host to serve write requests.
 # Enabling this option might result in additional network traffic, and reduced
 # write reliability in the cases where AP and client run on different hosts, as
@@ -1284,7 +1298,12 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # communication between client and AP, or AP host going down would result in
 # unrecoverable write failure.
 # Default is 0.
-# metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 0
+# metaServer.objectStoreWriteCanUseProxyOnDifferentHost = 0
+
+# Please see the description for metaServer.readUseProxyOnDifferentHostMode the
+# above.
+# Default is 0.
+# metaServer.writeUseProxyOnDifferentHostMode = 0
 
 # If more than one object store directory specified, the following parameter
 # must be set to assign each object store directory to a single tier.

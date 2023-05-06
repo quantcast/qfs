@@ -2016,11 +2016,11 @@ protected:
         Counter mTotalPlanNoServer;
     };
 
-    enum UsePoxoyOnDifferentHostMode {
-        kUsePoxoyOnDifferentHostModeSameRackFirst = 0,
-        kUsePoxoyOnDifferentHostModeSameRackOnly = 1,
-        kUsePoxoyOnDifferentHostModeSameRackOnlyIfSetInReq = 2,
-        kUsePoxoyOnDifferentHostModeCount // must be last
+    enum UseProxyOnDifferentHostMode {
+        kUseProxyOnDifferentHostModeSameRackFirst = 0,
+        kUseProxyOnDifferentHostModeSameRackOnly = 1,
+        kUseProxyOnDifferentHostModeSameRackOnlyIfSetInReq = 2,
+        kUseProxyOnDifferentHostModeCount // must be last
     };
 
     // Striped (Reed-Solomon) files allocations in flight used for chunk
@@ -2536,12 +2536,12 @@ protected:
     bool              mDeleteChunkOnFsIdMismatchFlag;
     int               mChunkAvailableUseReplicationOrRecoveryThreshold;
     bool              mObjectStoreEnabledFlag;
-    bool              mObjectStoreReadCanUsePoxoyOnDifferentHostFlag;
-    bool              mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag;
+    bool              mObjectStoreReadCanUseProxyOnDifferentHostFlag;
+    bool              mObjectStoreWriteCanUseProxyOnDifferentHostFlag;
     bool              mObjectStorePlacementTestFlag;
 
-    UsePoxoyOnDifferentHostMode mReadUsePoxoyOnDifferentHostMode;
-    UsePoxoyOnDifferentHostMode mWriteUsePoxoyOnDifferentHostMode;
+    UseProxyOnDifferentHostMode mReadUseProxyOnDifferentHostMode;
+    UseProxyOnDifferentHostMode mWriteUseProxyOnDifferentHostMode;
 
     typedef set<int> CreateFileTypeExclude;
     CreateFileTypeExclude mCreateFileTypeExclude;
@@ -2797,7 +2797,7 @@ protected:
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);
     bool FindAccessProxyFor(const MetaRequest& req, Servers& srvs,
-        const UsePoxoyOnDifferentHostMode mode);
+        const UseProxyOnDifferentHostMode mode);
     template <typename T>
     bool GetAccessProxyFromReq(T& req, Servers& servers);
     void Replay(MetaHello& req);

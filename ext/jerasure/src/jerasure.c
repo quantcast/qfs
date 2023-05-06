@@ -732,17 +732,10 @@ int jerasure_bitmatrix_decode(int k, int m, int w, int *bitmatrix, int row_k_one
 
 static char **set_up_ptrs_for_scheduled_decoding(int k, int m, int *erasures, char **data_ptrs, char **coding_ptrs)
 {
-  int ddf, cdf;
   int *erased;
   char **ptrs;
   int i, j, x;
 
-  ddf = 0;
-  cdf = 0;
-  for (i = 0; erasures[i] != -1; i++) {
-    if (erasures[i] < k) ddf++; else cdf++;
-  }
-  
   erased = jerasure_erasures_to_erased(k, m, erasures);
   if (erased == NULL) return NULL;
 
@@ -791,15 +784,8 @@ static char **set_up_ptrs_for_scheduled_decoding(int k, int m, int *erasures, ch
 
 static int set_up_ids_for_scheduled_decoding(int k, int m, int *erasures, int *row_ids, int *ind_to_row)
 {
-  int ddf, cdf;
   int *erased;
   int i, j, x;
-
-  ddf = 0;
-  cdf = 0;
-  for (i = 0; erasures[i] != -1; i++) {
-    if (erasures[i] < k) ddf++; else cdf++;
-  }
   
   erased = jerasure_erasures_to_erased(k, m, erasures);
   if (erased == NULL) return -1;
