@@ -1,3 +1,5 @@
+# QFS version 2
+
 QFS version 2.2.6
 
 Release 2.2.6
@@ -75,10 +77,10 @@ variants. The QFS client tools work on OS X and Cygwin as well.
 | Ubuntu 14.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Ubuntu 18.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Ubuntu 20.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 22.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | CentOS 6     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | CentOS 7     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | CentOS 8     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 9     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Debian 10    | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 
 The implementation details and features of QFS are discussed in detail in the

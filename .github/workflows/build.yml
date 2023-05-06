@@ -62,12 +62,7 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
-          - distro: debian
-            ver: 9
-            codecov: no
-            btype: release
-            buser: qfsbuild
-          - distro: debian
+s          - distro: debian
             ver: 10
             codecov: no
             btype: release
