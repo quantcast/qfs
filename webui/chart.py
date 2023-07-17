@@ -21,10 +21,8 @@
 #
 #
 
-import platform
 
 kDeltaPrefix="D-"
-
 
 
 class  ChartServerData:
@@ -47,4 +45,4 @@ class ChartHTML:
     
 
     def printToHTML(self,buffer):
-        print "TBD"
+        print("TBD")
