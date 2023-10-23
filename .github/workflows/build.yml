@@ -145,6 +145,33 @@ jobs:
           AWS_DEFAULT_REGION: us-west-2
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
+  osx-build-arm64:
+    runs-on: macos-latest-xlarge
+    env:
+      BUILD_OS_NAME: osx
+    steps:
+      - name: Brew install
+        run: |
+          brew install boost || true
+          brew install macfuse || true
+          brew install go || true
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: MacOS build
+        run: travis/script.sh
+
+      - name: Upload tarball
+        if: |
+          'refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-2
+        run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
+
   cygwin-build:
     if: ${{ false }}  # turn off for now
     runs-on: windows-latest
