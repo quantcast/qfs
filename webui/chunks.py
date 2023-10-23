@@ -169,7 +169,7 @@ class SavedChunkDataList:
         print("lastTime", self.lastTime)
 
         for elem in self.theList:
-            elem.printDebug(buffer)
+            elem.printDebug()
 
 
 
