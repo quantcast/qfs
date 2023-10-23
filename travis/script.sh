@@ -39,7 +39,7 @@ DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
 DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
 
-MYMVN_URL='https://downloads.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
+MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
@@ -197,6 +197,10 @@ build_ubuntu()
     else
         MYDEPS=$DEPS_UBUNTU
     fi
+    $MYSUDO apt-get update
+    $MYSUDO /bin/bash -c \
+        "DEBIAN_FRONTEND='noninteractive' apt-get install -y gnupg"
+    $MYSUDO apt-key update
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"

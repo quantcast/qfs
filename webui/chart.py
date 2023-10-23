@@ -21,30 +21,25 @@
 #
 #
 
-import platform
 
-kDeltaPrefix="D-"
-
+kDeltaPrefix = "D-"
 
 
-class  ChartServerData:
-
-    def __init__(self,serverName,serverArray):
+class ChartServerData:
+    def __init__(self, serverName, serverArray):
         self.serverName = serverName
         self.serverArray = serverArray
-    
 
-class  ChartData:
 
+class ChartData:
     def __init__(self):
         self.headers = None
         self.serverArray = []
-    
+
 
 class ChartHTML:
     def __init__(self, chartData):
         self.chartData = chartData
-    
 
-    def printToHTML(self,buffer):
-        print "TBD"
+    def printToHTML(self, buffer):
+        print("TBD")

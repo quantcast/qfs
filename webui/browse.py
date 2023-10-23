@@ -23,9 +23,8 @@
 #
 
 import os
-import sys
 import stat
-import platform
+import sys
 
 gBrowsable = True
 try:
@@ -34,18 +33,9 @@ except ImportError:
     sys.stderr.write("Warning: %s. Proceeding without file browser.\n" % str(sys.exc_info()[1]))
     gBrowsable = False
 
-class QFSBrowser:
 
-    PERMISSIONS = {
-        0 : '---',
-        1 : '--x',
-        2 : '-w-',
-        3 : '-wx',
-        4 : 'r--',
-        5 : 'r-x',
-        6 : 'rw-',
-        7 : 'rwx'
-    }
+class QFSBrowser:
+    PERMISSIONS = {0: "---", 1: "--x", 2: "-w-", 3: "-wx", 4: "r--", 5: "r-x", 6: "rw-", 7: "rwx"}
     browsable = True
 
     def __init__(self):
@@ -57,40 +47,40 @@ class QFSBrowser:
         gPerm = self.PERMISSIONS[(mode >> 3) & 7]
         uPerm = self.PERMISSIONS[(mode >> 6) & 7]
         if isDir:
-            dirChar = 'd'
+            dirChar = "d"
         else:
-            dirChar = '-'
+            dirChar = "-"
         permission = dirChar + uPerm + gPerm + oPerm
         if mode & stat.S_ISUID:
-            if (mode & stat.S_IXUSR):
-                p3 = 's'
+            if mode & stat.S_IXUSR:
+                p3 = "s"
             else:
-                p3 = 'S'
+                p3 = "S"
             permission = permission[:3] + p3 + permission[4:]
         if mode & stat.S_ISGID:
-            if (mode & stat.S_IXGRP):
-                p6 = 's'
+            if mode & stat.S_IXGRP:
+                p6 = "s"
             else:
-                p6 = 'l'
+                p6 = "l"
             permission = permission[:6] + p6 + permission[7:]
         if mode & stat.S_ISVTX:
-            if (mode & stat.S_IXOTH):
-                p9 = 't'
+            if mode & stat.S_IXOTH:
+                p9 = "t"
             else:
-                p9 = 'T'
+                p9 = "T"
             permission = permission[:9] + p9 + permission[10:]
         return permission
 
-
     def startHTML(self, directory, buffer):
-        if directory == '/':
-            parent = '/'
+        if directory == "/":
+            parent = "/"
         else:
-            if directory.endswith('/'):
+            if directory.endswith("/"):
                 directory = os.path.split(directory)[0]
             parent = os.path.split(directory)[0]
 
-        print >> buffer, '''
+        print(
+            """
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
@@ -125,35 +115,50 @@ class QFSBrowser:
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
-            </tr>''' % (directory, directory, parent)
+            </tr>"""
+            % (directory, directory, parent),
+            file=buffer,
+        )
 
     def endHTML(self, buffer):
-        print >> buffer, '''
+        print(
+            """
         </div>
         </div>
     </body>
-</html>'''
+</html>""",
+            file=buffer,
+        )
 
     def contentHTML(self, path, info, fullStat, buffer):
         if fullStat[9] == 1:
             dataStripes = fullStat[11]
             recoveryStripes = fullStat[12]
         else:
-            dataStripes = '-'
-            recoveryStripes = '-'
-        permissions = self.getPermissionStr(fullStat[8], fullStat[0] == 'dir')
+            dataStripes = "-"
+            recoveryStripes = "-"
+        permissions = self.getPermissionStr(fullStat[8], fullStat[0] == "dir")
 
-        if fullStat[0] == 'dir':
-            target = '/browse-it%s' % path
-            print >> buffer, '''
+        if fullStat[0] == "dir":
+            target = "/browse-it%s" % path
+            print(
+                """
                 <tr><td style="vertical-align: top;background-color:LightBlue;"><B><a href="%s">%s</a></B><br></td>
-                ''' % (target, info[0])
+                """
+                % (target, info[0]),
+                file=buffer,
+            )
         else:
-            print >> buffer, '''
+            print(
+                """
                 <tr><td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                ''' % info[0]
+                """
+                % info[0],
+                file=buffer,
+            )
 
-        print >> buffer, '''
+        print(
+            """
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
@@ -163,23 +168,27 @@ class QFSBrowser:
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
                 <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-            </tr>''' % (info[5],
-                        fullStat[3],
-                        fullStat[5],
-                        dataStripes,
-                        recoveryStripes,
-                        fullStat[2],
-                        permissions,
-                        fullStat[6],
-                        fullStat[7])
-
+            </tr>"""
+            % (
+                info[5],
+                fullStat[3],
+                fullStat[5],
+                dataStripes,
+                recoveryStripes,
+                fullStat[2],
+                permissions,
+                fullStat[6],
+                fullStat[7],
+            ),
+            file=buffer,
+        )
 
     def printToHTML(self, directory, host, port, buffer):
         client = qfs.client((host, port))
         self.startHTML(directory, buffer)
         dirPath = os.path.join("/", directory)
         for info in client.readdirplus(dirPath):
-            if info[0] in ('.', '..'):
+            if info[0] in (".", ".."):
                 continue
             pathEntry = os.path.join(dirPath, info[0])
             fullStat = client.fullstat(pathEntry)
