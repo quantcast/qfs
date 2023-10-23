@@ -155,6 +155,7 @@ jobs:
           brew install boost || true
           brew install macfuse || true
           brew install go || true
+          brew install awscli || true
 
       - name: Checkout code
         uses: actions/checkout@v2
