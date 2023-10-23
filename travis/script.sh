@@ -197,6 +197,7 @@ build_ubuntu()
     else
         MYDEPS=$DEPS_UBUNTU
     fi
+    $MYSUDO apt-key update
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"
