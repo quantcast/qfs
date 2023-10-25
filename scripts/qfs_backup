@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Author: Christopher Zimmerman
 #
@@ -21,9 +21,11 @@
 # This tool can be used to generate a tar archive stream of the latest
 # checkpoint and associated transaction logs to standard output.
 
-import os, posix, subprocess, pprint, re, sys
-
-from optparse import OptionParser, OptionGroup, IndentedHelpFormatter
+import os
+import re
+import subprocess
+import sys
+from optparse import IndentedHelpFormatter, OptionParser
 
 PRUNE_MSG="""
 The log, and checkpoint pruning related options are for backward compatibility
@@ -50,8 +52,8 @@ def check_file(e, name, file):
 def parse_options():
     formatter = IndentedHelpFormatter(max_help_position=50, width=80)
     usage = "usage: ./%prog -c CHECKPOINT -t TRANSACTIONS"
-    desc = """Generates a tar archive stream of the lateset
-checkpoint and associated transacton logs to standard output."""
+    desc = """Generates a tar archive stream of the latest
+checkpoint and associated transaction logs to standard output."""
     parser = OptionParser(usage, formatter=formatter, add_help_option=False,
         description=desc)
 
@@ -59,9 +61,9 @@ checkpoint and associated transacton logs to standard output."""
         help="Path to checkpoint directory.")
     parser.add_option('-t', '--transactions', metavar='DIR',
         help="Path to transaction log directory.")
-    parser.add_option('-o', '--count', default=4, metavar='INT',
+    parser.add_option('-o', '--count', default=4, type='int',
         help="Number of checkpoints to archive.")
-    parser.add_option('-n', '--number', default=8, metavar='INT',
+    parser.add_option('-n', '--number', default=8, type='int',
         help="""Number of checkpoints to keep, overrides -p
 -- Deprecated for the same reason as -p""")
     parser.add_option('-a', '--tar', default='/bin/tar', metavar='BINARY',
@@ -81,8 +83,8 @@ checkpoint and associated transacton logs to standard output."""
 
     if options.help:
         parser.print_help()
-        print
-        posix._exit(0)
+        print()
+        sys.exit(0)
 
     e = []
     if options.checkpoint:
@@ -107,24 +109,13 @@ checkpoint and associated transacton logs to standard output."""
 
     if len(e) > 0:
         parser.print_help()
-        print
+        print()
         for error in e:
-            print "*** %s" % error
-        print
-        posix._exit(1)
+            print("*** %s" % error)
+        print()
+        sys.exit(1)
 
     return options
-
-def cmp_files(a, b):
-    """ Compare files by VR log sequence number component."""
-
-    a_number = find_transaction_number(a)
-    if not a_number: a_number = find_checkpoint_number(a)
-
-    b_number = find_transaction_number(b)
-    if not b_number: b_number = find_checkpoint_number(b)
-
-    return cmp(a_number, b_number)
 
 def get_checkpoints(checkpoint_dir):
     """ Return a list of checkpoint files in age ascending order."""
@@ -136,7 +127,7 @@ def get_checkpoints(checkpoint_dir):
             if checkpoint_number:
                 checkpoints.append(os.path.join(checkpoint_dir, file))
 
-    checkpoints.sort(cmp_files, reverse=True)
+    checkpoints.sort(key=find_checkpoint_number, reverse=True)
 
     log("Found %s checkpoint files." % len(checkpoints))
 
@@ -150,7 +141,7 @@ def get_transactions(transactions_dir):
         if file.startswith('log'):
             transactions.append(os.path.join(transactions_dir, file))
 
-    transactions.sort(cmp_files, reverse=True)
+    transactions.sort(key=find_transaction_number, reverse=True)
 
     log("Found %s transactions logs." % len(transactions))
 
@@ -158,7 +149,6 @@ def get_transactions(transactions_dir):
 
 def check_transaction_sequences(transactions):
     log("Checking transaction log sequences.")
-    last_log = None
     last_seq = None
     for log_file in transactions:
         seq = find_transaction_log_segment_number(log_file)
@@ -174,7 +164,7 @@ def find_transaction_log_segment_number(transaction):
     this_number = None
     match = re.match("^.*?log\.\d+\.\d+\.\d+\.(\d+)$", transaction)
     if match:
-        this_number = long(match.group(1))
+        this_number = int(match.group(1))
 
     return this_number
 
@@ -187,7 +177,7 @@ string that can sorted in lexicographic order"""
     if match:
         this_number=''
         for i in range(1,4):
-            this_number += "%016x" % long(match.group(i))
+            this_number += "%016x" % int(match.group(i))
 
     return this_number
 
@@ -241,7 +231,7 @@ def get_last_transaction_log(transaction_dir):
     return os.path.join(transaction_dir, 'last')
 
 def log(msg):
-    print >> sys.stderr, msg
+    print(msg, file=sys.stderr)
 
 if __name__ == '__main__':
     o = parse_options()
@@ -255,7 +245,7 @@ if __name__ == '__main__':
 
     if 0 == len(checkpoints):
         log("No checkpoints found exiting ...")
-        posix._exit(1)
+        sys.exit(1)
 
     tar_cmd = [ o.tar, '-cf', '-' ]
 
@@ -293,4 +283,4 @@ if __name__ == '__main__':
         log("Archiving ...")
         code = subprocess.call(tar_cmd)
 
-    posix._exit(code)
+    sys.exit(code)
