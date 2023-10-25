@@ -27,13 +27,14 @@ import subprocess
 import sys
 from optparse import IndentedHelpFormatter, OptionParser
 
-PRUNE_MSG="""
+PRUNE_MSG = """
 The log, and checkpoint pruning related options are for backward compatibility
 only. These options have no effect, as pruning no longer performed by this
 script. The meta server maintains log and checkpoint directories, and performs
 checkpoint, and log pruning. The number of checkpoints and log segments to keep
 and related parameters are specified by the meta server configuration.
 """
+
 
 def check_directory(e, name, dir):
     if os.path.exists(dir):
@@ -42,6 +43,7 @@ def check_directory(e, name, dir):
     else:
         e.append("'%s' directory does not exist: %s" % (name, dir))
 
+
 def check_file(e, name, file):
     if os.path.exists(file):
         if not os.path.isfile(file):
@@ -49,35 +51,69 @@ def check_file(e, name, file):
     else:
         e.append("'%s' file does not exist: %s" % (name, file))
 
+
 def parse_options():
     formatter = IndentedHelpFormatter(max_help_position=50, width=80)
     usage = "usage: ./%prog -c CHECKPOINT -t TRANSACTIONS"
     desc = """Generates a tar archive stream of the latest
 checkpoint and associated transaction logs to standard output."""
-    parser = OptionParser(usage, formatter=formatter, add_help_option=False,
-        description=desc)
+    parser = OptionParser(
+        usage, formatter=formatter, add_help_option=False, description=desc
+    )
 
-    parser.add_option('-c', '--checkpoint', metavar='DIR',
-        help="Path to checkpoint directory.")
-    parser.add_option('-t', '--transactions', metavar='DIR',
-        help="Path to transaction log directory.")
-    parser.add_option('-o', '--count', default=4, type='int',
-        help="Number of checkpoints to archive.")
-    parser.add_option('-n', '--number', default=8, type='int',
+    parser.add_option(
+        "-c",
+        "--checkpoint",
+        metavar="DIR",
+        help="Path to checkpoint directory.",
+    )
+    parser.add_option(
+        "-t",
+        "--transactions",
+        metavar="DIR",
+        help="Path to transaction log directory.",
+    )
+    parser.add_option(
+        "-o",
+        "--count",
+        default=4,
+        type="int",
+        help="Number of checkpoints to archive.",
+    )
+    parser.add_option(
+        "-n",
+        "--number",
+        default=8,
+        type="int",
         help="""Number of checkpoints to keep, overrides -p
--- Deprecated for the same reason as -p""")
-    parser.add_option('-a', '--tar', default='/bin/tar', metavar='BINARY',
-        help="Path to tar binary.")
-    parser.add_option('-p', '--prune', action='store_true',
-        help="Prune checkpoints -- Deprecated." + PRUNE_MSG)
-    parser.add_option('-d', '--dry-run', action='store_true',
-        help="Run in dry run mode.")
-    parser.add_option('-h', '--help', action='store_true',
-        help="Print this help message and exit.")
+-- Deprecated for the same reason as -p""",
+    )
+    parser.add_option(
+        "-a",
+        "--tar",
+        default="/bin/tar",
+        metavar="BINARY",
+        help="Path to tar binary.",
+    )
+    parser.add_option(
+        "-p",
+        "--prune",
+        action="store_true",
+        help="Prune checkpoints -- Deprecated." + PRUNE_MSG,
+    )
+    parser.add_option(
+        "-d", "--dry-run", action="store_true", help="Run in dry run mode."
+    )
+    parser.add_option(
+        "-h",
+        "--help",
+        action="store_true",
+        help="Print this help message and exit.",
+    )
 
     for option in parser.option_list:
-        if option.default != ("NO", "DEFAULT") and option.default != '':
-             option.help += " (%default)"
+        if option.default != ("NO", "DEFAULT") and option.default != "":
+            option.help += " (%default)"
 
     (options, args) = parser.parse_args()
 
@@ -88,12 +124,12 @@ checkpoint and associated transaction logs to standard output."""
 
     e = []
     if options.checkpoint:
-        check_directory(e, 'checkpoint', options.checkpoint)
+        check_directory(e, "checkpoint", options.checkpoint)
     else:
         e.append("'checkpoint' directory must be specified")
 
     if options.transactions:
-        check_directory(e, 'transactions', options.transactions)
+        check_directory(e, "transactions", options.transactions)
     else:
         e.append("'transactions' directory must be specified")
 
@@ -117,12 +153,13 @@ checkpoint and associated transaction logs to standard output."""
 
     return options
 
+
 def get_checkpoints(checkpoint_dir):
-    """ Return a list of checkpoint files in age ascending order."""
+    """Return a list of checkpoint files in age ascending order."""
 
     checkpoints = []
     for file in os.listdir(checkpoint_dir):
-        if file.startswith('chkpt'):
+        if file.startswith("chkpt"):
             checkpoint_number = find_checkpoint_number(file)
             if checkpoint_number:
                 checkpoints.append(os.path.join(checkpoint_dir, file))
@@ -133,12 +170,13 @@ def get_checkpoints(checkpoint_dir):
 
     return checkpoints
 
+
 def get_transactions(transactions_dir):
-    """ Return a list of transaction logs in age ascending order."""
+    """Return a list of transaction logs in age ascending order."""
 
     transactions = []
     for file in os.listdir(transactions_dir):
-        if file.startswith('log'):
+        if file.startswith("log"):
             transactions.append(os.path.join(transactions_dir, file))
 
     transactions.sort(key=find_transaction_number, reverse=True)
@@ -147,19 +185,23 @@ def get_transactions(transactions_dir):
 
     return transactions
 
+
 def check_transaction_sequences(transactions):
     log("Checking transaction log sequences.")
     last_seq = None
     for log_file in transactions:
         seq = find_transaction_log_segment_number(log_file)
         if last_seq and seq and last_seq - seq > 1:
-            log("WARNING missing transaction log between %s and %s" % (
-                last_log_file, log_file))
+            log(
+                "WARNING missing transaction log between %s and %s"
+                % (last_log_file, log_file)
+            )
         last_log_file = log_file
         last_seq = seq
 
+
 def find_transaction_log_segment_number(transaction):
-    """ Extract transaction log segment number from the file name."""
+    """Extract transaction log segment number from the file name."""
 
     this_number = None
     match = re.match("^.*?log\.\d+\.\d+\.\d+\.(\d+)$", transaction)
@@ -168,47 +210,53 @@ def find_transaction_log_segment_number(transaction):
 
     return this_number
 
+
 def get_log_sequence(re_prefix, re_suffix, name):
-    """ Extract log sequence number from name, and convert it into
-string that can sorted in lexicographic order"""
+    """Extract log sequence number from name, and convert it into
+    string that can sorted in lexicographic order"""
 
     this_number = None
     match = re.match(re_prefix + "\.(\d+)\.(\d+)\.(\d+)" + re_suffix, name)
     if match:
-        this_number=''
-        for i in range(1,4):
+        this_number = ""
+        for i in range(1, 4):
             this_number += "%016x" % int(match.group(i))
 
     return this_number
 
+
 def find_checkpoint_number(checkpoint):
-    """ Extract checkpoint log sequence number from the file name."""
+    """Extract checkpoint log sequence number from the file name."""
 
     return get_log_sequence("^.*?chkpt", "$", checkpoint)
 
+
 def find_transaction_number(transaction):
-    """ Extract transaction log sequence number from the file name."""
+    """Extract transaction log sequence number from the file name."""
 
     return get_log_sequence("^.*?log", "\.\d+$", transaction)
 
+
 def find_checkpoint_log_number(checkpoint):
     """Pull the transaction log sequence number referenced by a checkpoint
-       file."""
+    file."""
 
     log_number = 0
-    file = open(checkpoint, 'r')
+    file = open(checkpoint, "r")
     for line in file:
-        if not line.startswith('log/'): continue
-        log_name   = line[4:]
+        if not line.startswith("log/"):
+            continue
+        log_name = line[4:]
         log_number = find_transaction_number(log_name)
         break
     file.close()
 
     return [log_name, log_number]
 
+
 def find_checkpoint_transactions(checkpoint, transactions):
-    """ Find the list of transaction logs needed by the specified
-        checkpoint."""
+    """Find the list of transaction logs needed by the specified
+    checkpoint."""
 
     checkpoint_transactions = []
     [log_name, log_number] = find_checkpoint_log_number(checkpoint)
@@ -224,16 +272,20 @@ def find_checkpoint_transactions(checkpoint, transactions):
 
     return checkpoint_transactions
 
+
 def get_latest_checkpoint(checkpoint_dir):
-    return os.path.join(checkpoint_dir, 'latest')
+    return os.path.join(checkpoint_dir, "latest")
+
 
 def get_last_transaction_log(transaction_dir):
-    return os.path.join(transaction_dir, 'last')
+    return os.path.join(transaction_dir, "last")
+
 
 def log(msg):
     print(msg, file=sys.stderr)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     o = parse_options()
 
     log("Scanning: %s and %s" % (o.checkpoint, o.transactions))
@@ -247,14 +299,14 @@ if __name__ == '__main__':
         log("No checkpoints found exiting ...")
         sys.exit(1)
 
-    tar_cmd = [ o.tar, '-cf', '-' ]
+    tar_cmd = [o.tar, "-cf", "-"]
 
     filelist = []
     archive_checkpoints = []
     oldest_checkpoint = None
     if o.count <= len(checkpoints):
         oldest_checkpoint = checkpoints[o.count - 1]
-        archive_checkpoints = checkpoints[:o.count]
+        archive_checkpoints = checkpoints[: o.count]
     else:
         oldest_checkpoint = checkpoints[-1]
         archive_checkpoints = checkpoints
@@ -264,8 +316,9 @@ if __name__ == '__main__':
 
     filelist.append(get_last_transaction_log(o.transactions))
 
-    filelist.extend(find_checkpoint_transactions(oldest_checkpoint,
-        transactions))
+    filelist.extend(
+        find_checkpoint_transactions(oldest_checkpoint, transactions)
+    )
 
     filelist.append(get_latest_checkpoint(o.checkpoint))
     filelist.extend(archive_checkpoints)
