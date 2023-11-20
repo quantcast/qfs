@@ -40,32 +40,36 @@ To run this script,
       python ./qfssample.py qfssample.cfg
 """
 
-import os
 import sys
 import time
-import errno
 
 import qfs
 
+
 def ParseConfig(config):
-    host = ''
+    host = ""
     port = -1
-    for line in open("qfssample.cfg"):
+    for line in open(config):
         if line.startswith("#") or len(line.strip()) == 0:
             continue
         s = line.strip()
-        if s.split('=')[0].strip() == 'metaServer.name':
-            host = s.split('=')[1].strip()
-        elif s.split('=')[0].strip() == 'metaServer.port':
-            port = int(s.split('=')[1].strip())
-    if (host,port) == ('', -1):
-        sys.exit('Failed to parse config file')
-    return (host,port)
+        if s.split("=")[0].strip() == "metaServer.name":
+            host = s.split("=")[1].strip()
+        elif s.split("=")[0].strip() == "metaServer.port":
+            port = int(s.split("=")[1].strip())
+    if (host, port) == ("", -1):
+        err_exit("Failed to parse config file")
+    return (host, port)
+
+
+def err_exit(msg):
+    print(msg)
+    sys.exit(1)
 
 
 def main():
     if len(sys.argv) < 2:
-        sys.exit('Usage: %s config_file' % sys.argv[0])
+        err_exit("Usage: %s config_file" % sys.argv[0])
 
     client = None
     server = ParseConfig(sys.argv[1])
@@ -73,26 +77,29 @@ def main():
     try:
         client = qfs.client(server)
     except:
-        print "Unable to start the QFS client."
-        print "Make sure that the meta- and chunkservers are running."
-        sys.exit(1)
+        err_exit(
+            "Unable to start the QFS client.\n"
+            + "Make sure that the meta- and chunkservers are running."
+        )
 
     testBaseDir = "qfssample_base"
-    testDirs  = ("dir1", "dir2")
+    testDirs = ("dir1", "dir2")
     testFile1 = "dir1/file1"
     testFile2 = "file2"
     file1Content = "Cu populo nusquam alienum vim, graece latine prodesset ex qui, quo ea lucilius intellegat."
-    file2ContentA = { 0       : "are ",    # at offset 0
-                      40      : "you ",    # at offset 40
-                      1030    : "always ",
-                      1048580 : "wrong?" }
-    file2ContentB = { 500     : "really " }
+    file2ContentA = {
+        0: "are ",  # at offset 0
+        40: "you ",  # at offset 40
+        1030: "always ",
+        1048580: "wrong?",
+    }
+    file2ContentB = {500: "really "}
 
     client.cd("/")
 
-    try: # just in case we didn't cleanup last time
+    try:  # just in case we didn't cleanup last time
         client.rmdirs(testBaseDir)
-    except IOError, err:
+    except IOError as err:
         pass
 
     client.mkdir(testBaseDir)
@@ -100,30 +107,30 @@ def main():
     for td in testDirs:
         client.mkdir(td)
     time.sleep(1)
-    print "Created directories."
+    print("Created directories.")
 
     client.cd("/" + testBaseDir)
     f1 = client.create(testFile1, 2)
     f2 = client.create(testFile2, 3)
 
     f1.write(file1Content)
-    for offset, content in file2ContentA.items():
+    for offset, content in list(file2ContentA.items()):
         f2.seek(offset)
         f2.write(content)
-    print "Created files."
+    print("Created files.")
 
     f1.sync()
     f1.close()
     f2.sync()
     f2.close()
     time.sleep(1)
-    print "Closed files (first time)."
+    print("Closed files (first time).")
 
-    f1 = client.open(testFile1, 'r')
-    f2 = client.open(testFile2, 'w')
-    print "Opened files."
+    f1 = client.open(testFile1, "r", "utf-8", "ignore")
+    f2 = client.open(testFile2, "w")
+    print("Opened files.")
 
-    for offset, content in file2ContentB.items():
+    for offset, content in list(file2ContentB.items()):
         f2.seek(offset)
         f2.write(content)
 
@@ -132,61 +139,66 @@ def main():
     f2.sync()
     f2.close()
     time.sleep(1)
-    print "Closed files (second time)."
+    print("Closed files (second time).")
 
     # Verify if everything is fine.
     client.cd("/")
     expected = ("dir1", "dir2", "file2")
     for node in client.readdir(testBaseDir):
-        print node
+        print(node)
         if node in (".", ".."):
             continue
         if node not in expected:
-            sys.exit("%s is not in expected list %r" % (node, expected))
+            err_exit("%s is not in expected list %r" % (node, expected))
 
-    expected = ("file1")
+    expected = "file1"
     for node in client.readdir(testBaseDir + "/dir1"):
-        print node
+        print(node)
         if node in (".", ".."):
             continue
         if node not in expected:
-            sys.exit("%s is not in expected list %r" % (node, expected))
-        print "Created paths are in order."
+            err_exit("%s is not in expected list %r" % (node, expected))
+        print("Created paths are in order.")
 
     filePath1 = testBaseDir + "/" + testFile1
     filePath2 = testBaseDir + "/" + testFile2
 
-    print "Stat for %s is %r" % (filePath1, client.stat(filePath1))
-    print "Stat for %s is %r" % (filePath2, client.stat(filePath2))
+    print("Stat for %s is %r" % (filePath1, client.stat(filePath1)))
+    print("Stat for %s is %r" % (filePath2, client.stat(filePath2)))
 
-    f1 = client.open(filePath1, 'r')
+    f1 = client.open(filePath1, "r")
     out = f1.read(2)
-    if (out != "Cu"):
-        sys.exit("Error: Expected 'Cu', got '%s'.", out)
+    if out != "Cu":
+        err_exit("Error: Expected 'Cu', got '%s'." % out)
     f1.seek(31)
     out = f1.read(6)
-    if (out != "graece"):
-        sys.exit("Error: Expected 'graece', got '%s'.", out)
+    if out != "graece":
+        err_exit("Error: Expected 'graece', got '%s'." % out)
     pos = f1.tell()
     if pos != 37:
-        sys.exit("Error: Expected 'pos = 37', got 'pos = %d'.", pos)
+        err_exit("Error: Expected 'pos = 37', got 'pos = %d'." % pos)
     f1.close()
-    print "File1 contents are in order"
+    print("File1 contents are in order")
 
-    f2 = client.open(filePath2, 'r')
+    f2 = client.open(filePath2, "r")
     f2.seek(1032)
     out = f2.read(3)
-    if (out != "way"):
-        sys.exit("Error: Expected 'way', got '%s'.", out)
+    if out != "way":
+        err_exit("Error: Expected 'way', got '%s'." % out)
     f2.seek(1048578)
     out = f2.read(7)
     if out[2:] != "wrong":
-        sys.exit("Error: Expected '..wrong', got '%r'.", out)
+        err_exit("Error: Expected '..wrong', got '%r'." % out)
     f2.close()
-    print "File2 contents are in order"
+    print("File2 contents are in order")
+
+    f2 = client.open(filePath2, "r")
+    res = f2.data_verify()
+    print("data verify %s: %d" % (filePath2, res))
+    f2.close()
 
     client.rmdirs(testBaseDir)
 
-if __name__ == '__main__':
-    main()
 
+if __name__ == "__main__":
+    main()

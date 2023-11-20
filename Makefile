@@ -121,7 +121,7 @@ tarball: hadoop-jars
 
 .PHONY: python
 python: build
-	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
+	cd build/${BUILD_TYPE} && python3 ../../src/cc/access/kfs_setup.py build
 
 .PHONY: mintest
 mintest: hadoop-jars
