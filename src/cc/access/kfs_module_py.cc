@@ -139,7 +139,7 @@ PyDoc_STRVAR(Client_doc,
 "\tfullstat(path)   --  file attributes, including QFS attributes\n"
 "\tgetNumChunks(path)   --  return the # of chunks in a file\n"
 "\tgetChunkSize(path)   --  return the default size of chunks in a file\n"
-"\tcreate(path, numReplicas=3) -- create a file and return a qfs.file object for it\n"
+"\tcreate(path, numReplicas=3 [, encoding, errors]) -- create a file and return a qfs.file object for it\n"
 "\tremove(path) -- remove a file\n"
 "\tcoalesceblocks(src, dst) -- append blocks from src->dest\n"
 "\topen(path[, mode, encoding, errors]) -- open a file and return an object for it\n"
@@ -198,8 +198,8 @@ struct qfs_File {
     PyObject *pclient;    // Python object for QFS client
     int fd;               // File descriptor
     bool binary;          // Binary mode
-    char* encoding;
-    char* errors;
+    PyObject *encoding;
+    PyObject *errors;
 };
 
 static PyObject *
@@ -221,8 +221,10 @@ File_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         self->pclient = noname;
         self->fd = -1;
         self->binary = false;
-        self->encoding = NULL;
-        self->errors = NULL;
+        self->encoding = Py_None;
+        Py_INCREF(self->encoding);
+        self->errors = Py_None;
+        Py_INCREF(self->errors);
     }
     return (PyObject *)self;
 }
@@ -232,18 +234,18 @@ File_dealloc(PyObject *pself)
 {
     qfs_File *self = (qfs_File *)pself;
     qfs_Client *cl = (qfs_Client *)self->pclient;
-    if (self->fd != -1)
+    if (0 <= self->fd)
         cl->client->Close(self->fd);
-    free(self->encoding);
-    free(self->errors);
     Py_DECREF(self->name);
     Py_DECREF(self->mode);
     Py_DECREF(self->pclient);
+    Py_DECREF(self->encoding);
+    Py_DECREF(self->errors);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static int
-modeflag(const char *modestr, bool *binary)
+parse_mode_str(const char *modestr, bool *binary)
 {
     // convert mode string to flag
     int mode = 0;
@@ -251,6 +253,9 @@ modeflag(const char *modestr, bool *binary)
     bool write = false;
     int tb = 0;
     const char* p;
+
+    if (!modestr)
+        return -1;
 
     *binary = false;
     for (p = modestr; *p != 0; p += 1) {
@@ -273,51 +278,76 @@ modeflag(const char *modestr, bool *binary)
     return mode | (write ? (read ? O_RDWR : O_WRONLY) : O_RDONLY);
 }
 
+static void
+assign_ref(PyObject** dst, PyObject* obj)
+{
+    if (*dst != obj) {
+        Py_XDECREF(*dst);
+        Py_XINCREF(obj);
+        *dst = obj;
+    }
+}
+
 static int
 set_file_members(
-        qfs_File *self, const char *path,
-        const char *modestr, qfs_Client *client, int fd,
-        const char* encoding, const char* errors)
+        qfs_File *self, PyObject *path,
+        PyObject *modestr, PyObject *pclient,
+        PyObject *encoding, PyObject *errors,
+        int numReplicas = 3, bool create = false)
 {
-    int mode;
-    bool binary;
+    if (!self) {
+        return -1;
+    }
 
     // convert mode string to flag
-    mode = modeflag(modestr, &binary);
-    if (mode == -1)
+    bool binary;
+    int mode = parse_mode_str(PyUnicode_AsUTF8(modestr), &binary);
+    if (mode == -1) {
+        PyErr_SetString(PyExc_ValueError, "invalid mode argument");
+        return -1;
+    }
+
+    if (binary) {
+        if (!Py_IsNone(encoding)) {
+            if (encoding != self->encoding) {
+                PyErr_SetString(PyExc_ValueError,
+                    "binary mode doesn't take an encoding argument");
+                return -1;
+            }
+            encoding = Py_None;
+        }
+        if (!Py_IsNone(errors)) {
+            if (errors != self->errors) {
+                PyErr_SetString(PyExc_ValueError,
+                    "binary mode doesn't take an errors argument");
+                return -1;
+            }
+            errors = Py_None;
+        }
+    }
+
+    // open the file
+    const char* const pn = PyUnicode_AsUTF8(path);
+    if (! pn)
         return -1;
 
-    // open the file if necessary
-    if (fd < 0)
-        fd = client->client->Open(path, mode);
-
+    qfs_Client* client = (qfs_Client*)pclient;
+    int fd = create ?
+        client->client->Create(pn, mode, numReplicas) :
+        client->client->Open(pn, mode, numReplicas);
     if (fd < 0) {
         SetPyIoError(fd);
         return -1;
     }
 
     // set all of the fields in the qfs_File structure
-    Py_DECREF(self->name);
-    self->name = PyUnicode_FromString(path);
-    Py_DECREF(self->mode);
-    self->mode = PyUnicode_FromString(modestr);
-    PyObject *pclient = (PyObject *)client;
-    Py_INCREF(pclient);
-    Py_DECREF(self->pclient);
-    self->pclient = pclient;
+    assign_ref(&self->name, path);
+    assign_ref(&self->mode, modestr);
+    assign_ref(&self->pclient, pclient);
     self->fd = fd;
     self->binary = binary;
-    free(self->encoding);
-    self->encoding = NULL;
-    free(self->errors);
-    self->errors = NULL;
-    if (encoding) {
-        self->encoding = strdup(encoding);
-    }
-    if (errors) {
-        self->errors = strdup(errors);
-    }
-
+    assign_ref(&self->encoding, encoding);
+    assign_ref(&self->errors, errors);
 
     return 0;
 }
@@ -326,63 +356,78 @@ static int
 File_init(PyObject *pself, PyObject *args, PyObject *kwds)
 {
     qfs_File *self = (qfs_File *)pself;
-    const char *nm, *md = "r";
-    PyObject *cl = NULL;
+    PyObject *mode = NULL;
+    PyObject *mode_deref = NULL;
+    PyObject *path;
+    PyObject *pclient;
+    PyObject *encoding = Py_None;
+    PyObject *errors = Py_None;
 
     static char *kwlist[] = {
-      (char*)"client", (char*)"name", (char*)"mode", NULL
+      (char*)"client", (char*)"name", (char*)"mode", (char*)"encoding",
+      (char*)errors, NULL
     };
 
     int ok = !PyArg_ParseTupleAndKeywords(
-            args, kwds, "O!s|s", kwlist, &qfs_ClientType,
-            &cl, &nm, &md);
+            args, kwds, "O!U|UUU", kwlist, &qfs_ClientType,
+            &pclient, &path, &mode, &encoding, &errors);
     if (!ok)
         return -1;
 
-    return set_file_members(self, nm, md, (qfs_Client *)cl, -1, NULL, NULL);
+    if (!mode) {
+         mode = PyUnicode_FromString("r");
+         if (!mode)
+            return -1;
+        mode_deref = mode;
+    }
+    int const ret = set_file_members(
+        self, path, mode, pclient, encoding, errors);
+    Py_XDECREF(mode_deref);
+    return ret;
+}
+
+static const char*
+as_utf8_str(PyObject* unicode)
+{
+    return Py_IsNone(unicode) ? NULL : PyUnicode_AsUTF8(unicode);
 }
 
 static PyObject *
 File_repr(PyObject *pself)
 {
-    qfs_File *self = (qfs_File *)pself;
-    return PyUnicode_FromFormat("qfs.file<%s, %s, %d>",
+    qfs_File   * const self = (qfs_File *)pself;
+    const char * const encoding = as_utf8_str(self->encoding);
+    const char * const errors = as_utf8_str(self->errors);
+
+    return PyUnicode_FromFormat("qfs.file<%s, %s, %d%s%s%s%s>",
             PyUnicode_AsUTF8(self->name),
             PyUnicode_AsUTF8(self->mode),
-            self->fd);
+            self->fd,
+            encoding ? ", encoding=" : "",
+            encoding ? encoding : "",
+            errors ? ", errors=" : "",
+            errors ? errors : "");
 }
 
 static PyObject *
 qfs_reopen(PyObject *pself, PyObject *args)
 {
     qfs_File *self = (qfs_File *)pself;
-    qfs_Client *cl = (qfs_Client *)self->pclient;
-    const char *modestr = PyUnicode_AsUTF8(self->mode);
-    bool binary;
+    PyObject *mode = self->mode;
+    PyObject *encoding = self->encoding;
+    PyObject *errors = self->errors;
 
-    if (self->fd >= 0) {
-        int ret = cl->client->Close(self->fd);
-        self->fd = -1;
-        if (ret < 0) {
-            SetPyIoError(ret);
-            return NULL;
-        }
+    if (!PyArg_ParseTuple(args, "|UUU", &mode, &encoding, &errors))
+        return NULL;
+
+    if (0 <= self->fd) {
+        PyErr_SetString(PyExc_ValueError, "file is already open");
+        return NULL;
     }
-
-    if (!PyArg_ParseTuple(args, "|s", &modestr))
+    if (set_file_members(self, self->name, mode, self->pclient, encoding,
+            errors) < 0)
         return NULL;
 
-    int mode = modeflag(modestr, &binary);
-    if (mode == -1)
-        return NULL;
-
-    int fd = cl->client->Open(PyUnicode_AsUTF8(self->name), mode);
-    if (fd == -1)
-        return NULL;
-
-    self->fd = fd;
-    self->mode = PyUnicode_FromString(modestr);
-    self->binary = binary;
     Py_RETURN_NONE;
 }
 
@@ -391,6 +436,7 @@ qfs_close(PyObject *pself, PyObject *args)
 {
     qfs_File *self = (qfs_File *)pself;
     qfs_Client *cl = (qfs_Client *)self->pclient;
+
     if (self->fd != -1) {
         int ret = cl->client->Close(self->fd);
         self->fd = -1;
@@ -399,6 +445,7 @@ qfs_close(PyObject *pself, PyObject *args)
             return NULL;
         }
     }
+
     Py_RETURN_NONE;
 }
 
@@ -435,7 +482,8 @@ qfs_read(PyObject *pself, PyObject *args)
         }
 
     if (!self->binary) {
-        PyObject *s = PyUnicode_FromEncodedObject(v, self->encoding, self->errors);
+        PyObject *s = PyUnicode_FromEncodedObject(
+            v, as_utf8_str(self->encoding), as_utf8_str(self->errors));
         Py_DECREF(v);
         v = s;
     }
@@ -449,50 +497,55 @@ qfs_write(PyObject *pself, PyObject *args)
     qfs_Client *cl = (qfs_Client *)self->pclient;
     Py_ssize_t wsize = -1;
     PyObject *encoded = NULL;
+    PyObject *inbuf;
     char *buf = NULL;
 
-    if (!PyArg_ParseTuple(args, self->binary ? "S" : "U", &encoded))
+    if (!PyArg_ParseTuple(args, self->binary ? "S" : "U", &inbuf))
         return NULL;
 
-    if (!self->binary)
-        encoded = PyUnicode_AsEncodedString(encoded, self->encoding, self->errors);
+    if (!self->binary) {
+        encoded = PyUnicode_AsEncodedString(
+                inbuf, as_utf8_str(self->encoding), as_utf8_str(self->errors));
+        if (!encoded)
+            return NULL;
+    }
 
-    if (!encoded)
-        return NULL;
-
-    if (PyBytes_AsStringAndSize(encoded, &buf, &wsize) < 0) {
-        if (!self->binary)
-            Py_DECREF(encoded);
+    if (PyBytes_AsStringAndSize(encoded ? encoded : inbuf, &buf, &wsize) < 0) {
+        Py_XDECREF(encoded);
         return NULL;
     }
 
     if (wsize < 0) {
-        if (!self->binary)
-            Py_DECREF(encoded);
+        Py_XDECREF(encoded);
         SetPyIoError(-EINVAL);
         return NULL;
     }
 
     if (self->fd == -1) {
-        if (!self->binary)
-            Py_DECREF(encoded);
+        Py_XDECREF(encoded);
         SetPyIoError(-EBADF);
         return NULL;
     }
 
     ssize_t nw = cl->client->Write(self->fd, buf, (size_t)wsize);
-    if (!self->binary)
-        Py_DECREF(encoded);
+    Py_XDECREF(encoded);
     if (nw < 0) {
         SetPyIoError(nw);
         return NULL;
     }
+
     if (nw != wsize) {
-        PyObject *msg = PyUnicode_FromFormat(
-            "requested write of %d bytes but %ld were written",
-            wsize, (long)nw);
-        return msg;
+        char msg[80];
+        size_t const max_len = sizeof(msg) / sizeof(msg[0]) - 1;
+
+        snprintf(msg, max_len,
+            "requested write of %lld bytes but %lld were written",
+            (long long)wsize, (long long)nw);
+        msg[max_len] = 0;
+        PyErr_SetString(PyExc_IOError, msg);
+        return NULL;
     }
+
     Py_RETURN_NONE;
 }
 
@@ -539,7 +592,7 @@ qfs_dataVerify(PyObject *pself, PyObject *args)
     qfs_Client *cl = (qfs_Client *)self->pclient;
 
     if (args) {
-        PyErr_SetString(PyExc_Exception, "no arguments expected");
+        PyErr_SetString(PyExc_ValueError, "no arguments expected");
         return NULL;
     }
 
@@ -561,9 +614,9 @@ qfs_truncate(PyObject *pself, PyObject *args)
 {
     qfs_File *self = (qfs_File *)pself;
     qfs_Client *cl = (qfs_Client *)self->pclient;
-    off_t off;
+    long long off;
 
-    if (!PyArg_ParseTuple(args, "L|i", &off))
+    if (!PyArg_ParseTuple(args, "L", &off))
         return NULL;
 
     if (self->fd == -1) {
@@ -651,9 +704,11 @@ static PyMethodDef File_methods[] = {
 };
 
 static PyMemberDef File_members[] = {
-    { (char*)"name", T_OBJECT, offsetof(qfs_File, name), READONLY, (char*)"file name" },
-    { (char*)"mode", T_OBJECT, offsetof(qfs_File, mode), READONLY, (char*)"access mode" },
-    { (char*)"fd",   T_INT,    offsetof(qfs_File, fd),   READONLY, (char*)"file descriptor" },
+    { "name",     T_OBJECT, offsetof(qfs_File, name),     READONLY, "file name" },
+    { "mode",     T_OBJECT, offsetof(qfs_File, mode),     READONLY, "access mode" },
+    { "encoding", T_OBJECT, offsetof(qfs_File, encoding), READONLY, "file encoding" },
+    { "erros",    T_OBJECT, offsetof(qfs_File, errors),   READONLY, "file encoding error mode" },
+    { "fd",          T_INT, offsetof(qfs_File, fd),       READONLY, "file descriptor" },
     { NULL }
 };
 
@@ -741,6 +796,8 @@ Client_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     PyObject *host = PyUnicode_FromString("");
     PyObject *cwd  = PyUnicode_FromString("/");
     if (host == NULL || cwd == NULL) {
+        Py_XDECREF(host);
+        Py_XDECREF(cwd);
         Py_DECREF(self);
         return NULL;
     }
@@ -756,22 +813,27 @@ static int
 Client_init(PyObject *pself, PyObject *args, PyObject *kwds)
 {
     qfs_Client *self = (qfs_Client *)pself;
-    char *qfsHost = NULL;
+    PyObject *qfsHost;
     int qfsPort = -1;
 
-    if (!PyArg_ParseTuple(args, "(si)", &qfsHost, &qfsPort)) {
+    if (!PyArg_ParseTuple(args, "(Ui)", &qfsHost, &qfsPort))
         return -1;
-    }
 
-    KfsClient* client = KFS::Connect(qfsHost, qfsPort);
+    KfsClient* client = KFS::Connect(PyUnicode_AsUTF8(qfsHost), qfsPort);
     if (!client) {
         PyErr_SetString(PyExc_IOError, "Unable to start client.");
         return -1;
     }
+    string cwd = client->GetCwd();
+    PyObject *newcwd = PyUnicode_FromString(cwd.c_str());
+    if (!newcwd) {
+        delete client;
+        return -1;
+    }
+    Py_DECREF(self->cwd);
+    self->cwd = newcwd;
     self->client = client;
-    PyObject *tmp = self->qfshost;
-    self->qfshost = PyUnicode_FromString(qfsHost);
-    Py_XDECREF(tmp);
+    assign_ref(&self->qfshost, qfsHost);
     self->qfsport = qfsPort;
 
     return 0;
@@ -788,55 +850,6 @@ Client_repr(PyObject *pself)
 
 }
 
-static string
-strip_dots(string path)
-{
-    vector <string> component;
-    string result;
-    string::size_type start = 0;
-
-    while (start != string::npos) {
-        assert(path[start] == '/');
-        string::size_type slash = path.find('/', start + 1);
-        string nextc = path.substr(start, slash - start);
-        start = slash;
-        if (nextc.compare("/..") == 0) {
-            if (!component.empty())
-                component.pop_back();
-        } else if (nextc.compare("/.") != 0)
-            component.push_back(nextc);
-    }
-
-    if (component.empty())
-        component.push_back(string("/"));
-
-    for (vector <string>::iterator c = component.begin();
-            c != component.end(); c++) {
-        result += *c;
-    }
-    return result;
-}
-
-/*
- * Take a path name that was supplied as an argument for a QFS operation.
- * If it is not absolute, add the current directory to the front of it and
- * in either case, call strip_dots to strip out any "." and ".." components.
- */
-static string
-build_path(PyObject *cwd, const char *input)
-{
-    string tail(input);
-    if (input[0] == '/')
-        return strip_dots(tail);
-
-    const char *c = PyUnicode_AsUTF8(cwd);
-    bool is_root = (c[0] == '/' && c[1] == '\0');
-    string head(c);
-    if (!is_root)
-        head.append("/");
-    return strip_dots(head + tail);
-}
-
 static PyObject *
 qfs_cd(PyObject *pself, PyObject *args)
 {
@@ -846,22 +859,17 @@ qfs_cd(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    KfsFileAttr attr;
-    int status = self->client->Stat(path.c_str(), attr);
+    int status = self->client->Cd(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
     }
-    if (! attr.isDirectory) {
-        SetPyIoError(-ENOTDIR);
+    string cwd = self->client->GetCwd();
+    PyObject *newcwd = PyUnicode_FromString(cwd.c_str());
+    if (newcwd == NULL)
         return NULL;
-    }
-    PyObject *newcwd = PyUnicode_FromString(path.c_str());
-    if (newcwd != NULL) {
-        Py_DECREF(self->cwd);
-        self->cwd = newcwd;
-    }
+    Py_DECREF(self->cwd);
+    self->cwd = newcwd;
     Py_RETURN_NONE;
 }
 
@@ -875,7 +883,7 @@ qfs_log_level(PyObject *pself, PyObject *args)
         return NULL;
 
     self->client->SetLogLevel(logLevel);
-        Py_RETURN_NONE;
+    Py_RETURN_NONE;
 }
 
 static PyObject *
@@ -887,8 +895,7 @@ qfs_isdir(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    bool res = self->client->IsDirectory(path.c_str());
+    bool res = self->client->IsDirectory(patharg);
     return Py_BuildValue("b", res);
 }
 
@@ -901,8 +908,7 @@ qfs_isfile(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    bool res = self->client->IsFile(path.c_str());
+    bool res = self->client->IsFile(patharg);
     return Py_BuildValue("b", res);
 }
 
@@ -915,8 +921,7 @@ qfs_mkdir(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int status  = self->client->Mkdir(path.c_str());
+    int status = self->client->Mkdir(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -933,8 +938,7 @@ qfs_mkdirs(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int status  = self->client->Mkdirs(path.c_str());
+    int status = self->client->Mkdirs(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -951,8 +955,7 @@ qfs_rmdir(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int status = self->client->Rmdir(path.c_str());
+    int status = self->client->Rmdir(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -969,8 +972,7 @@ qfs_rmdirs(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int status = self->client->Rmdirs(path.c_str());
+    int status = self->client->Rmdirs(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -994,9 +996,8 @@ qfs_readdir(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
     vector <string> result;
-    int status = self->client->Readdir(path.c_str(), result);
+    int status = self->client->Readdir(patharg, result);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1045,10 +1046,8 @@ qfs_readdirplus(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-
     vector <KfsFileAttr> result;
-    int status = self->client->ReaddirPlus(path.c_str(), result);
+    int status = self->client->ReaddirPlus(patharg, result);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1071,9 +1070,8 @@ qfs_stat(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
     KfsFileAttr attr;
-    int status = self->client->Stat(path.c_str(), attr, true);
+    int status = self->client->Stat(patharg, attr, true);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1107,9 +1105,8 @@ qfs_fullstat(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
     KfsFileAttr attr;
-    int status = self->client->Stat(path.c_str(), attr, true);
+    int status = self->client->Stat(patharg, attr, true);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1148,8 +1145,7 @@ qfs_getNumChunks(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int chunkCount = self->client->GetNumChunks(path.c_str());
+    int chunkCount = self->client->GetNumChunks(patharg);
     if (chunkCount < 0) {
         SetPyIoError(chunkCount);
         return NULL;
@@ -1165,33 +1161,38 @@ qfs_getChunkSize(PyObject *pself, PyObject *args)
 
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
-    string path = build_path(self->cwd, patharg);
-    int chunksz = self->client->GetChunkSize(path.c_str());
+    int chunksz = self->client->GetChunkSize(patharg);
     return Py_BuildValue("i", chunksz);
 }
 
 static PyObject *
 qfs_create(PyObject *pself, PyObject *args)
 {
-    qfs_Client *self = (qfs_Client *)pself;
-    char *patharg;
-        int numReplicas = 3;
+    PyObject *patharg;
+    PyObject *mode = NULL;
+    PyObject *mode_deref = NULL;
+    int numReplicas = 3;
+    PyObject *encoding = Py_None, *errors = Py_None;
 
-    if (!PyArg_ParseTuple(args, "s|i", &patharg, &numReplicas))
+    if (!PyArg_ParseTuple(args, "U|iUUU", &patharg, &numReplicas, &mode,
+                          &encoding, &errors))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int fd = self->client->Create(path.c_str(), numReplicas);
-    if (fd < 0) {
-        SetPyIoError(fd);
-        return NULL;
+    if (!mode) {
+         mode = PyUnicode_FromString("w");
+         if (!mode)
+            return NULL;
+        mode_deref = mode;
     }
 
     qfs_File *f = (qfs_File *)qfs_FileType.tp_new(&qfs_FileType, NULL, NULL);
-    if (f == NULL ||
-            set_file_members(f, path.c_str(), "w", self, fd, NULL, NULL) < 0)
+    int const res = set_file_members(f, patharg, mode, pself, encoding, errors,
+        numReplicas, true);
+    Py_XDECREF(mode_deref);
+    if (res < 0) {
+        Py_XDECREF(f);
         return NULL;
-
+    }
     return (PyObject *)f;
 }
 
@@ -1204,8 +1205,7 @@ qfs_remove(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "s", &patharg))
         return NULL;
 
-    string path = build_path(self->cwd, patharg);
-    int status = self->client->Remove(path.c_str());
+    int status = self->client->Remove(patharg);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1223,9 +1223,7 @@ qfs_rename(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "ss|b", &srcpath, &dstpath, &overwrite))
         return NULL;
 
-    string spath = build_path(self->cwd, srcpath);
-    string dpath = build_path(self->cwd, dstpath);
-    int status = self->client->Rename(spath.c_str(), dpath.c_str(), overwrite);
+    int status = self->client->Rename(srcpath, dstpath, overwrite);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
@@ -1242,32 +1240,37 @@ qfs_coalesceblocks(PyObject *pself, PyObject *args)
     if (!PyArg_ParseTuple(args, "ss", &srcpath, &dstpath))
         return NULL;
 
-    string spath = build_path(self->cwd, srcpath);
-    string dpath = build_path(self->cwd, dstpath);
-        chunkOff_t dstStartOffset;
+    chunkOff_t dstStartOffset;
     int status = self->client->CoalesceBlocks(
-            spath.c_str(), dpath.c_str(), &dstStartOffset);
+        srcpath, dstpath, &dstStartOffset);
     if (status < 0) {
         SetPyIoError(status);
         return NULL;
     }
-    return Py_BuildValue("l", dstStartOffset);
+    return Py_BuildValue("L", (long long)dstStartOffset);
 }
 
 static PyObject *
 qfs_open(PyObject *pself, PyObject *args)
 {
-    qfs_Client *self = (qfs_Client *)pself;
-    const char *patharg, *modestr = "r", *encoding = NULL, *errors = NULL;
+    PyObject *mode = NULL;
+    PyObject *mode_deref = NULL;
+    PyObject *patharg, *encoding = Py_None, *errors = Py_None;
 
-    if (!PyArg_ParseTuple(args, "s|sss", &patharg, &modestr, &encoding, &errors))
+    if (!PyArg_ParseTuple(
+            args, "U|UUU", &patharg, &mode, &encoding, &errors))
         return NULL;
-
-    string path = build_path(self->cwd, patharg);
-
+    if (!mode) {
+         mode = PyUnicode_FromString("r");
+         if (!mode)
+            return NULL;
+        mode_deref = mode;
+    }
     qfs_File *f = (qfs_File *)qfs_FileType.tp_new(&qfs_FileType, NULL, NULL);
-    if (f == NULL ||
-        set_file_members(f, path.c_str(), modestr, self, -1, encoding, errors) < 0) {
+    int const res = set_file_members(f, patharg, mode, pself, encoding, errors);
+    Py_XDECREF(mode_deref);
+    if (res < 0) {
+        Py_XDECREF(f);
         return NULL;
     }
     return (PyObject *)f;

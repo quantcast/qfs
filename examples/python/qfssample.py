@@ -74,6 +74,11 @@ def main():
     client = None
     server = ParseConfig(sys.argv[1])
 
+    # f = open("ztest", "wt", encoding="utf-8", errors="ignore")
+    # print("encoding: " + f.encoding)
+    # print("mode: " + f.mode)
+    # print("file: " + str(f))
+    # return 0
     try:
         client = qfs.client(server)
     except:
@@ -82,6 +87,7 @@ def main():
             + "Make sure that the meta- and chunkservers are running."
         )
 
+    print("qfs client: " + str(client))
     testBaseDir = "qfssample_base"
     testDirs = ("dir1", "dir2")
     testFile1 = "dir1/file1"
@@ -160,6 +166,8 @@ def main():
             err_exit("%s is not in expected list %r" % (node, expected))
         print("Created paths are in order.")
 
+    print("readdirpus: " + str(client.readdirplus(testBaseDir + "/dir1")))
+
     filePath1 = testBaseDir + "/" + testFile1
     filePath2 = testBaseDir + "/" + testFile2
 
@@ -192,10 +200,24 @@ def main():
     f2.close()
     print("File2 contents are in order")
 
-    f2 = client.open(filePath2, "r")
+    f2 = client.open(filePath2, "r", "utf-8", "ignore")
     res = f2.data_verify()
     print("data verify %s: %d" % (filePath2, res))
+    locs = f2.chunk_locations(0)
+    print("chunk locations %s: %s" % (filePath2, str(locs)))
+    print("file: " + str(f2))
     f2.close()
+    f2.open("wb+")
+    f2.truncate(0)
+    print("file: " + str(f2))
+    f2.close()
+    nc = client.getNumChunks(filePath1)
+    print("%s chunks: %s" % (filePath1, str(nc)))
+
+    stat = client.stat(filePath1)
+    print("full stat %s: %s" % (filePath1, str(stat)))
+    fstat = client.fullstat(filePath1)
+    print("full full stat %s: %s" % (filePath1, str(fstat)))
 
     client.rmdirs(testBaseDir)
 
