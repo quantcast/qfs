@@ -30,12 +30,24 @@ gBrowsable = True
 try:
     import qfs
 except ImportError:
-    sys.stderr.write("Warning: %s. Proceeding without file browser.\n" % str(sys.exc_info()[1]))
+    sys.stderr.write(
+        "Warning: %s. Proceeding without file browser.\n"
+        % str(sys.exc_info()[1])
+    )
     gBrowsable = False
 
 
 class QFSBrowser:
-    PERMISSIONS = {0: "---", 1: "--x", 2: "-w-", 3: "-wx", 4: "r--", 5: "r-x", 6: "rw-", 7: "rwx"}
+    PERMISSIONS = {
+        0: "---",
+        1: "--x",
+        2: "-w-",
+        3: "-wx",
+        4: "r--",
+        5: "r-x",
+        6: "rw-",
+        7: "rwx",
+    }
     browsable = True
 
     def __init__(self):
@@ -187,10 +199,19 @@ class QFSBrowser:
         client = qfs.client((host, port))
         self.startHTML(directory, buffer)
         dirPath = os.path.join("/", directory)
-        for info in client.readdirplus(dirPath):
-            if info[0] in (".", ".."):
-                continue
-            pathEntry = os.path.join(dirPath, info[0])
-            fullStat = client.fullstat(pathEntry)
-            self.contentHTML(pathEntry, info, fullStat, buffer)
+        try:
+            for info in client.readdirplus(dirPath):
+                if info[0] in (".", ".."):
+                    continue
+                pathEntry = os.path.join(dirPath, info[0])
+                fullStat = client.fullstat(pathEntry)
+                self.contentHTML(pathEntry, info, fullStat, buffer)
+        except Exception as ex:
+            print(
+                """
+                <tr><td style="vertical-align: top;background-color:LightBlue;"><B>%s: %s</B><br></td><tr>
+                """
+                % (dirPath, str(ex)),
+                file=buffer,
+            )
         self.endHTML(buffer)
