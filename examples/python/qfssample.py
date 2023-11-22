@@ -40,6 +40,7 @@ To run this script,
       python ./qfssample.py qfssample.cfg
 """
 
+import os
 import sys
 import time
 
@@ -88,6 +89,9 @@ def main():
         )
 
     print("qfs client: " + str(client))
+    client.log_level("DEBUG")
+    client.log_level("ERROR")
+
     testBaseDir = "qfssample_base"
     testDirs = ("dir1", "dir2")
     testFile1 = "dir1/file1"
@@ -177,7 +181,7 @@ def main():
     f1 = client.open(filePath1, "r")
     out = f1.read(2)
     if out != "Cu":
-        err_exit("Error: Expected 'Cu', got '%s'." % out)
+        err_exit("Error: Expected 'Cu', got %r." % out)
     f1.seek(31)
     out = f1.read(6)
     if out != "graece":
@@ -192,11 +196,11 @@ def main():
     f2.seek(1032)
     out = f2.read(3)
     if out != "way":
-        err_exit("Error: Expected 'way', got '%s'." % out)
+        err_exit("Error: Expected 'way', got %r." % out)
     f2.seek(1048578)
     out = f2.read(7)
     if out[2:] != "wrong":
-        err_exit("Error: Expected '..wrong', got '%r'." % out)
+        err_exit("Error: Expected '..wrong', got %r." % out)
     f2.close()
     print("File2 contents are in order")
 
@@ -206,13 +210,46 @@ def main():
     locs = f2.chunk_locations(0)
     print("chunk locations %s: %s" % (filePath2, str(locs)))
     print("file: " + str(f2))
+    locs = f2.chunk_locations(0)
+    print("chunk locations: " + str(locs))
     f2.close()
     f2.open("wb+")
+    f2.seek(0, os.SEEK_END)
+    pos = f2.tell()
+    print("file end: %d" % pos)
+    if 1048586 != pos:
+        err_exit("Error: tell expected %d, got %d." % (1048586, out))
     f2.truncate(0)
     print("file: " + str(f2))
     f2.close()
+    st = client.stat(filePath2)
+    if st[6] != 0:
+        err_exit("Error: truncate / stateexpected 0, got %d." % st[6])
+    dst = filePath2 + "x"
+    client.rename(filePath2, dst)
+    client.remove(dst)
+    try:
+        client.remove(dst)
+        dst = None
+    except IOError as ex:
+        print("remove " + str(ex))
+    if dst is None:
+        err_exit("Error: remove failed to raised exception.")
     nc = client.getNumChunks(filePath1)
     print("%s chunks: %s" % (filePath1, str(nc)))
+    if nc < 1:
+        err_exit("Error: chunks %d >= 1." % nc)
+
+    sz = client.getChunkSize(filePath1)
+    exp_sz = 64 << 20
+    if sz != exp_sz:
+        err_exit("Error: chunk size %d != %d." % (sz % exp_sz))
+
+    if not client.isfile(filePath1):
+        err_exit("Error: isfile: " + filePath1)
+
+    if not client.isdir(testBaseDir):
+        err_exit("Error: isdir: " + testBaseDir)
 
     stat = client.stat(filePath1)
     print("full stat %s: %s" % (filePath1, str(stat)))
