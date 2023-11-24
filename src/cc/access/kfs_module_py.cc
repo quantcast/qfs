@@ -476,10 +476,15 @@ qfs_read(PyObject *pself, PyObject *args)
 {
     qfs_File *self = (qfs_File *)pself;
     qfs_Client *cl = (qfs_Client *)self->pclient;
-    ssize_t rsize = -1l;
+    Py_ssize_t rsize = -1l;
 
-    if (!PyArg_ParseTuple(args, "l", &rsize))
+    if (!PyArg_ParseTuple(args, "n", &rsize))
         return NULL;
+
+    if (rsize < 0) {
+        PyErr_SetString(PyExc_ValueError, "size must not be less than zero");
+        return NULL;
+    }
 
     if (self->fd == -1) {
         SetPyIoError(-EBADF);
@@ -491,7 +496,7 @@ qfs_read(PyObject *pself, PyObject *args)
         return NULL;
 
     char *buf = PyBytes_AsString(v);
-    ssize_t nr = cl->client->Read(self->fd, buf, rsize);
+    ssize_t nr = cl->client->Read(self->fd, buf, (size_t)rsize);
     if (nr < 0) {
         Py_DECREF(v);
         SetPyIoError(nr);
