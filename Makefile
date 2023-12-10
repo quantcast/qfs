@@ -116,12 +116,21 @@ tarball: hadoop-jars
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
+	if ls -1 ${BUILD_TYPE}/python-qfs/dist/qfs*.whl > /dev/null 2>&1; then \
+		cp ${BUILD_TYPE}/python-qfs/dist/qfs*.whl \
+			"tmpreldir/$$tarname/lib/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
 .PHONY: python
 python: build
-	cd build/${BUILD_TYPE} && python3 ../../src/cc/access/kfs_setup.py build
+	cd build/${BUILD_TYPE} && \
+	rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
+	ln -s .. qfs && \
+	ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
+	python3 -m venv .venv && \
+	. .venv/bin/activate && python -m pip install build && \
+	python -m build -w .
 
 .PHONY: mintest
 mintest: hadoop-jars

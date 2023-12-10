@@ -35,48 +35,52 @@
 #  file doc/DeveloperDoc.
 #
 
-from distutils.core import setup, Extension
-import sys
 import os
-import os.path
+import sys
+from distutils.core import Extension, setup
 
-kfs_access_dir=os.path.dirname(sys.argv[0])
+kfs_access_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
 
-kfsext = Extension(
-    'qfs',
-    include_dirs = [
-        os.path.abspath(os.path.join(kfs_access_dir, ".."))
+# The following assumes that QFS was build by running cmake and then
+# make install
+libs_dir = "lib"
+if os.path.exists("qfs"):
+    # kfs_setup.py symlinked to setup.py and build directory symlinked to qfs.
+    # QFS shared libraries are packaged into qfs/lib and QFS C extension's run
+    # time path is set accordingly.
+    libs_dir = os.path.join("qfs", libs_dir)
+    setup_extra_args = {
+        "packages": ["qfs"],
+        "package_data": {"qfs": ["lib/*.*"]},
+        # "ext_package": "qfs",
+    }
+    extension_extra_args = {
+        "runtime_library_dirs": {
+            "darwin": ["@loader_path/qfs/lib"],
+            "win32": [],
+        }.get(sys.platform, ["$ORIGIN/qfs/lib"])
+    }
+else:
+    # Old way of invoking kfs_setup.py from build directory.
+    setup_extra_args = {}
+    extension_extra_args = {}
+
+qfs_ext = Extension(
+    "qfs",
+    include_dirs=[os.path.abspath(os.path.join(kfs_access_dir, ".."))],
+    libraries=["qfs_client"],
+    library_dirs=[libs_dir],
+    sources=[
+        os.path.abspath(os.path.join(kfs_access_dir, "kfs_module_py.cc"))
     ],
-    libraries = [
-        'qfs_client',
-        'qfs_common',
-        'qfs_io',
-        'qfs_qcdio',
-        'qfs_qcrs'
-    ],
-    library_dirs = [
-        'src/cc/libclient',
-        'src/cc/common',
-        'src/cc/kfsio',
-        'src/cc/qcdio',
-        'src/cc/qcrs',
-    ],
-    runtime_library_dirs = [],
-    sources = [
-         os.path.abspath(os.path.join(kfs_access_dir, "kfs_module_py.cc"))
-    ],
+    **extension_extra_args,
 )
 
-# OSX boost ports typically end up at /opt/local/lib
-if sys.platform in ('darwin', 'Darwin'):
-    kfsext.libraries.append('boost_regex-mt')
-    kfsext.libraries.append('boost_system-mt')
-else:
-    kfsext.libraries.append('boost_regex')
-
 setup(
-    name = "qfs", version = "2.5",
+    name="qfs",
+    version="2.5",
     description="QFS client module",
     author="Blake Lewis and Sriram Rao",
-    ext_modules = [kfsext]
+    ext_modules=[qfs_ext],
+    **setup_extra_args,
 )

@@ -88,15 +88,22 @@ set(JERASURE_STATIC_LIBRARIES
     ${Jerasure_STATIC_LIB}
     ${Gf_complete_STATIC_LIB}
 )
-if(CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
-    # It appears that on cygwin only static libs are built, and it is
-    # possible to link client library dll against them.
+set(Jerasure_STATIC_LIB_SYSTEMS Darwin Linux FreeBSD)
+if(CMAKE_SYSTEM_NAME IN_LIST Jerasure_STATIC_LIB_SYSTEMS OR
+        (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS))
+    # For now do not use shared libs as libtool sets absolute library path in
+    # these, and makes it difficult to use with $ORIGIN on Linux and possibly
+    # BSD and/or @loader_path on Darvin, and on cygwin only static libs are
+    # built.
+    # The libraries objects are build with -fPIC and -DPIC flags and the same
+    # object are used for both static and shared libs, threfore linking with
+    # other shared library (qfs_client) should work.
     set(JERASURE_SHARED_LIBRARIES ${JERASURE_STATIC_LIBRARIES})
 else()
     # Shared library are sym linked, install both sym link and the targets
     # by using pattern. Allow version suffix that follows library suffix.
     install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
-        DESTINATION lib
+        LIBRARY DESTINATION lib
         USE_SOURCE_PERMISSIONS
         FILES_MATCHING PATTERN
             "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
