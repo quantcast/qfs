@@ -1,8 +1,7 @@
 # Jerasure autoconf template
 
-AC_PREREQ([2.65])
-AC_INIT([Jerasure], [2.0], [], [],
-        [https://bitbucket.org/jimplank/jerasure])
+AC_PREREQ([2.71])
+AC_INIT([Jerasure],[2.0],[],[],[https://bitbucket.org/jimplank/jerasure])
 AC_CONFIG_SRCDIR([src/jerasure.c])
 AC_CONFIG_HEADERS([include/config.h])
 
