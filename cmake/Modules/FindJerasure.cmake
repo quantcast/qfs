@@ -88,7 +88,7 @@ set(JERASURE_STATIC_LIBRARIES
     ${Jerasure_STATIC_LIB}
     ${Gf_complete_STATIC_LIB}
 )
-set(Jerasure_STATIC_LIB_SYSTEMS Darwin Linux FreeBSD)
+set(Jerasure_STATIC_LIB_SYSTEMS Darwin)
 if(CMAKE_SYSTEM_NAME IN_LIST Jerasure_STATIC_LIB_SYSTEMS OR
         (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS))
     # For now do not use shared libs as libtool sets absolute library path in
