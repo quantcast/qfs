@@ -73,10 +73,12 @@ go: build
 		go get -t -v && \
 		go build -v || \
 		exit 1; \
+	else \
+		echo "go is not available"; \
 	fi
 
 .PHONY: tarball
-tarball: hadoop-jars
+tarball: hadoop-jars python
 	cd build && \
 	myuname=`uname -s`; \
 	myarch=`cc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
@@ -124,13 +126,17 @@ tarball: hadoop-jars
 
 .PHONY: python
 python: build
-	cd build/${BUILD_TYPE} && \
-	rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
-	ln -s .. qfs && \
-	ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
-	python3 -m venv .venv && \
-	. .venv/bin/activate && python -m pip install build && \
-	python -m build -w .
+	if python3 - </dev/null >/dev/null 2>&1 ; then \
+		cd build/${BUILD_TYPE} && \
+		rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
+		ln -s .. qfs && \
+		ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
+		python3 -m venv .venv && \
+		. .venv/bin/activate && python -m pip install build && \
+		python -m build -w . ; \
+	else \
+		echo 'python3 is not available'; \
+	fi
 
 .PHONY: mintest
 mintest: hadoop-jars
