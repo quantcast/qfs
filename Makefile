@@ -126,7 +126,7 @@ tarball: hadoop-jars python
 
 .PHONY: python
 python: build
-	if python3 - </dev/null >/dev/null 2>&1 ; then \
+	if python3 -m venv -h >/dev/null 2>&1 ; then \
 		cd build/${BUILD_TYPE} && \
 		rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
 		ln -s .. qfs && \
@@ -135,7 +135,7 @@ python: build
 		. .venv/bin/activate && python -m pip install build && \
 		python -m build -w . ; \
 	else \
-		echo 'python3 is not available'; \
+		echo 'python3 -m venv is not available'; \
 	fi
 
 .PHONY: mintest
