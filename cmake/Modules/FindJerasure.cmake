@@ -50,8 +50,11 @@ set(Gf_complete_LIB_DIR ${Gf_complete_PREFIX}/lib/)
 set(Gf_complete_STATIC_LIB
     ${Gf_complete_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}gf_complete${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
+set(Gf_complete_SHARED_LIB_NAME
+    ${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+)
 set(Gf_complete_SHARED_LIB
-    ${Gf_complete_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete${CMAKE_SHARED_LIBRARY_SUFFIX}
+    ${Gf_complete_LIB_DIR}${Gf_complete_SHARED_LIB_NAME}
 )
 
 set(Jerasure          "jerasure")
@@ -59,7 +62,7 @@ set(Jerasure_CPPFLAGS
     "-I${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/include -I${Gf_complete_INCLUDE}")
 set(Jerasure_LDFLAGS  "-L${Gf_complete_LIB_DIR}")
 set(Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
-ExternalProject_Add(Jerasure_proj
+ExternalProject_Add(Jerasure_proj_self
     DEPENDS           Gf_complete_proj
     DOWNLOAD_COMMAND  ""
     SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}
@@ -77,10 +80,35 @@ set(Jerasure_LIB_DIR ${Jerasure_PREFIX}/lib/)
 set(Jerasure_STATIC_LIB
     ${Jerasure_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}Jerasure${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
-set(Jerasure_SHARED_LIB
-    ${Jerasure_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure${CMAKE_SHARED_LIBRARY_SUFFIX}
+set(Jerasure_SHARED_LIB_NAME
+    ${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure.2${CMAKE_SHARED_LIBRARY_SUFFIX}
 )
-
+set(Jerasure_SHARED_LIB
+    ${Jerasure_LIB_DIR}${Jerasure_SHARED_LIB_NAME}
+)
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # Resolve symlinks and change relevant run time paths.
+    add_custom_target(Jerasure_proj
+        COMMAND install_name_tool -id @rpath/${Gf_complete_SHARED_LIB_NAME}
+            ${Gf_complete_SHARED_LIB}
+        COMMAND install_name_tool -id  @rpath/${Jerasure_SHARED_LIB_NAME}
+            ${Jerasure_SHARED_LIB}
+        COMMAND install_name_tool -change
+            ${Gf_complete_SHARED_LIB} @rpath/${Gf_complete_SHARED_LIB_NAME}
+            ${Jerasure_SHARED_LIB}
+        DEPENDS Jerasure_proj_self
+    )
+elseif (COMMAND chrpath)
+    add_custom_target(Jerasure_proj
+        COMMAND chrpath -d ${Gf_complete_SHARED_LIB}
+        COMMAND chrpath -d ${Jerasure_SHARED_LIB}
+        DEPENDS Jerasure_proj_self
+    )
+else()
+    add_custom_target(Jerasure_proj
+        DEPENDS Jerasure_proj_self
+    )
+endif()
 install (FILES ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB}
     DESTINATION lib/static
 )
@@ -88,13 +116,8 @@ set(JERASURE_STATIC_LIBRARIES
     ${Jerasure_STATIC_LIB}
     ${Gf_complete_STATIC_LIB}
 )
-set(Jerasure_STATIC_LIB_SYSTEMS Darwin)
-if(CMAKE_SYSTEM_NAME IN_LIST Jerasure_STATIC_LIB_SYSTEMS OR
-        (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS))
-    # For now do not use shared libs as libtool sets absolute library path in
-    # these, and makes it difficult to use with $ORIGIN on Linux and possibly
-    # BSD and/or @loader_path on Darvin, and on cygwin only static libs are
-    # built.
+if(CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+    # Paper over for cygwin where only static libs are built.
     # The libraries objects are build with -fPIC and -DPIC flags and the same
     # object are used for both static and shared libs, threfore linking with
     # other shared library (qfs_client) should work.
@@ -105,8 +128,9 @@ else()
     install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
         LIBRARY DESTINATION lib
         USE_SOURCE_PERMISSIONS
-        FILES_MATCHING PATTERN
-            "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
+        FILES_MATCHING
+        PATTERN ${Gf_complete_SHARED_LIB_NAME}
+        PATTERN ${Jerasure_SHARED_LIB_NAME}
     )
     set(JERASURE_SHARED_LIBRARIES
         ${Jerasure_SHARED_LIB}
