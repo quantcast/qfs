@@ -41,6 +41,14 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
+#ifndef Py_Is
+#define Py_Is(x, y) ((x) == (y))
+#endif
+
+#ifndef Py_IsNone
+#define Py_IsNone(x) Py_Is((x), Py_None)
+#endif
+
 using std::string;
 using std::vector;
 
@@ -126,9 +134,9 @@ UnicodeAsUtf8Str(PyObject* unicode)
 }
 
 static PyMemberDef Client_members[] = {
-    { "qfshost",    T_OBJECT, offsetof(qfs_Client, qfshost),  READONLY, "QFS metaserver hostname" },
-    { "qfsport",    T_INT,    offsetof(qfs_Client, qfsport),  READONLY, "QFS metaserver port"     },
-    { "cwd",        T_OBJECT, offsetof(qfs_Client, cwd),      READONLY, "current directory"       },
+    { (char*)"qfshost",    T_OBJECT, offsetof(qfs_Client, qfshost),  READONLY, (char*)"QFS metaserver hostname" },
+    { (char*)"qfsport",    T_INT,    offsetof(qfs_Client, qfsport),  READONLY, (char*)"QFS metaserver port"     },
+    { (char*)"cwd",        T_OBJECT, offsetof(qfs_Client, cwd),      READONLY, (char*)"current directory"       },
     { NULL }
 };
 
@@ -739,11 +747,11 @@ static PyMethodDef File_methods[] = {
 };
 
 static PyMemberDef File_members[] = {
-    { "name",     T_OBJECT, offsetof(qfs_File, name),     READONLY, "file name" },
-    { "mode",     T_OBJECT, offsetof(qfs_File, mode),     READONLY, "access mode" },
-    { "encoding", T_OBJECT, offsetof(qfs_File, encoding), READONLY, "file encoding" },
-    { "erros",    T_OBJECT, offsetof(qfs_File, errors),   READONLY, "file encoding error mode" },
-    { "fd",          T_INT, offsetof(qfs_File, fd),       READONLY, "file descriptor" },
+    { (char*)"name",     T_OBJECT, offsetof(qfs_File, name),     READONLY, (char*)"file name" },
+    { (char*)"mode",     T_OBJECT, offsetof(qfs_File, mode),     READONLY, (char*)"access mode" },
+    { (char*)"encoding", T_OBJECT, offsetof(qfs_File, encoding), READONLY, (char*)"file encoding" },
+    { (char*)"erros",    T_OBJECT, offsetof(qfs_File, errors),   READONLY, (char*)"file encoding error mode" },
+    { (char*)"fd",          T_INT, offsetof(qfs_File, fd),       READONLY, (char*)"file descriptor" },
     { NULL }
 };
 
