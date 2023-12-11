@@ -432,6 +432,8 @@ for dir in  \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
+        "$jerasure_dir" \
+        "$gf_complete_dir" \
         ; do
     if [ x"${dir}" = x ]; then
         continue;
@@ -454,6 +456,19 @@ for dir in  \
     PATH="${dir}:${PATH}"
     LD_LIBRARY_PATH="${dir}:${LD_LIBRARY_PATH}"
 done
+
+for dir in  \
+        'jerasure/lib' \
+        'gf-complete/lib/' \
+        ; do
+    if [ -d "${dir}" ]; then
+        dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
+    fi
+    if [ -d "${dir}" ]; then
+        LD_LIBRARY_PATH="${dir}:${LD_LIBRARY_PATH}"
+    fi
+done
+
 # fuser might be in sbin
 PATH="${PATH}:/sbin:/usr/sbin"
 export PATH
