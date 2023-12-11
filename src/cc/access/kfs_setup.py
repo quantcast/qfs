@@ -51,7 +51,17 @@ if os.path.exists("qfs"):
     libs_dir = os.path.join("qfs", libs_dir)
     setup_extra_args = {
         "packages": ["qfs"],
-        "package_data": {"qfs": ["lib/*.*"]},
+        "package_data": {
+            "qfs": [
+                os.path.join("lib", f)
+                for f in os.listdir(libs_dir)
+                if os.path.isfile(os.path.join(libs_dir, f))
+                and not os.path.islink(os.path.join(libs_dir, f))
+                and "qfsc." not in f
+                and "qfss3io." not in f
+                and "qfs_access." not in f
+            ]
+        },
         # "ext_package": "qfs",
     }
     extension_extra_args = {

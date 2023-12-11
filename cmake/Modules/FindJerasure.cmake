@@ -90,37 +90,25 @@ set(Jerasure_SHARED_LIB
 # Change relevant run time paths and resolve symlinks.
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     add_custom_command(TARGET Jerasure_proj POST_BUILD
-        COMMAND install_name_tool -id @rpath/${Gf_complete_SHARED_LIB_NAME}
-        ${Gf_complete_SHARED_LIB}
-        COMMAND install_name_tool -id @rpath/${Jerasure_SHARED_LIB_NAME}
+        COMMAND sh -c
+        "while [ $# -gt 0 ]; do \
+            p=$(readlink \"$1\" || basename \"$1\") && \
+            install_name_tool -id @rpath/\"$p\" \"$1\" || exit; \
+            shift; \
+        done"
+        x ${Gf_complete_SHARED_LIB}
         ${Jerasure_SHARED_LIB}
         COMMAND sh -c
-        "p=$(realpath \"$1\") && install_name_tool -change \"$0\"\"$(basename \"$p\")\" @rpath/\"$2\" \"$3\""
-        ${Gf_complete_LIB_DIR} ${Gf_complete_SHARED_LIB}
-        ${Gf_complete_SHARED_LIB_NAME}
+        "p=$(readlink \"$0\" || basename \"$0\") && \
+            install_name_tool -change \"${1}${p}\" @rpath/\"$p\" \"$2\""
+        ${Gf_complete_SHARED_LIB}
+        ${Gf_complete_LIB_DIR}
         ${Jerasure_SHARED_LIB}
-        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
-        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
-        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
-        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
         VERBATIM
     )
 elseif(COMMAND chrpath)
     add_custom_command(TARGET Jerasure_proj POST_BUILD
-        COMMAND chrpath -d ${Gf_complete_SHARED_LIB}
-        COMMAND chrpath -d ${Jerasure_SHARED_LIB}
-        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
-        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
-        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
-        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
-        VERBATIM
-    )
-else()
-    add_custom_command(TARGET Jerasure_proj POST_BUILD
-        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
-        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
-        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
-        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
+        COMMAND chrpath -r $ORIGIN ${Jerasure_SHARED_LIB}
         VERBATIM
     )
 endif()
@@ -146,8 +134,7 @@ else()
         LIBRARY DESTINATION lib
         USE_SOURCE_PERMISSIONS
         FILES_MATCHING
-        PATTERN ${Gf_complete_SHARED_LIB_NAME}
-        PATTERN ${Jerasure_SHARED_LIB_NAME}
+        PATTERN ${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*
     )
     set(JERASURE_SHARED_LIBRARIES
         ${Jerasure_SHARED_LIB}
