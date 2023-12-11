@@ -51,7 +51,7 @@ set(Gf_complete_STATIC_LIB
     ${Gf_complete_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}gf_complete${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
 set(Gf_complete_SHARED_LIB_NAME
-    ${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete.1${CMAKE_SHARED_LIBRARY_SUFFIX}
+    ${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete${CMAKE_SHARED_LIBRARY_SUFFIX}
 )
 set(Gf_complete_SHARED_LIB
     ${Gf_complete_LIB_DIR}${Gf_complete_SHARED_LIB_NAME}
@@ -62,7 +62,7 @@ set(Jerasure_CPPFLAGS
     "-I${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/include -I${Gf_complete_INCLUDE}")
 set(Jerasure_LDFLAGS "-L${Gf_complete_LIB_DIR}")
 set(Jerasure_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
-ExternalProject_Add(Jerasure_proj_self
+ExternalProject_Add(Jerasure_proj
     DEPENDS Gf_complete_proj
     DOWNLOAD_COMMAND ""
     SOURCE_DIR ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}
@@ -81,33 +81,47 @@ set(Jerasure_STATIC_LIB
     ${Jerasure_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}Jerasure${CMAKE_STATIC_LIBRARY_SUFFIX}
 )
 set(Jerasure_SHARED_LIB_NAME
-    ${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure.2${CMAKE_SHARED_LIBRARY_SUFFIX}
+    ${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure${CMAKE_SHARED_LIBRARY_SUFFIX}
 )
 set(Jerasure_SHARED_LIB
     ${Jerasure_LIB_DIR}${Jerasure_SHARED_LIB_NAME}
 )
 
+# Change relevant run time paths and resolve symlinks.
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    # Resolve symlinks and change relevant run time paths.
-    add_custom_target(Jerasure_proj
+    add_custom_command(TARGET Jerasure_proj POST_BUILD
         COMMAND install_name_tool -id @rpath/${Gf_complete_SHARED_LIB_NAME}
         ${Gf_complete_SHARED_LIB}
         COMMAND install_name_tool -id @rpath/${Jerasure_SHARED_LIB_NAME}
         ${Jerasure_SHARED_LIB}
-        COMMAND install_name_tool -change
-        ${Gf_complete_SHARED_LIB} @rpath/${Gf_complete_SHARED_LIB_NAME}
+        COMMAND sh -c
+        "p=$(realpath \"$1\") && install_name_tool -change \"$0\"\"$(basename \"$p\")\" @rpath/\"$2\" \"$3\""
+        ${Gf_complete_LIB_DIR} ${Gf_complete_SHARED_LIB}
+        ${Gf_complete_SHARED_LIB_NAME}
         ${Jerasure_SHARED_LIB}
-        DEPENDS Jerasure_proj_self
+        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
+        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
+        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
+        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
+        VERBATIM
     )
 elseif(COMMAND chrpath)
-    add_custom_target(Jerasure_proj
+    add_custom_command(TARGET Jerasure_proj POST_BUILD
         COMMAND chrpath -d ${Gf_complete_SHARED_LIB}
         COMMAND chrpath -d ${Jerasure_SHARED_LIB}
-        DEPENDS Jerasure_proj_self
+        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
+        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
+        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
+        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
+        VERBATIM
     )
 else()
-    add_custom_target(Jerasure_proj
-        DEPENDS Jerasure_proj_self
+    add_custom_command(TARGET Jerasure_proj POST_BUILD
+        COMMAND mv ${Jerasure_SHARED_LIB} ${Jerasure_SHARED_LIB}.tmp
+        COMMAND cp ${Jerasure_SHARED_LIB}.tmp ${Jerasure_SHARED_LIB}
+        COMMAND mv ${Gf_complete_SHARED_LIB} ${Gf_complete_SHARED_LIB}.tmp
+        COMMAND cp ${Gf_complete_SHARED_LIB}.tmp ${Gf_complete_SHARED_LIB}
+        VERBATIM
     )
 endif()
 
