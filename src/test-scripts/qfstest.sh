@@ -415,6 +415,7 @@ else
     fusedir=''
 fi
 
+qfsshareddirs=''
 for dir in  \
         'src/cc/devtools' \
         'src/cc/chunk' \
@@ -454,23 +455,24 @@ for dir in  \
         exit 1
     fi
     PATH="${dir}:${PATH}"
-    LD_LIBRARY_PATH="${dir}:${LD_LIBRARY_PATH}"
+    qfsshareddirs="$dir:$qfsshareddirs"
 done
 
 for dir in  \
         'jerasure/lib' \
-        'gf-complete/lib/' \
+        'gf-complete/lib' \
         ; do
     if [ -d "${dir}" ]; then
         dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
-    fi
-    if [ -d "${dir}" ]; then
-        LD_LIBRARY_PATH="${dir}:${LD_LIBRARY_PATH}"
+        if [ -d "${dir}" ]; then
+            qfsshareddirs="$dir:$qfsshareddirs"
+        fi
     fi
 done
 
 # fuser might be in sbin
 PATH="${PATH}:/sbin:/usr/sbin"
+LD_LIBRARY_PATH="${qfsshareddirs}:${LD_LIBRARY_PATH:$LD_LIBRARY_PATH}"
 export PATH
 export LD_LIBRARY_PATH
 
@@ -478,6 +480,13 @@ rm -rf "$testdir"
 mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
+
+if [ x"`uname`" = x'Darwin' ]; then
+    # Note: on macos DYLD_LIBRARY_PATH will disappear in sub shell due to
+    # integrity system protection.
+    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}"
+    export DYLD_LIBRARY_PATH
+fi
 
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 cabundlefile="$chunksrvdir/ca-bundle.crt"
@@ -1230,6 +1239,7 @@ if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
         mkdir -p "$include_path" &&
         cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path" &&
         [ x"`uname`" != x'Darwin' ] || {
+            # Re-create DYLD_LIBRARY_PATH as it disappears in subshell due SIP.
             DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}" &&
             export DYLD_LIBRARY_PATH
         } &&
