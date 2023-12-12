@@ -139,7 +139,7 @@ python: build
 	fi
 
 .PHONY: mintest
-mintest: hadoop-jars
+mintest: hadoop-jars python
 	cd build/${BUILD_TYPE} && \
 	../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS}
 
