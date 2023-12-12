@@ -63,6 +63,8 @@ endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     set(CMAKE_INSTALL_RPATH $ORIGIN)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_INSTALL_RPATH @loader_path)
 endif()
 
 if (CYGWIN)
