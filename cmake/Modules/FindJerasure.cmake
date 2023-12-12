@@ -94,23 +94,34 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "while [ $# -gt 0 ]; do \
             p=$(readlink \"$1\" || basename \"$1\") && \
             install_name_tool -id @rpath/\"$p\" \"$1\" || exit; \
+            if [ x\"$0\" != x ]; then \
+                install_name_tool -add_rpath \"$0\" \"$1\"; \
+            fi ; \
             shift; \
         done"
-        x ${Gf_complete_SHARED_LIB}
+        "${CMAKE_INSTALL_RPATH}"
+        ${Gf_complete_SHARED_LIB}
         ${Jerasure_SHARED_LIB}
         COMMAND sh -c
         "p=$(readlink \"$0\" || basename \"$0\") && \
-            install_name_tool -change \"${1}${p}\" @rpath/\"$p\" \"$2\""
+            install_name_tool -change \"$1$p\" @rpath/\"$p\" \"$2\""
         ${Gf_complete_SHARED_LIB}
         ${Gf_complete_LIB_DIR}
         ${Jerasure_SHARED_LIB}
         VERBATIM
     )
 elseif(COMMAND chrpath)
-    add_custom_command(TARGET Jerasure_proj POST_BUILD
-        COMMAND chrpath -r $ORIGIN ${Jerasure_SHARED_LIB}
-        VERBATIM
-    )
+    if("${CMAKE_INSTALL_RPATH}" STREQUAL "")
+        add_custom_command(TARGET Jerasure_proj POST_BUILD
+            COMMAND chrpath -d ${Jerasure_SHARED_LIB}
+            VERBATIM
+        )
+    else()
+        add_custom_command(TARGET Jerasure_proj POST_BUILD
+            COMMAND chrpath -r ${CMAKE_INSTALL_RPATH} ${Jerasure_SHARED_LIB}
+            VERBATIM
+        )
+    endif()
 endif()
 
 install(FILES ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB}
