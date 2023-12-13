@@ -486,6 +486,25 @@ if [ x"`uname`" = x'Darwin' ]; then
     # integrity system protection.
     DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}"
     export DYLD_LIBRARY_PATH
+    # Symlink all relevant libs into single directory to make java work.
+    if [ x"$accessdir" != x ]; then
+        qfsshareddir=$testdir/qfsshared
+        mkdir "$qfsshareddir" || exit
+        (
+            cd "$qfsshareddir" || exit
+            if [ x"`uname`" = x'Darwin' ]; then
+                glob="*.dylib"
+            else
+                glob="*.so*"
+            fi
+            echo "$accessdir:$qfsshareddirs" | tr ':' '\n' \
+            | while read n; do
+                ls "$n"/$glob>/dev/null 2>&1 || continue
+                ln -s "$n"/$glob .
+            done
+        ) || exit
+        accessdir=$qfsshareddir
+    fi
 fi
 
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
