@@ -472,7 +472,7 @@ done
 
 # fuser might be in sbin
 PATH="${PATH}:/sbin:/usr/sbin"
-LD_LIBRARY_PATH="${qfsshareddirs}:${LD_LIBRARY_PATH:$LD_LIBRARY_PATH}"
+LD_LIBRARY_PATH="${qfsshareddirs}:${LD_LIBRARY_PATH+:$LD_LIBRARY_PATH}"
 export PATH
 export LD_LIBRARY_PATH
 
