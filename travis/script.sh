@@ -28,6 +28,7 @@ DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev'
 DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk zlib1g-dev unzip maven sudo'
 DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb chrpath'
 DEPS_UBUNTU22=$DEPS_UBUNTU' golang-go'
+DEPS_UBUNTU14=$DEPS_UBUNTU
 DEPS_UBUNTU=$DEPS_UBUNTU' python3-dev python3-venv'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
@@ -194,6 +195,8 @@ build_ubuntu()
 {
     if [ x"$1" = x'22.04' ]; then
         MYDEPS=$DEPS_UBUNTU22
+    elif [ x"$1" = x'14.04' ]; then
+        MYDEPS=$DEPS_UBUNTU14
     else
         MYDEPS=$DEPS_UBUNTU
     fi
