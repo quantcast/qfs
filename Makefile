@@ -126,7 +126,8 @@ tarball: hadoop-jars python
 
 .PHONY: python
 python: build
-	if python3 -c 'import venv' >/dev/null 2>&1 ; then \
+	if python3 -c 'import sys; exit(0 if sys.version_info >= (3, 6) else 1)' && \
+			python3 -c 'import venv' >/dev/null 2>&1 ; then \
 		cd build/${BUILD_TYPE} && \
 		rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
 		ln -s .. qfs && \
