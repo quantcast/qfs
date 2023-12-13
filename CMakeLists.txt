@@ -87,6 +87,7 @@ find_package(Krb5 REQUIRED krb5)
 find_package(OpenSSL REQUIRED)
 find_package(FUSE)
 
+add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS)
 # Define various options based on the library configuration we use
 if(KRB5_FLAVOR)
     add_definitions(-DKFS_KRB_USE_${KRB5_FLAVOR})
