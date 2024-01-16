@@ -366,11 +366,13 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
 elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
     for pkg_name in \
-            'openssl@1.1' \
             'openssl' \
+            'openssl@3' \
+            'openssl@1.1' \
             ; do
-        MYSSLD=$(brew list "$pkg_name" | sed -ne 's/^\(.*\)\/bin\/.*$/\1/p' \
-            | sort -u | head -1)
+        MYSSLD=$(brew list "$pkg_name" \
+            | sed -ne 's/^\(.*\)\/bin\/[^\/]*$/\1/p' \
+            | sort -ru | head -1)
         [ -d "$MYSSLD" ] && break
     done
     if [ -d "$MYSSLD" ]; then
