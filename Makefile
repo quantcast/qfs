@@ -142,7 +142,8 @@ python: build
 .PHONY: mintest
 mintest: hadoop-jars python
 	cd build/${BUILD_TYPE} && \
-	../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS}
+	../../src/test-scripts/qfstest.sh \
+		-install-prefix . -auth ${QFSTEST_OPTIONS}
 
 .PHONY: test
 test: mintest
@@ -154,7 +155,8 @@ test: mintest
 	../../src/test-scripts/recoverytest.sh && \
 	if [ -d qfstest/certs ]; then \
 		echo '--------- Test without authentication --------' && \
-		../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
+		../../src/test-scripts/qfstest.sh \
+			-install-prefix . -noauth ${QFSTEST_OPTIONS} ; \
 	fi
 
 .PHONY: rat
