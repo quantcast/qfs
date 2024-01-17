@@ -57,4 +57,6 @@ install (TARGETS qfsc qfsc-shared
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib/static)
 install (FILES qfs.h DESTINATION include/kfs/c)
+install (TARGETS test-qfsc
+        RUNTIME DESTINATION bin/devtools)
 

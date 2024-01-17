@@ -131,7 +131,7 @@ if (DEFINED vectormode)
     elseif (vectormode STREQUAL neon)
         message(STATUS "qcrs: enabling neon")
         add_definitions(-mfpu=neon -DLIBRS_USE_NEON)
-    else (vectormode STREQUAL neon)
+    else ()
         message(STATUS "qcrs: unsupported ${vectormode}")
     endif (vectormode STREQUAL ssse3)
     if (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
@@ -158,3 +158,6 @@ add_dependencies (${rsmktablebin} kfsrs)
 install (TARGETS kfsrs kfsrs-shared
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)
+
+install (TARGETS rstest
+        RUNTIME DESTINATION bin/devtools)
