@@ -1251,19 +1251,19 @@ if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
     kfsgopidf="kfsgo${pidsuf}"
     cp /dev/null kfsgo_test.out
     {
-        [ x"$installlibdir" != x ] || {
-            include_path=include/kfs/c &&
-            mkdir -p "$include_path" &&
-            cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path"
-        } &&
-        CGO_CFLAGS="-I`pwd`/include" &&
-        export CGO_CFLAGS &&
-        CGO_LDFLAGS="-L$qfscdir" &&
-        export CGO_LDFLAGS &&
-        QFS_CLIENT_CONFIG=$clientenvcfg &&
-        export QFS_CLIENT_CONFIG &&
+        if [ x"$installprefix" = x ]; then
+            qfscincludedir=`pwd`/include &&
+            qfscincludesubdir=$qfscincludedir/kfs/c &&
+            mkdir -p "$qfscincludesubdir" &&
+            cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$qfscincludesubdir"
+        else
+            qfscincludedir=$installprefix/include
+        fi &&
         cd "$kfsgosrcdir" &&
         go get -t -v &&
+        CGO_CFLAGS="-I$qfscincludedir" \
+        CGO_LDFLAGS="-L$qfscdir" \
+        QFS_CLIENT_CONFIG=$clientenvcfg \
         go test -qfs.addr "$metahost:$metasrvport"
     } >> kfsgo_test.out 2>&1 &
     kfsgopid=$!
