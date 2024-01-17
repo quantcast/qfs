@@ -148,6 +148,15 @@ mintest: hadoop-jars python
 .PHONY: test
 test: mintest
 	cd build/${BUILD_TYPE} && \
+	installbindir=`pwd`/bin && \
+	metadir=$$installbindir && \
+	export metadir && \
+	chunkdir=$$installbindir && \
+	export chunkdir && \
+	toolsdir=$$installbindir/tools && \
+	export toolsdir && \
+	devtoolsdir=$$installbindir/devtools && \
+	export devtoolsdir && \
 	echo '--------- QC RS recovery test ---------' && \
 	../../src/test-scripts/recoverytest.sh && \
 	echo '--------- Jerasure recovery test ------' && \
