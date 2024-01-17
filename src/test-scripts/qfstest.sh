@@ -35,6 +35,7 @@ metaserverclithreads=${metaserverclithreads-2}
 myexmetaconfig=''
 myexchunkconfig=''
 myexclientconfig=''
+installprefix=''
 mynewlinechar='
 '
 
@@ -111,6 +112,12 @@ while [ $# -ge 1 ]; do
         fi
         shift
         myexclientconfig=${myexclientconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-install-prefix' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        installprefix=$1
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -127,7 +134,8 @@ while [ $# -ge 1 ]; do
             "[-meta-cli-threads <num>]" \
             "[-meta-ex-config <param>]" \
             "[-chunk-ex-config <param>]" \
-            "[-client-ex-config <param>]"
+            "[-client-ex-config <param>]" \
+            "[-install-prefix <param>]"
         exit 1
     fi
     shift
@@ -186,6 +194,15 @@ metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
 objectstorebuffersize=${objectstorebuffersize-`expr 500 \* 1024`}
 
+if [ x"$installprefix" = x ]; then
+    installbindir=''
+    installlibdir=''
+else
+    installprefix=`cd "$installprefix" >/dev/null && pwd` || exit
+    installbindir=$installprefix/bin
+    installlibdir=$installprefix/lib
+fi
+
 export metahost
 export metasrvport
 export metahosturl
@@ -227,9 +244,7 @@ mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
 [ x"`uname`" = x'Darwin' ] && dontusefuser=yes
-if [ x"$dontusefuser" = x'yes' ]; then
-    true
-else
+if [ x"$dontusefuser" != x'yes' ]; then
     fuser "$0" >/dev/null 2>&1 || dontusefuser=yes
 fi
 
@@ -363,9 +378,7 @@ else
             "quantsort/quantsort" \
             "$smdir/../../../glue/ksortcontroller" \
             ; do
-        if [ -x "$name" ]; then
-            true
-        else
+        if [ ! -x "$name" ]; then
             echo "$name doesn't exist or not executable, skipping sort master test"
             smtest=''
             break
@@ -383,7 +396,7 @@ else
     fi
 fi
 
-accessdir='src/cc/access'
+accessdir=${installlibdir:-'src/cc/access'}
 if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
     kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh --release`
@@ -398,13 +411,13 @@ else
     accessdir=''
 fi
 
-qfscdir=`cd src/cc/qfsc >/dev/null 2>&1 && pwd`
+qfscdir=${installlibdir:-`cd src/cc/qfsc >/dev/null 2>&1 && pwd`}
 kfsgosrcdir="`dirname "$0"`"
 kfsgosrcdir="`cd "$kfsgosrcdir/../go" >/dev/null 2>&1 && pwd`"
 monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
 
 fusedir='src/cc/fuse'
-if [ x'yes' = x"$myopttestfuse" -a -d "$fusedir" ] && \
+if [ x'yes' = x"$myopttestfuse" -a -d "${installbindir:-$fusedir}" ] && \
         { [ x'Darwin' = x"`uname`" -a -w /dev/osxfuse0 ] || \
             [ x'FreeBSD' = x"`uname`" -a -w /dev/fuse ] || \
             { [ x'Linux' = x"`uname`" -a -w /dev/fuse ] && \
@@ -415,29 +428,40 @@ else
     fusedir=''
 fi
 
+if [ x"$installbindir" = x ]; then
+    qfsbindirs=`echo \
+            'src/cc/devtools' \
+            'src/cc/chunk' \
+            'src/cc/meta' \
+            'src/cc/tools' \
+            'src/cc/libclient' \
+            'src/cc/kfsio' \
+            'src/cc/qcdio' \
+            'src/cc/common' \
+            'src/cc/qcrs' \
+            'src/cc/qfsc' \
+            'src/cc/krb' \
+            'src/cc/emulator' \
+    `
+else
+    qfsbindirs=''
+    fusedir=''
+fi
+
 qfsshareddirs=''
 for dir in  \
-        'src/cc/devtools' \
-        'src/cc/chunk' \
-        'src/cc/meta' \
-        'src/cc/tools' \
-        'src/cc/libclient' \
-        'src/cc/kfsio' \
-        'src/cc/qcdio' \
-        'src/cc/common' \
-        'src/cc/qcrs' \
-        'src/cc/qfsc' \
-        'src/cc/krb' \
-        'src/cc/emulator' \
+        $qfsbindirs \
+        "${installbindir}" \
+        "${installbindir:+$installbindir/tools}" \
+        "${installbindir:+$installbindir/devtools}" \
+        "${installbindir:+$installbindir/emulator}" \
         "$fusedir" \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
-        "$jerasure_dir" \
-        "$gf_complete_dir" \
         ; do
     if [ x"${dir}" = x ]; then
-        continue;
+        continue
     fi
     if [ -d "${dir}" ]; then
         dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
@@ -448,31 +472,40 @@ for dir in  \
             chunkbindir=$dir
         fi
     fi
-    if [ -d "${dir}" ]; then
-        true
-    else
+    if [ ! -d "${dir}" ]; then
         echo "missing directory: ${dir}"
         exit 1
     fi
     PATH="${dir}:${PATH}"
-    qfsshareddirs="$dir:$qfsshareddirs"
+    qfsshareddirs="${dir}${qfsshareddirs:+:$qfsshareddirs}"
 done
 
-for dir in  \
-        'jerasure/lib' \
-        'gf-complete/lib' \
-        ; do
-    if [ -d "${dir}" ]; then
-        dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
+if [ x"$installlibdir" = x ]; then
+    for dir in  \
+            'gf-complete/lib' \
+            'jerasure/lib' \
+            ; do
         if [ -d "${dir}" ]; then
-            qfsshareddirs="$dir:$qfsshareddirs"
+            dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
+            if [ -d "${dir}" ]; then
+                if [ x"`uname`" = x'Darwin' ]; then
+                    # Link on MacOS as run time path has been changed.
+                    ln -snf "$dir"/*.dylib src/cc/libclient || exit
+                else
+                    qfsshareddirs="${dir}${qfsshareddirs:+:$qfsshareddirs}"
+                fi
+            fi
         fi
-    fi
-done
+    done
+else
+    qfsshareddirs=$installlibdir
+    metabindir=$installbindir
+    chunkbindir=$installbindir
+fi
 
 # fuser might be in sbin
 PATH="${PATH}:/sbin:/usr/sbin"
-LD_LIBRARY_PATH="${qfsshareddirs}:${LD_LIBRARY_PATH+:$LD_LIBRARY_PATH}"
+LD_LIBRARY_PATH="${qfsshareddirs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH
 export LD_LIBRARY_PATH
 
@@ -484,27 +517,8 @@ mkdir "$chunksrvdir" || exit
 if [ x"`uname`" = x'Darwin' ]; then
     # Note: on macos DYLD_LIBRARY_PATH will disappear in sub shell due to
     # integrity system protection.
-    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}"
+    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
     export DYLD_LIBRARY_PATH
-    # Symlink all relevant libs into single directory to make java work.
-    if [ x"$accessdir" != x ]; then
-        qfsshareddir=$testdir/qfsshared
-        mkdir "$qfsshareddir" || exit
-        (
-            cd "$qfsshareddir" || exit
-            if [ x"`uname`" = x'Darwin' ]; then
-                glob="*.dylib"
-            else
-                glob="*.so*"
-            fi
-            echo "$accessdir:$qfsshareddirs" | tr ':' '\n' \
-            | while read n; do
-                ls "$n"/$glob>/dev/null 2>&1 || continue
-                ln -s "$n"/$glob .
-            done
-        ) || exit
-        accessdir=$qfsshareddir
-    fi
 fi
 
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
@@ -617,9 +631,7 @@ client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
 EOF
 fi
-if [ x"$myexclientconfig" = x ]; then
-    true
-else
+if [ x"$myexclientconfig" != x ]; then
     cat >> "$clientprop" << EOF
 $myexclientconfig
 EOF
@@ -689,9 +701,7 @@ chunkServer.getFsSpaceAvailableIntervalSecs = 2
 chunkServer.objecStorageTierPrefixes = s3://__test_0 0 __test_2 2
 EOF
 
-if [ x"$myvalgrind" = x ]; then
-    true
-else
+if [ x"$myvalgrind" != x ]; then
     cat >> "$metasrvprop" << EOF
 metaServer.chunkServer.chunkAllocTimeout   = 500
 metaServer.chunkServer.chunkReallocTimeout = 500
@@ -758,9 +768,7 @@ cat >> "$metasrvprop" << EOF
 metaServer.csmap.unittest = 1
 EOF
 
-if [ x"$myexmetaconfig" = x ]; then
-    true
-else
+if [ x"$myexmetaconfig" != x ]; then
     cat >> "$metasrvprop" << EOF
 $myexmetaconfig
 EOF
@@ -784,9 +792,7 @@ echo "$metapid" > "$metasrvpid"
 cd "$testdir" || exit
 ensurerunning "$metapid" || exit
 echo "Waiting for the meta server startup unit tests to complete."
-if [ x"$myvalgrind" = x ]; then
-    true
-else
+if [ x"$myvalgrind" != x ]; then
     echo "With valgrind meta server unit tests might take serveral minutes."
 fi
 
@@ -871,9 +877,7 @@ EOF
 chunkServer.nodeId = ${i}_node_id
 EOF
     fi
-    if [ x"$myvalgrind" = x ]; then
-        true
-    else
+    if [ x"$myvalgrind" != x ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.diskIo.maxIoTimeSec = 580
 EOF
@@ -910,9 +914,7 @@ chunkServer.resolverCacheExpiration = 5
 chunkServer.useOsResolver           = 1
 EOF
     fi
-    if [ x"$myexchunkconfig" = x ]; then
-        true
-    else
+    if [ x"$myexchunkconfig" != x ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 $myexchunkconfig
 EOF
@@ -952,9 +954,7 @@ fi
 qfstoolrootauthcfg=$clientrootprop
 clientenvcfg="${clientenvcfg} client.nodeId=`expr $chunksrvport + 1`_node_id"
 
-if [ x"$myvalgrind" = x ]; then
-    true
-else
+if [ x"$myvalgrind" != x ]; then
     cat >> "$clientrootprop" << EOF
 client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
@@ -1160,9 +1160,7 @@ echo "Starting copy test. Test file sizes: $sizes"
 # Schedule meta server checkpoint after the first two tests.
 
 if [ x"$myvalgrind" = x ]; then
-    if [ x"$cptestextraopts" = x ]; then
-        true
-    else
+    if [ x"$cptestextraopts" != x ]; then
         $cptestextraopts=" $cptestextraopts"
     fi
     if [ $spacecheck -ne 0 ] || uname | grep CYGWIN > /dev/null; then
@@ -1216,9 +1214,7 @@ QFS_CLIENT_LOG_LEVEL=DEBUG \
 qfscpid=$!
 echo "$qfscpid" > "$qfscpidf"
 
-if [ x"$accessdir" = x ]; then
-    true
-else
+if [ x"$accessdir" != x ]; then
     kfsaccesspidf="kfsaccess_test${pidsuf}"
     clientproppool="$clientprop.pool.prp"
     if [ -f "$clientprop" ]; then
@@ -1253,14 +1249,12 @@ fi
 
 if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
     kfsgopidf="kfsgo${pidsuf}"
-    (
-        include_path=include/kfs/c &&
-        mkdir -p "$include_path" &&
-        cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path" &&
-        [ x"`uname`" != x'Darwin' ] || {
-            # Re-create DYLD_LIBRARY_PATH as it disappears in subshell due SIP.
-            DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}" &&
-            export DYLD_LIBRARY_PATH
+    cp /dev/null kfsgo_test.out
+    {
+        [ x"$installlibdir" != x ] || {
+            include_path=include/kfs/c &&
+            mkdir -p "$include_path" &&
+            cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path"
         } &&
         CGO_CFLAGS="-I`pwd`/include" &&
         export CGO_CFLAGS &&
@@ -1271,7 +1265,7 @@ if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
         cd "$kfsgosrcdir" &&
         go get -t -v &&
         go test -qfs.addr "$metahost:$metasrvport"
-    ) > kfsgo_test.out 2>&1 &
+    } >> kfsgo_test.out 2>&1 &
     kfsgopid=$!
     echo "$kfsgopid" > "$kfsgopidf"
 else
@@ -1345,12 +1339,8 @@ if [ $fotest -ne 0 ]; then
     echo "$fopid" > "$fopidf"
 fi
 
-if [ x"$smtest" = x ]; then
-    true
-else
-    if [ x"$smauthconf" = x ]; then
-        true
-    else
+if [ x"$smtest" != x ]; then
+    if [ x"$smauthconf" != x ]; then
        cat > "$smauthconf" << EOF
 sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
@@ -1422,9 +1412,7 @@ echo "Cleaning up write leases by removing and truncating files"
 rootrmlist=`runqfsroot -ls '/' \
 | awk '/^[d-]/{ if ($NF != "/dumpster" &&
     $NF != "'"$chunkinventorytestdir"'") print $NF; }'`
-if [ x"$rootrmlist" = x ]; then
-    true
-else
+if [ x"$rootrmlist" != x ]; then
     runqfsroot -rmr -skipTrash $rootrmlist || exit
 fi
 
@@ -1486,9 +1474,7 @@ for cmd in \
         "-F Start-log='0 0 0' $mymetareadargs read_meta_data && echo ''" \
     ; do
     echo "===================== start $cmd ==================================="
-    if eval runqfsadmin $cmd; then
-        true
-    else
+    if ! eval runqfsadmin $cmd; then
         adminstatus=`expr $adminstatus + 1`
     fi
     echo "===================== end $cmd ====================================="
@@ -1548,9 +1534,7 @@ i=$chunksrvport
 e=`expr $i + $numchunksrv`
 while [ $i -lt $e ]; do
     cd "$chunksrvdir/$i" || exit
-    if [ -e "$chunksrvpid" ]; then
-        true
-    else
+    if [ ! -e "$chunksrvpid" ]; then
         echo "Restarting chunk server $i"
         if [ -e "$myvalgrindlog" ]; then
             mv "$myvalgrindlog" "$myvalgrindlog"'.run.log' || exit
@@ -1631,9 +1615,7 @@ if [ $status -ne 0 ]; then
     showpids
 fi
 
-if [ x"$mytailpids" = x ]; then
-    true
-else
+if [ x"$mytailpids" != x ]; then
     # Let tail -f poll complete, then shut them down.
     { sleep 1 ; kill -TERM $mytailpids ; } &
     wait 2>/dev/null
@@ -1705,6 +1687,7 @@ else
     report_test_status "Fanout"      $fostatus
     report_test_status "Sort master" $smstatus
     report_test_status "Java shim"   $kfsaccessstatus
+    report_test_status "Go shim"     $kfsgostatus
     report_test_status "C bindings"  $qfscstatus
     report_test_status "Fsck"        $fsckstatus
     report_test_status "Fuse"        $fusestatus
