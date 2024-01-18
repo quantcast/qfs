@@ -356,7 +356,13 @@ if [ x"$sortdir" = x ]; then
 else
     smdir="$sortdir/$smsdir"
     smdir=`cd "$smdir" >/dev/null 2>&1 && pwd`
-    builddir="`pwd`/src/cc"
+    if [ x"$installbindir" = x ]; then
+        builddir="`pwd`/src/cc"
+    else
+        builddir=xxx-sortmaster-do-not-add-build-dirs-to-path
+        quantsort=$installbindir/quantsort/quantsort
+        export quantsort
+    fi
     export builddir
     metaport=$metasrvport
     export metaport
@@ -373,9 +379,9 @@ else
 #        export smauthconf
 #    fi
     for name in \
-            "$smsdir/ksortmaster" \
+            "${installbindir:-$smsdir}/ksortmaster" \
             "$smtest" \
-            "quantsort/quantsort" \
+            "${installbindir:+$installbindir/}quantsort/quantsort" \
             "$smdir/../../../glue/ksortcontroller" \
             ; do
         if [ ! -x "$name" ]; then
@@ -446,6 +452,7 @@ if [ x"$installbindir" = x ]; then
 else
     qfsbindirs=''
     fusedir=''
+    fodir=${fodir:+$installbindir/fanout}
 fi
 
 qfsshareddirs=''
@@ -1333,6 +1340,7 @@ if [ $fotest -ne 0 ]; then
             -read-retries 1 \
             -kfanout-extra-opts "-U $p -P 3""$foextraopts" \
             -cpfromkfs-extra-opts "$cptestextraopts" \
+            ${installbindir:+-bin-prefix xxx-no-add-fanout-build-dir-to-path} \
         || exit
     done >> kfanout_test.out 2>&1 &
     fopid=$!
