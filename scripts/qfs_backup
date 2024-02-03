@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # Author: Christopher Zimmerman
 #
@@ -20,6 +20,8 @@
 #
 # This tool can be used to generate a tar archive stream of the latest
 # checkpoint and associated transaction logs to standard output.
+
+from __future__ import print_function
 
 import os
 import re
@@ -189,6 +191,7 @@ def get_transactions(transactions_dir):
 def check_transaction_sequences(transactions):
     log("Checking transaction log sequences.")
     last_seq = None
+    last_log_file = None
     for log_file in transactions:
         seq = find_transaction_log_segment_number(log_file)
         if last_seq and seq and last_seq - seq > 1:
@@ -204,7 +207,7 @@ def find_transaction_log_segment_number(transaction):
     """Extract transaction log segment number from the file name."""
 
     this_number = None
-    match = re.match("^.*?log\.\d+\.\d+\.\d+\.(\d+)$", transaction)
+    match = re.match(r"^.*?log\.\d+\.\d+\.\d+\.(\d+)$", transaction)
     if match:
         this_number = int(match.group(1))
 
@@ -216,7 +219,7 @@ def get_log_sequence(re_prefix, re_suffix, name):
     string that can sorted in lexicographic order"""
 
     this_number = None
-    match = re.match(re_prefix + "\.(\d+)\.(\d+)\.(\d+)" + re_suffix, name)
+    match = re.match(re_prefix + r"\.(\d+)\.(\d+)\.(\d+)" + re_suffix, name)
     if match:
         this_number = ""
         for i in range(1, 4):
@@ -234,7 +237,7 @@ def find_checkpoint_number(checkpoint):
 def find_transaction_number(transaction):
     """Extract transaction log sequence number from the file name."""
 
-    return get_log_sequence("^.*?log", "\.\d+$", transaction)
+    return get_log_sequence(r"^.*?log", r"\.\d+$", transaction)
 
 
 def find_checkpoint_log_number(checkpoint):
@@ -268,7 +271,7 @@ def find_checkpoint_transactions(checkpoint, transactions):
         if this_number:
             if this_number >= log_number:
                 checkpoint_transactions.append(logfile)
-                this_stat = os.stat(logfile)
+                os.stat(logfile)
 
     return checkpoint_transactions
 
