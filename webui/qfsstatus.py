@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # $Id$
 #
@@ -23,30 +23,54 @@
 # A simple webserver that displays KFS status by pinging the metaserver.
 #
 
-import configparser
+from __future__ import print_function
+
 import os
 import platform
 import socket
-import socketserver
 import sys
 import time
 from datetime import datetime
-from http.server import SimpleHTTPRequestHandler
-from io import StringIO
-from urllib.request import urlopen
 
 from browse import QFSBrowser
 from chart import ChartData, ChartHTML
-from chunks import (ChunkArrayData, ChunkDataManager, ChunkServerData,
-                    ChunkThread, HtmlPrintData, HtmlPrintMetaData)
+from chunks import (
+    ChunkArrayData,
+    ChunkDataManager,
+    ChunkServerData,
+    ChunkThread,
+    HtmlPrintData,
+    HtmlPrintMetaData,
+)
+
+if sys.version_info < (3, 0):
+    from urllib import urlopen
+
+    import ConfigParser as configparser
+    import SocketServer as socketserver
+    from SimpleHTTPServer import SimpleHTTPRequestHandler
+    from StringIO import StringIO
+else:
+    import configparser
+    import socketserver
+    from http.server import SimpleHTTPRequestHandler
+    from io import StringIO
+    from urllib.request import urlopen
+
 
 REQUEST_PING = (
-    "PING\r\nVersion: KFS/1.0\r\n"
-    "Cseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+    "PING\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
 ).encode("utf-8")
 REQUEST_GET_DIRS_COUNTERS = (
     "GET_CHUNK_SERVER_DIRS_COUNTERS\r\n"
-    "Version: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
 ).encode("utf-8")
 
 gHasCollections = True
@@ -1043,8 +1067,8 @@ class Status:
 def printStyle(buffer, title):
     print(
         """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\
+ "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -2593,7 +2617,7 @@ class Pinger(SimpleHTTPRequestHandler):
     def sendErrorResponse(self, code, msg):
         self.send_response(code)
 
-        body = f"error {msg}".encode("utf-8")
+        body = ("error %s" % msg).encode("utf-8")
         # Send standard HTP headers
         self.send_header("Content-type", "text/html; charset=utf-8")
         self.send_header("Connection", "close")
@@ -2657,8 +2681,9 @@ class Pinger(SimpleHTTPRequestHandler):
             print("Unable to post to metaserver, IO error")
             self.send_error(504, "Unable to post to metaserver, IO error")
         except Exception as e:
-            print(f"Unable to post to metaserver, {e}")
-            self.send_error(504, f"Unable to post to metaserver, {e}")
+            err = "Unable to post to metaserver %s" % e
+            print(err)
+            self.send_error(504, err)
 
     def do_GET(self):
         global metaserverPort, metaserverHost, docRoot
@@ -2678,7 +2703,7 @@ class Pinger(SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.copyfile(urlopen("file://" + fpath), self.wfile)
                 except IOError:
-                    print(f" failed to find file: {'file://' + fpath} ")
+                    print("failed to find file: file://" + fpath)
                     self.send_error(404, "Not found")
                 return
 
@@ -2692,7 +2717,7 @@ class Pinger(SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.copyfile(urlopen("file://" + fpath), self.wfile)
                 except IOError:
-                    print(f" failed to find chart file: {'file://' + fpath} ")
+                    print("failed to find chart file: file://" + fpath)
                     self.send_error(404, "Not found")
                 return
 
@@ -2891,8 +2916,9 @@ class Pinger(SimpleHTTPRequestHandler):
             print("Unable to ping metaserver, IO error")
             self.send_error(504, "Unable to ping metaserver, IO error")
         except Exception as e:
-            print(f"Unable to ping metaserver, {e}")
-            self.send_error(504, f"Unable to ping metaserver, {e}")
+            msg = "Unable to ping metaserver, " + str(e)
+            print(msg)
+            self.send_error(504, msg)
 
 
 def parseChunkConfig(config):
@@ -2988,7 +3014,7 @@ if __name__ == "__main__":
     gQfsBrowser = QFSBrowser()
 
     config = configparser.ConfigParser()
-    config.read_file(open(sys.argv[1]))
+    config.read(sys.argv[1])
     metaserverPort = config.getint("webserver", "webServer.metaserverPort")
     try:
         metaserverHost = config.get("webserver", "webServer.metaserverHost")
