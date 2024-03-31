@@ -1727,7 +1727,9 @@ if [ $status -eq 0 ]; then
     report_test_status "Re-balance planner" $status
 fi
 
-find "$testdir" -name core\* || status=1
+# Check for core files, and fail the test if any.
+find "$testdir" -path "$testdir/.venv" -prune -o -type f -name core\* -print \
+| awk '{ print; } END{ exit (NR > 0 ? 1 : 0); }' || status=1
 
 if [ $status -eq 0 \
         -a $cpstatus -eq 0 \
