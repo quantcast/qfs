@@ -22,7 +22,7 @@
 #
 # NOTE: The python support for QFS is EXPERIMENTAL at this stage. The
 #       python extension module has not been tested on large scale
-#       deploymentsi yet. Please excercise caution while using the
+#       deployments yet. Please exercise caution while using the
 #       python module.
 
 """
@@ -33,6 +33,8 @@ the created paths are valid, and that the file contents are as expected.
 To run this script,
   - Build QFS python module by running the following at QFS repo top level dir:
     make python
+  - Install qfs python module:
+    python -m pip install build/release/python-qfs/dist/qfs*.whl
   - Ensure that the QFS metaserver and chunkserver are running.
   - Ensure that the metaserver host/port matches the contents of argv[1].
   - Run this script:
