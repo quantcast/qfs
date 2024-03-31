@@ -19,12 +19,6 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-#
-# NOTE: The python support for QFS is EXPERIMENTAL at this stage. The
-#       python extension module has not been tested on large scale
-#       deployments yet. Please exercise caution while using the
-#       python module.
-
 """
 This simple test tries to create some files and directories, and write some
 data at specific offsets in the created files. Then it tries to ensure that
