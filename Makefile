@@ -29,6 +29,10 @@ QFSTEST_OPTIONS=
 JAVA_BUILD_OPTIONS=
 QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.10.1  3.1.4  3.2.2  3.3.1
 
+QFS_PYTHON_DIR=python-qfs
+QFS_PYTHON_WHEEL_DIR=${QFS_PYTHON_DIR}/dist
+QFS_PYTHON_TEST_OPTION=test -d ${QFS_PYTHON_WHEEL_DIR} && echo -python-wheel-dir ${QFS_PYTHON_WHEEL_DIR}
+
 .PHONY: all
 all: build
 
@@ -118,18 +122,21 @@ tarball: hadoop-jars python
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
-	if ls -1 ${BUILD_TYPE}/python-qfs/dist/qfs*.whl > /dev/null 2>&1; then \
-		cp ${BUILD_TYPE}/python-qfs/dist/qfs*.whl \
+	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl > /dev/null 2>&1; then \
+		cp ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
 			"tmpreldir/$$tarname/lib/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
 .PHONY: python
 python: build
-	if python3 -c 'import sys; exit(0 if sys.version_info >= (3, 6) else 1)' >/dev/null 2>&1 && \
+	if python3 -c 'import sys; exit(0 if sys.version_info >= (3, 6) else 1)' \
+			>/dev/null 2>&1 && \
 			python3 -c 'import venv' >/dev/null 2>&1 ; then \
 		cd build/${BUILD_TYPE} && \
-		rm -rf python-qfs && mkdir python-qfs && cd python-qfs && \
+		rm -rf ${QFS_PYTHON_DIR} && \
+		mkdir ${QFS_PYTHON_DIR} && \
+		cd ${QFS_PYTHON_DIR} && \
 		ln -s .. qfs && \
 		ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
 		python3 -m venv .venv && \
@@ -143,6 +150,7 @@ python: build
 mintest: hadoop-jars python
 	cd build/${BUILD_TYPE} && \
 	../../src/test-scripts/qfstest.sh \
+		`${QFS_PYTHON_TEST_OPTION}` \
 		-install-prefix . -auth ${QFSTEST_OPTIONS}
 
 .PHONY: test
@@ -165,6 +173,7 @@ test: mintest
 	if [ -d qfstest/certs ]; then \
 		echo '--------- Test without authentication --------' && \
 		../../src/test-scripts/qfstest.sh \
+			`${QFS_PYTHON_TEST_OPTION}` \
 			-install-prefix . -noauth ${QFSTEST_OPTIONS} ; \
 	fi
 
