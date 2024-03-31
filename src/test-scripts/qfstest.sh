@@ -36,6 +36,7 @@ myexmetaconfig=''
 myexchunkconfig=''
 myexclientconfig=''
 installprefix=''
+pythonwheeldir=''
 mynewlinechar='
 '
 
@@ -118,6 +119,12 @@ while [ $# -ge 1 ]; do
         fi
         shift
         installprefix=$1
+    elif [ x"$1" = x'-python-wheel-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        pythonwheeldir=$1
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -135,7 +142,8 @@ while [ $# -ge 1 ]; do
             "[-meta-ex-config <param>]" \
             "[-chunk-ex-config <param>]" \
             "[-client-ex-config <param>]" \
-            "[-install-prefix <param>]"
+            "[-install-prefix <param>]" \
+            "[-python-wheel-dir <param>]"
         exit 1
     fi
     shift
@@ -201,6 +209,24 @@ else
     installprefix=`cd "$installprefix" >/dev/null && pwd` || exit
     installbindir=$installprefix/bin
     installlibdir=$installprefix/lib
+fi
+
+if [ x"$pythonwheeldir" = x ]; then
+    kfspythonwheel=''
+else
+    pythonwheeldir=`cd "$pythonwheeldir" >/dev/null && pwd` || exit
+    kfspythonwheel=`find "$pythonwheeldir" -name 'qfs*.whl' -type f`
+    if [ ! -f "$kfspythonwheel" ]; then
+        echo "$pythonwheeldir: no QFS python wheel found" 1>&2
+        exit 1
+    fi
+    kfspythontest=`dirname "$0"`/../../examples/python
+    kfspythontest=`cd "$kfspythontest" >/dev/null 2>&1 && pwd`
+    kfspythontest=$kfspythontest/qfssample.py
+    if [ ! -f "$kfspythontest" ]; then
+        echo "$kfspythontest: no QFS python test found" 1>&2
+        exit 1
+    fi
 fi
 
 export metahost
@@ -330,6 +356,14 @@ waitqfscandcptests()
         mytailwait $kfsgopid kfsgo_test.out
         kfsgostatus=$?
         rm "$kfsgopidf"
+    fi
+
+    if [ x"$kfspythonpid" = x ]; then
+        kfspythonstatus=0
+    else
+        mytailwait $kfspythonpid kfspython_test.out
+        kfspythonstatus=$?
+        rm "$kfspythonpidf"
     fi
 
     mytailwait $cppid cptest.out
@@ -1279,6 +1313,27 @@ else
     kfsgopid=''
 fi
 
+if [ x"$kfspythonwheel" = x ]; then
+    kfspythonpid=''
+else
+    kfspythonpidf="kfspython${pidsuf}"
+    cp /dev/null kfspython_test.out
+    {
+        cd "$testdir" &&
+		python3 -m venv .venv &&
+		. .venv/bin/activate &&
+        python -m pip install "$kfspythonwheel" &&
+        kfspythonconf=kfspython.cfg &&
+        cat > "$kfspythonconf" << EOF || exit 1
+metaServer.name = $metahost
+metaServer.port = $metasrvport
+EOF
+        python "$kfspythontest" "$kfspythonconf"
+    } >> kfspython_test.out 2>&1 &
+    kfspythonpid=$!
+    echo "$kfspythonpid" > "$kfspythonpidf"
+fi
+
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
     pausesec=`expr $csheartbeatinterval \* 2`
@@ -1411,9 +1466,8 @@ cd "$testdir" || exit
 # Clean up write leases, if any, (sorters' speculative sorts might leave
 # stale leases), and force chunks deletion by truncating files in dumpster.
 # This is needed to minimize the "retire" test time, as write leases, and files
-# in the dumpster with replication larger than the number of chunk server
+# in the dumpster with replication larger than the number of chunk servers
 # would prevent chunk server "retirement", until expiration / cleanup.
-# until they expire.
 
 echo "Cleaning up write leases by removing and truncating files"
 
@@ -1682,6 +1736,7 @@ if [ $status -eq 0 \
         -a $smstatus -eq 0 \
         -a $kfsaccessstatus -eq 0 \
         -a $kfsgostatus -eq 0 \
+        -a $kfspythonstatus -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
         -a $fusestatus -eq 0 \
@@ -1696,6 +1751,7 @@ else
     report_test_status "Sort master" $smstatus
     report_test_status "Java shim"   $kfsaccessstatus
     report_test_status "Go shim"     $kfsgostatus
+    report_test_status "Python shim" $kfspythonstatus
     report_test_status "C bindings"  $qfscstatus
     report_test_status "Fsck"        $fsckstatus
     report_test_status "Fuse"        $fusestatus
