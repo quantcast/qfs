@@ -31,12 +31,11 @@ data at specific offsets in the created files. Then it tries to ensure that
 the created paths are valid, and that the file contents are as expected.
 
 To run this script,
-  - Prepare qfs.so as described in the file 'doc/ClientDeveloperDoc'
+  - Build QFS python module by running the following at QFS repo top level dir:
+    make python
   - Ensure that the QFS metaserver and chunkserver are running.
   - Ensure that the metaserver host/port matches the contents of argv[1].
-  - Ensure that the PYTHONPATH and LD_LIBRARY_PATH are set accordingly.
-  eg: PYTHONPATH=${PYTHONPATH}:~/code/qfs/build/lib/lib64/python \
-      LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/code/qfs/build/lib    \
+  - Run this script:
       python ./qfssample.py qfssample.cfg
 """
 
