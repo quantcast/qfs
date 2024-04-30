@@ -55,8 +55,13 @@ webui-run-dir/docroot/
              /webui.log
 """
 
+from __future__ import print_function
+
 import sys, os, os.path, shutil, errno, signal, posix, re, socket
-import ConfigParser
+if sys.version_info < (3, 0):
+    import ConfigParser as configparser
+else:
+    import configparser
 import subprocess
 import getpass
 
@@ -115,7 +120,7 @@ def check_binaries(releaseDir, sourceDir, authFlag):
             Globals.MKCERTS = mkcerts
         else:
             sys.exit('qfsmkcerts.sh missing in source directories')
-    print 'Binaries presence checking - OK.'
+    print('Binaries presence checking - OK.')
 
 def check_port(port):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,7 +128,7 @@ def check_port(port):
     try:
         s.bind(('localhost', port))
         del s
-    except socket.error, err:
+    except socket.error as err:
         sys.exit('aborting, port %d already in use (%s)' % (port, str(err)))
 
 def check_ports(config):
@@ -199,8 +204,8 @@ def rm_tree(path):
     if '/qfsbase/' in path:
         shutil.rmtree(path)
     else:
-        print >> sys.stderr, 'refusing to remove path %r' % path,
-        print >> sys.stderr, 'because it does not contain /qfsbase/'
+        print('refusing to remove path %r' % path, end=' ', file=sys.stderr)
+        print('because it does not contain /qfsbase/', file=sys.stderr)
 
 def duplicate_tree(src, dst):
     """Copy files & directories from SRC directory to DST directory.
@@ -232,7 +237,7 @@ def duplicate_tree(src, dst):
 def mkdir_p(dirname):
     try:
         os.makedirs(dirname)
-    except OSError, err:
+    except OSError as err:
         if err.errno != errno.EEXIST:
             sys.exit('Failed to create directory')
         else:
@@ -344,9 +349,9 @@ Run the following to test with hadoop:
 
     if opts.help:
         parser.print_help()
-        print actions
-        print sampleSession
-        print
+        print(actions)
+        print(sampleSession)
+        print()
         posix._exit(0)
 
     e = []
@@ -356,7 +361,7 @@ Run the following to test with hadoop:
 
     if not opts.action:
         e.append("'action' must be specified")
-    elif not action_keys.has_key(opts.action):
+    elif opts.action not in action_keys:
         e.append("invalid 'action' specified: %s" % opts.action)
 
     if not os.path.isdir(opts.release_dir):
@@ -368,12 +373,12 @@ Run the following to test with hadoop:
 
     if len(e) > 0:
         parser.print_help()
-        print actions
-        print sampleSession
-        print
+        print(actions)
+        print(sampleSession)
+        print()
         for error in e:
-            print "*** %s" % error
-        print
+            print("*** %s" % error)
+        print()
         posix._exit(1)
 
     return opts
@@ -412,9 +417,9 @@ def do_cleanup(config, doUninstall):
         qfsbase = os.path.expanduser('~/qfsbase')
         if os.path.isdir(qfsbase) and not os.path.islink(qfsbase):
             os.rmdir(qfsbase)
-        print 'Uninstall - OK.'
+        print('Uninstall - OK.')
     else:
-        print 'Stop servers - OK.'
+        print('Stop servers - OK.')
 
 def setup_directories(config, authFlag, objectStoreOnlyModeFlag):
     if config.has_section('metaserver'):
@@ -451,10 +456,10 @@ def setup_directories(config, authFlag, objectStoreOnlyModeFlag):
     if config.has_section('webui'):
         webDir = config.get('webui', 'rundir')
         if webDir:
-            mkdir_p(webDir);
+            mkdir_p(webDir)
             mkdir_p(webDir + '/conf')
             mkdir_p(webDir + '/docroot')
-    print 'Setup directories - OK.'
+    print('Setup directories - OK.')
 
 
 def check_directories(config):
@@ -468,7 +473,7 @@ def check_directories(config):
         sys.exit('Malformed config file.')
     if not os.path.exists(metaRunDir) or not os.path.exists(webDir): 
         sys.exit('Cannot start without install. Please run with "-a install" first.')
-    print 'Check directories - OK.'
+    print('Check directories - OK.')
 
 
 def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
@@ -490,18 +495,18 @@ def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
             sys.exit('Create X509 certs failure')
         if clientDir:
             clientFile = open(clientDir + '/client.prp', 'w')
-            print >> clientFile, 'client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser)
-            print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser)
-            print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+            print('client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser), file=clientFile)
+            print('client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser), file=clientFile)
+            print('client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir, file=clientFile)
             clientFile.close()
     if clientDir:
         defaultConfig = clientDir + '/clidefault.prp'
         clientFile = open(defaultConfig, 'w')
-        print >> clientFile, 'fs.default = qfs://localhost:20000'
+        print('fs.default = qfs://localhost:20000', file=clientFile)
         if authFlag:
-            print >> clientFile, 'client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser)
-            print >> clientFile, 'client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser)
-            print >> clientFile, 'client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+            print('client.auth.X509.X509PemFile = %s/%s.crt' % (certsDir, defaultUser), file=clientFile)
+            print('client.auth.X509.PKeyPemFile = %s/%s.key' % (certsDir, defaultUser), file=clientFile)
+            print('client.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir, file=clientFile)
         clientFile.close()
 
     if 'metaserver' not in config.sections():
@@ -523,38 +528,38 @@ def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
                 'access key id, and secret access key.')
     # Metaserver.
     metaFile = open(metaRunDir + '/conf/MetaServer.prp', 'w')
-    print >> metaFile, 'metaServer.clientPort = %d' % metaserverClientPort
-    print >> metaFile, 'metaServer.chunkServerPort = %d' % metaserverChunkPort
-    print >> metaFile, 'metaServer.clusterKey = %s' % clusterKey
-    print >> metaFile, 'metaServer.cpDir = %s/checkpoints' % metaRunDir
-    print >> metaFile, 'metaServer.logDir = %s/logs' % metaRunDir
-    print >> metaFile, 'metaServer.recoveryInterval = 1'
-    print >> metaFile, 'metaServer.msgLogWriter.logLevel = DEBUG'
-    print >> metaFile, 'metaServer.msgLogWriter.maxLogFileSize = 1e6'
-    print >> metaFile, 'metaServer.msgLogWriter.maxLogFiles = 10'
-    print >> metaFile, 'metaServer.minChunkservers = 1'
-    print >> metaFile, 'metaServer.clientThreadCount = 4'
-    print >> metaFile, 'metaServer.rootDirUser = %d' % os.getuid()
-    print >> metaFile, 'metaServer.rootDirGroup = %d' % os.getgid()
-    print >> metaFile, 'metaServer.rootDirMode = 0777'
-    print >> metaFile, 'metaServer.pidFile = %s/metaserver.pid' % metaRunDir
+    print('metaServer.clientPort = %d' % metaserverClientPort, file=metaFile)
+    print('metaServer.chunkServerPort = %d' % metaserverChunkPort, file=metaFile)
+    print('metaServer.clusterKey = %s' % clusterKey, file=metaFile)
+    print('metaServer.cpDir = %s/checkpoints' % metaRunDir, file=metaFile)
+    print('metaServer.logDir = %s/logs' % metaRunDir, file=metaFile)
+    print('metaServer.recoveryInterval = 1', file=metaFile)
+    print('metaServer.msgLogWriter.logLevel = DEBUG', file=metaFile)
+    print('metaServer.msgLogWriter.maxLogFileSize = 1e6', file=metaFile)
+    print('metaServer.msgLogWriter.maxLogFiles = 10', file=metaFile)
+    print('metaServer.minChunkservers = 1', file=metaFile)
+    print('metaServer.clientThreadCount = 4', file=metaFile)
+    print('metaServer.rootDirUser = %d' % os.getuid(), file=metaFile)
+    print('metaServer.rootDirGroup = %d' % os.getgid(), file=metaFile)
+    print('metaServer.rootDirMode = 0777', file=metaFile)
+    print('metaServer.pidFile = %s/metaserver.pid' % metaRunDir, file=metaFile)
     if authFlag:
-        print >> metaFile, 'metaServer.clientAuthentication.X509.X509PemFile = %s/meta.crt' % certsDir
-        print >> metaFile, 'metaServer.clientAuthentication.X509.PKeyPemFile = %s/meta.key' % certsDir
-        print >> metaFile, 'metaServer.clientAuthentication.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
-        print >> metaFile, 'metaServer.clientAuthentication.whiteList        = %s root' % defaultUser
-        print >> metaFile, 'metaServer.CSAuthentication.X509.X509PemFile     = %s/meta.crt' % certsDir
-        print >> metaFile, 'metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir
-        print >> metaFile, 'metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir
-        print >> metaFile, 'metaServer.CSAuthentication.blackList            = none'
+        print('metaServer.clientAuthentication.X509.X509PemFile = %s/meta.crt' % certsDir, file=metaFile)
+        print('metaServer.clientAuthentication.X509.PKeyPemFile = %s/meta.key' % certsDir, file=metaFile)
+        print('metaServer.clientAuthentication.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir, file=metaFile)
+        print('metaServer.clientAuthentication.whiteList        = %s root' % defaultUser, file=metaFile)
+        print('metaServer.CSAuthentication.X509.X509PemFile     = %s/meta.crt' % certsDir, file=metaFile)
+        print('metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir, file=metaFile)
+        print('metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir, file=metaFile)
+        print('metaServer.CSAuthentication.blackList            = none', file=metaFile)
     if objectStoreOnlyModeFlag:
-        print >> metaFile, '# S3 parameters'
-        print >> metaFile, 'metaServer.objectStoreEnabled = 1'
-        print >> metaFile, 'metaServer.maxReplicasPerFile = 0'
-        print >> metaFile, 'metaServer.maxReplicasPerRSFile = 0'
-        print >> metaFile, 'chunkServer.diskQueue.aws.bucketName = %s' % bucketName
-        print >> metaFile, 'chunkServer.diskQueue.aws.accessKeyId = %s' % accessKeyId
-        print >> metaFile, 'chunkServer.diskQueue.aws.secretAccessKey = %s' % secretAccessKey
+        print('# S3 parameters', file=metaFile)
+        print('metaServer.objectStoreEnabled = 1', file=metaFile)
+        print('metaServer.maxReplicasPerFile = 0', file=metaFile)
+        print('metaServer.maxReplicasPerRSFile = 0', file=metaFile)
+        print('chunkServer.diskQueue.aws.bucketName = %s' % bucketName, file=metaFile)
+        print('chunkServer.diskQueue.aws.accessKeyId = %s' % accessKeyId, file=metaFile)
+        print('chunkServer.diskQueue.aws.secretAccessKey = %s' % secretAccessKey, file=metaFile)
     metaFile.close()
 
     # Chunkservers.
@@ -572,26 +577,26 @@ def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
                             chunkClientPort)) != 0:
                         sys.exit('Create X509 failure')
                 chunkFile = open(chunkRunDir + '/conf/ChunkServer.prp', 'w')
-                print >> chunkFile, 'chunkServer.metaServer.hostname = %s' % metaserverHostname
-                print >> chunkFile, 'chunkServer.metaServer.port = %d' % metaserverChunkPort
-                print >> chunkFile, 'chunkServer.clientPort = %d' % chunkClientPort
-                print >> chunkFile, 'chunkServer.clusterKey = %s' % clusterKey
-                print >> chunkFile, 'chunkServer.rackId = 0'
+                print('chunkServer.metaServer.hostname = %s' % metaserverHostname, file=chunkFile)
+                print('chunkServer.metaServer.port = %d' % metaserverChunkPort, file=chunkFile)
+                print('chunkServer.clientPort = %d' % chunkClientPort, file=chunkFile)
+                print('chunkServer.clusterKey = %s' % clusterKey, file=chunkFile)
+                print('chunkServer.rackId = 0', file=chunkFile)
                 if not objectStoreOnlyModeFlag:
-                    print >> chunkFile, 'chunkServer.chunkDir = %s' % chunkDirs
-                print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
-                print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
-                print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
-                print >> chunkFile, 'chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir
+                    print('chunkServer.chunkDir = %s' % chunkDirs, file=chunkFile)
+                print('chunkServer.msgLogWriter.logLevel = DEBUG', file=chunkFile)
+                print('chunkServer.msgLogWriter.maxLogFileSize = 1e6', file=chunkFile)
+                print('chunkServer.msgLogWriter.maxLogFiles = 2', file=chunkFile)
+                print('chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir, file=chunkFile)
                 clientThreadCount = 0 if objectStoreOnlyModeFlag else 3
-                print >> chunkFile, 'chunkServer.clientThreadCount = %d' % clientThreadCount
+                print('chunkServer.clientThreadCount = %d' % clientThreadCount, file=chunkFile)
                 if authFlag:
-                    print >> chunkFile, 'chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort)
-                    print >> chunkFile, 'chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort)
-                    print >> chunkFile, 'chunkserver.meta.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+                    print('chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort), file=chunkFile)
+                    print('chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort), file=chunkFile)
+                    print('chunkserver.meta.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir, file=chunkFile)
                 if objectStoreOnlyModeFlag:
-                    print >> chunkFile, '# S3 parameters'
-                    print >> chunkFile, 'chunkServer.objectDir = s3://aws.'
+                    print('# S3 parameters', file=chunkFile)
+                    print('chunkServer.objectDir = s3://aws.', file=chunkFile)
                 chunkFile.close()
 
     # Webserver.
@@ -601,30 +606,30 @@ def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
     if not webDir:
         return
     webFile = open(webDir + '/conf/WebUI.cfg', 'w')
-    print >> webFile, '[webserver]'
-    print >> webFile, 'webServer.metaserverHost = %s' % metaserverHostname
-    print >> webFile, 'webServer.metaserverPort = %d' % metaserverClientPort
-    print >> webFile, 'webServer.host = 0.0.0.0'
-    print >> webFile, 'webServer.port = %d' % config.getint('webui', 'webport')
-    print >> webFile, 'webServer.docRoot = %s/docroot' % webDir
-    print >> webFile, 'webServer.allmachinesfn = /dev/null'
-    print >> webFile, 'webServer.displayPorts = True'
-    print >> webFile, 'webServer.pidFile = %s/webui.pid' % webDir
-    print >> webFile, '[chunk]'
-    print >> webFile, 'refreshInterval = 5'
-    print >> webFile, 'currentSize = 30'
-    print >> webFile, 'currentSpan = 10'
-    print >> webFile, 'hourlySize = 30'
-    print >> webFile, 'hourlySpan =120'
-    print >> webFile, 'daylySize = 24'
-    print >> webFile, 'daylySpan = 3600'
-    print >> webFile, 'monthlySize = 30'
-    print >> webFile, 'monthlySpan = 86400'
-    print >> webFile, 'displayPorts = True'
-    print >> webFile, 'predefinedHeaders = Buffer-usec-wait-avg&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&XMeta-location'
-    print >> webFile, 'predefinedChunkDirHeaders = Chunks&Dev-id&Read-bytes&D-Read-bytes&Read-err&D-Read-err&Read-io&D-Read-io&D-Read-time-microsec&Read-timeout&Space-avail&Space-util-pct&Started-ago&Stopped-ago&Write-bytes&D-Write-bytes&Write-err&D-Write-err&Write-io&D-Write-io&D-Write-time-microsec&Write-timeout&Chunk-server&Chunk-dir'
+    print('[webserver]', file=webFile)
+    print('webServer.metaserverHost = %s' % metaserverHostname, file=webFile)
+    print('webServer.metaserverPort = %d' % metaserverClientPort, file=webFile)
+    print('webServer.host = 0.0.0.0', file=webFile)
+    print('webServer.port = %d' % config.getint('webui', 'webport'), file=webFile)
+    print('webServer.docRoot = %s/docroot' % webDir, file=webFile)
+    print('webServer.allmachinesfn = /dev/null', file=webFile)
+    print('webServer.displayPorts = True', file=webFile)
+    print('webServer.pidFile = %s/webui.pid' % webDir, file=webFile)
+    print('[chunk]', file=webFile)
+    print('refreshInterval = 5', file=webFile)
+    print('currentSize = 30', file=webFile)
+    print('currentSpan = 10', file=webFile)
+    print('hourlySize = 30', file=webFile)
+    print('hourlySpan =120', file=webFile)
+    print('daylySize = 24', file=webFile)
+    print('daylySpan = 3600', file=webFile)
+    print('monthlySize = 30', file=webFile)
+    print('monthlySpan = 86400', file=webFile)
+    print('displayPorts = True', file=webFile)
+    print('predefinedHeaders = Buffer-usec-wait-avg&D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&D-Buffer-req-denied-bytes&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&XMeta-location', file=webFile)
+    print('predefinedChunkDirHeaders = Chunks&Dev-id&Read-bytes&D-Read-bytes&Read-err&D-Read-err&Read-io&D-Read-io&D-Read-time-microsec&Read-timeout&Space-avail&Space-util-pct&Started-ago&Stopped-ago&Write-bytes&D-Write-bytes&Write-err&D-Write-err&Write-io&D-Write-io&D-Write-time-microsec&Write-timeout&Chunk-server&Chunk-dir', file=webFile)
     webFile.close()
-    print 'Setup config files - OK.'
+    print('Setup config files - OK.')
 
 def copy_files(config, sourceDir):
     # Currently, only the web CSS stuff need be copied.
@@ -657,7 +662,7 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                                 shell_quote(metaConf),
                                 shell_quote(metaOut))
                 if run_command(command) > 0:
-                    print '*** metaserver failed create empty file system'
+                    print('*** metaserver failed create empty file system')
                     errors = errors + 1
             if errors == 0:
                 command = '%s %s %s > %s 2>&1 &' % (
@@ -666,12 +671,12 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                                         shell_quote(metaLog),
                                         shell_quote(metaOut))
                 if run_command(command) > 0:
-                    print '*** metaserver failed to start'
+                    print('*** metaserver failed to start')
                     errors = errors + 1
                 else:
-                    print 'Meta server started, listening on %s:%d' %(
+                    print('Meta server started, listening on %s:%d' %(
                         config.get('metaserver', 'hostname'),
-                        config.getint('metaserver', 'clientport'))
+                        config.getint('metaserver', 'clientport')))
 
     if startChunk:
         for section in config.sections():
@@ -688,7 +693,7 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                                             shell_quote(chunkLog),
                                             shell_quote(chunkOut))
                     if run_command(command) > 0:
-                        print '*** chunkserver failed to start'
+                        print('*** chunkserver failed to start')
                         errors = errors + 1
 
     if startWeb:
@@ -702,23 +707,23 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                 shell_quote(webConf),
                 shell_quote(webLog))
             if run_command(command) > 0:
-                print '*** web ui failed to start'
+                print('*** web ui failed to start')
                 errors = errors + 1
             else:
-                print 'Web ui  started: http://localhost:%d' % (
-                   config.getint('webui', 'webport'))
+                print('Web ui  started: http://localhost:%d' % (
+                   config.getint('webui', 'webport')))
     if errors > 0:
-        print 'Started servers - FAILED.'
+        print('Started servers - FAILED.')
     else:
-        print 'Started servers - OK.'
+        print('Started servers - OK.')
         defaultConfig=None
         if config.has_section('client'):
             clientDir = config.get('client', 'rundir')
             if authFlag and os.path.isfile(clientDir + '/client.prp'):
-                print 'QFS authentication required.'
+                print('QFS authentication required.')
             defaultConfig = clientDir + '/clidefault.prp'
             if os.path.isfile(defaultConfig):
-                print 'Default QFS client configuration file: %s' % defaultConfig
+                print('Default QFS client configuration file: %s' % defaultConfig)
         if createNewFsFlag and Globals.QFSTOOL:
             if defaultConfig:
                 cfgOpt =  " -cfg %s" % shell_quote(defaultConfig)
@@ -727,16 +732,16 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
                 cfgOpt,
                 shell_quote('/user/' + getpass.getuser()),
             )
-            print 'Creating default user directory by executing:\n%s' % command
+            print('Creating default user directory by executing:\n%s' % command)
             if run_command(command) != 0:
-                print '*** failed to created user directory'
+                print('*** failed to created user directory')
             else:
-                print '- OK.'
+                print('- OK.')
 
 # Need to massage the ~ in the config file paths. Otherwise a directory
 # with name "~" would get created at $CWD.
 def parse_config(configFile, objectStoreOnlyModeFlag):
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser()
     config.read(configFile);
     for section in config.sections():
         dir = config.get(section, 'rundir')
