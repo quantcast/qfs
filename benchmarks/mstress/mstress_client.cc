@@ -37,6 +37,10 @@
 #include <queue>
 #include <algorithm>
 
+#if __cplusplus >= 201103L
+#include <random>
+#endif
+
 using namespace std;
 
 #include "libclient/KfsClient.h"
@@ -197,7 +201,13 @@ void unique_random(vector<size_t>& result, size_t range)
     result[i] = i;
   }
 
-  random_shuffle(result.begin(), result.end() ) ;
+#if __cplusplus < 201103L
+  random_shuffle(result.begin(), result.end()) ;
+#else
+  random_device theRandDev;
+  mt19937       theRandGen(theRandDev());
+  shuffle(result.begin(), result.end(), theRandGen);
+#endif
 }
 
 void parse_options(int argc, char* argv[], Client* client)
