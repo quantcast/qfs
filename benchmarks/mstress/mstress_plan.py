@@ -21,6 +21,9 @@
 # This code is used to generate a plan file for metaserver vs namenode
 # benchmarking.
 #
+
+from __future__ import print_function
+
 import optparse
 import sys
 import subprocess
@@ -123,7 +126,7 @@ def main():
   outfile.write('#Number of levels in created tree\nlevels=%d\n' % opts.levels)
   outfile.write('#Number of inodes per level\ninodes=%d\n' % opts.inodes_per_level)
   outfile.write('#Number of random paths to stat, per client\nnstat=%d\n' % statPerClient)
-  
+
   """ old code
   begin_tree_delta = 0
   for level in range(0,opts.levels):
@@ -152,8 +155,8 @@ def main():
   """
 
   outfile.close()
-  print '==> Created planfile: %s' % opts.output_file
-  print 'copying file %s to all client hosts' % opts.output_file
+  print('==> Created planfile: %s' % opts.output_file)
+  print('copying file %s to all client hosts' % opts.output_file)
   for client in hostlist:
     p = subprocess.Popen(['/usr/bin/scp', os.path.abspath(opts.output_file), '%s:%s' % (client, opts.output_file)])
     while 1:
@@ -161,7 +164,7 @@ def main():
       if ret == None:
         time.sleep(0.5)
       else:
-        print 'transfered %s to %s' % (opts.output_file, client)
+        print('transfered %s to %s' % (opts.output_file, client))
         break
 
 if __name__ == '__main__':

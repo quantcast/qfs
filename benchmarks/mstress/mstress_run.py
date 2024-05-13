@@ -22,14 +22,12 @@
 # This is essentially a wrapper around mstress_plan.py and mstress.py.
 #
 
-import optparse
+from __future__ import print_function
+
 import sys
 import subprocess
 import time
 import os
-import datetime
-import commands
-import resource
 import getpass
 import re
 
@@ -45,17 +43,17 @@ class Params:
   NumFiles2Stat = staticmethod(NumFiles2Stat)
 
 def Usage():
-  print 'Usage: %s [clients] [fs_type,fs_host,fs_port] [fs_type,fs_host,fs_port]..' % sys.argv[0]
-  print '       clients: comma separated list of client host names'
-  print '       fs_type: qfs or hdfs'
-  print '       fs_host: metaserver or namenode hostname'
-  print '       fs_port: metaserver or namenode port'
-  print 'Eg: %s 10.15.20.25,10.20.25.30 qfs,10.10.10.10,10000 hdfs,20.20.20.20,20000'
+  print('Usage: %s [clients] [fs_type,fs_host,fs_port] [fs_type,fs_host,fs_port]..' % sys.argv[0])
+  print('       clients: comma separated list of client host names')
+  print('       fs_type: qfs or hdfs')
+  print('       fs_host: metaserver or namenode hostname')
+  print('       fs_port: metaserver or namenode port')
+  print('Eg: %s 10.15.20.25,10.20.25.30 qfs,10.10.10.10,10000 hdfs,20.20.20.20,20000')
   sys.exit(0)
 
 
 def PrintMsg(m):
-  print '\033[34m' + m + '\033[0m'
+  print('\033[34m' + m + '\033[0m')
 
 
 def MakePlan():

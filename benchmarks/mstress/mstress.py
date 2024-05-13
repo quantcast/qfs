@@ -22,6 +22,8 @@
 # remote clients (Java and C++) and makes use of the plan file to apply load
 # on the DFS server.
 
+from __future__ import print_function
+
 import optparse
 import sys
 import subprocess
@@ -29,9 +31,6 @@ import time
 import os
 import signal
 import datetime
-import commands
-import resource
-import re
 
 class Globals:
   MASTER_PATH = ''
@@ -118,18 +117,21 @@ def ParseCommandline():
 
 def PrintMemoryUsage(opts):
   if sys.platform in ('Darwin', 'darwin'):
-    psCmd = "ps -o rss,pid,command | grep %s | grep %s | grep -v grep | awk '{print $1}'" % (Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
+    psCmd = ("ps -o rss,pid,command | grep %s | grep %s |"
+             " grep -v grep | awk '{print $1}'") % (
+               Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
   else:
-    psCmd = "ps -C %s -o rss,pid,cmd | grep %s | awk '{print $1}'" % (Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
+    psCmd = "ps -C %s -o rss,pid,cmd | grep %s | awk '{print $1}'" % (
+      Globals.SERVER_CMD, Globals.SERVER_KEYWORD)
 
   proc = subprocess.Popen(['ssh', opts.server, psCmd],
                            stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE)
   result = proc.communicate()
   if result and len(result[0].strip()) > 0:
-    print "Memory usage %sKB" % result[0].strip()
+    print("Memory usage %sKB" % result[0].strip())
   else:
-    print "Memory usage <unknown> KB"
+    print("Memory usage <unknown> KB")
 
 
 def RunMStressMaster(opts, hostsList):
@@ -150,34 +152,38 @@ def RunMStressMaster(opts, hostsList):
   if RunMStressMasterTest(opts, hostsList, 'create') == False:
     return False
   deltaTime = datetime.datetime.now() - startTime
-  print '\nMaster: Create test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
+  print('\nMaster: Create test took %d.%d sec' % (
+    deltaTime.seconds, deltaTime.microseconds/1000000))
   PrintMemoryUsage(opts)
-  print '=========================================='
+  print('==========================================')
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'stat') == False:
     return False
   deltaTime = datetime.datetime.now() - startTime
-  print '\nMaster: Stat test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
-  print '=========================================='
+  print('\nMaster: Stat test took %d.%d sec' % (
+    deltaTime.seconds, deltaTime.microseconds/1000000))
+  print('==========================================')
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'readdir') == False:
     return False
   deltaTime = datetime.datetime.now() - startTime
-  print '\nMaster: Readdir test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
-  print '=========================================='
+  print('\nMaster: Readdir test took %d.%d sec' % (
+    deltaTime.seconds, deltaTime.microseconds/1000000))
+  print('==========================================')
 
   if opts.leave_files:
-    print "\nNot deleting files because of -l option"
+    print("\nNot deleting files because of -l option")
     return False
 
   startTime = datetime.datetime.now()
   if RunMStressMasterTest(opts, hostsList, 'delete') == False:
     return False
   deltaTime = datetime.datetime.now() - startTime
-  print '\nMaster: Delete test took %d.%d sec' % (deltaTime.seconds, deltaTime.microseconds/1000000)
-  print '=========================================='
+  print('\nMaster: Delete test took %d.%d sec' % (
+    deltaTime.seconds, deltaTime.microseconds/1000000))
+  print('==========================================')
   return True
 
 
@@ -208,7 +214,8 @@ def RunMStressMasterTest(opts, hostsList, test):
   running_procs = {}
 
   for client in hostsList:
-    slaveLogfile = opts.plan + '_' + client + '_' + test + '_' + opts.filesystem + '.slave.log'
+    slaveLogfile = opts.plan + '_' + client + '_' + test + '_' \
+      + opts.filesystem + '.slave.log'
     p = subprocess.Popen(['/usr/bin/ssh', client,
                           '%s -c %s -k %s >& %s' % (ssh_cmd, client, clientHostMapping[client], slaveLogfile)],
                          stdout=subprocess.PIPE,
@@ -219,18 +226,20 @@ def RunMStressMasterTest(opts, hostsList, test):
   isLine1 = True
   while running_procs:
     tobedelkeys = []
-    for proc in running_procs.iterkeys():
+    for proc in running_procs.keys():
       client = running_procs[proc]
       retcode = proc.poll()
       if retcode is not None:
         sout,serr = proc.communicate()
         if sout:
-          print '\nMaster: output of slave (%s):%s' % (client, sout)
+          print('\nMaster: output of slave (%s):%s' % (client, sout))
         if serr:
-          print '\nMaster: err of slave (%s):%s' % (client, serr)
+          print('\nMaster: err of slave (%s):%s' % (client, serr))
         tobedelkeys.append(proc)
         if retcode != 0:
-          print "\nMaster: '%s' test failed. Please make sure test directory is empty and has write permission, or check slave logs." % test
+          print(("\nMaster: '%s' test failed. Please make sure test directory"
+                " is empty and has write permission, or check slave logs.") %
+                test)
           success = False
       else:
         if Globals.SIGNALLED:
@@ -286,7 +295,7 @@ def RunMStressSlave(opts, clientsPerHost):
     True if client returns success. False otherwise.
   """
 
-  print 'Slave: called with %r, %d' % (opts, clientsPerHost)
+  print('Slave: called with %r, %d' % (opts, clientsPerHost))
   os.putenv('KFS_CLIENT_DEFAULT_FATTR_REVALIDATE_TIME',"-1")
 
   running_procs = []
@@ -301,7 +310,7 @@ def RunMStressSlave(opts, clientsPerHost):
             opts.client_testname,
             i,
             clientLogfile)]
-    print 'Slave: args = %r' % args
+    print('Slave: args = %r' % args)
     p = subprocess.Popen(args,
                          shell=True,
                          executable='/bin/bash',
@@ -317,12 +326,14 @@ def RunMStressSlave(opts, clientsPerHost):
       if ret is not None:
         sout,serr = proc.communicate()
         if sout:
-          print '\nSlave: output of (ClientHost %s, ClientNo %r):%s' % (opts.client_hostname, proc, sout)
+          print('\nSlave: output of (ClientHost %s, ClientNo %r):%s' %
+                (opts.client_hostname, proc, sout))
         if serr:
-          print '\nSlave: err of (ClientHost %s, ClientNo %r):%s' % (opts.client_hostname, proc, serr)
+          print('\nSlave: err of (ClientHost %s, ClientNo %r):%s' %
+                (opts.client_hostname, proc, serr))
         running_procs.remove(proc)
         if ret != 0:
-          print '\nSlave: mstress client failed. Please check client logs.'
+          print('\nSlave: mstress client failed. Please check client logs.')
           success = False
       else:
         if Globals.SIGNALLED:
@@ -330,7 +341,8 @@ def RunMStressSlave(opts, clientsPerHost):
 
     if running_procs:
       if isLine1:
-        sys.stdout.write('Slave: load client \'%s\' running' % opts.client_testname)
+        sys.stdout.write('Slave: load client \'%s\' running' %
+                         opts.client_testname)
         isLine1 = False
       else:
         sys.stdout.write('.')
@@ -389,12 +401,12 @@ def ReadPlanFile(opts):
   intermediateNodes = inters * len(hostsList) * clientsPerHost + len(hostsList) * clientsPerHost + 1
   totalNumToStat = numToStat * len(hostsList) * clientsPerHost
 
-  print ('Plan:\n' +
+  print(('Plan:\n' +
         '   o %d client processes on each of %d hosts will generate load.\n' % (clientsPerHost, len(hostsList)) +
         '   o %d levels of %d nodes (%d leaf nodes, %d total nodes) will be created by each client process.\n' % (numLevels, nodesPerLevel, leafNodesPerProcess, nodesPerProcess) +
         '   o Overall, %d leaf %ss will be created, %d intermediate directories will be created.\n' % (overallLeafs, leafType, intermediateNodes) +
         '   o Stat will be done on a random subset of %d leaf %ss by each client process, totalling %d stats.\n' % (numToStat, leafType, totalNumToStat) +
-        '   o Readdir (non-overlapping) will be done on the full file tree by all client processes.\n')
+        '   o Readdir (non-overlapping) will be done on the full file tree by all client processes.\n'))
   return hostsList, clientsPerHost
 
 
@@ -433,7 +445,7 @@ def RemoveLock(opts):
       os.unlink(Globals.MSTRESS_LOCK)
 
 def HandleSignal(signum, frame):
-  print "Received signal, %d" % signum
+  print("Received signal, %d" % signum)
   Globals.SIGNALLED = True
 
 def main():
