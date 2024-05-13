@@ -204,9 +204,9 @@ void unique_random(vector<size_t>& result, size_t range)
 #if __cplusplus < 201103L
   random_shuffle(result.begin(), result.end()) ;
 #else
-  random_device theRandDev;
-  mt19937       theRandGen(theRandDev());
-  shuffle(result.begin(), result.end(), theRandGen);
+  random_device dev;
+  mt19937       gen(dev());
+  shuffle(result.begin(), result.end(), gen);
 #endif
 }
 
