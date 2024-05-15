@@ -52,7 +52,7 @@ f = None
 try:
     f = open(planFile, "r")
 except IOError as e:
-    print("Planfile not found")
+    print("Planfile %s: %s" % (planFile, str(e)))
     sys.exit(1)
 
 for line in f:

@@ -53,7 +53,10 @@ class Params:
 
 def Usage():
     print(
-        "Usage: %s [clients] [fs_type,fs_host,fs_port] [fs_type,fs_host,fs_port].."
+        (
+            "Usage: %s [clients] [fs_type,fs_host,fs_port]"
+            " [fs_type,fs_host,fs_port].."
+        )
         % sys.argv[0]
     )
     print("       clients: comma separated list of client host names")
@@ -61,7 +64,10 @@ def Usage():
     print("       fs_host: metaserver or namenode hostname")
     print("       fs_port: metaserver or namenode port")
     print(
-        "Eg: %s 10.15.20.25,10.20.25.30 qfs,10.10.10.10,10000 hdfs,20.20.20.20,20000"
+        (
+            "Eg: %s 10.15.20.25,10.20.25.30 qfs,10.10.10.10,10000"
+            " hdfs,20.20.20.20,20000"
+        )
     )
     sys.exit(0)
 
@@ -123,7 +129,10 @@ def RunBenchmark(plan_file):
 def Execute(type, args):
     os.putenv("PYTHONUNBUFFERED", "TRUE")
     PrintMsg(
-        "\n==========================================\nStarting benchmark for '%s'..."
+        (
+            "\n==========================================\n"
+            "Starting benchmark for '%s'..."
+        )
         % type
     )
 
@@ -131,7 +140,7 @@ def Execute(type, args):
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
-    while proc.poll() == None:
+    while proc.poll() is None:
         output = proc.stdout.read(1)
         result += output
         sys.stdout.write(output)

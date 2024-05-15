@@ -189,7 +189,7 @@ def RunMStressMaster(opts, hostsList):
     # print 'Master: called with %r, %r' % (opts, hostsList)
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "create") == False:
+    if RunMStressMasterTest(opts, hostsList, "create"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -200,7 +200,7 @@ def RunMStressMaster(opts, hostsList):
     print("==========================================")
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "stat") == False:
+    if RunMStressMasterTest(opts, hostsList, "stat"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -210,7 +210,7 @@ def RunMStressMaster(opts, hostsList):
     print("==========================================")
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "readdir") == False:
+    if RunMStressMasterTest(opts, hostsList, "readdir"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -224,7 +224,7 @@ def RunMStressMaster(opts, hostsList):
         return False
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "delete") == False:
+    if RunMStressMasterTest(opts, hostsList, "delete"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -302,8 +302,9 @@ def RunMStressMasterTest(opts, hostsList, test):
                 if retcode != 0:
                     print(
                         (
-                            "\nMaster: '%s' test failed. Please make sure test directory"
-                            " is empty and has write permission, or check slave logs."
+                            "\nMaster: '%s' test failed. Please make sure test"
+                            " directory  is empty and has write permission,"
+                            " or check slave logs."
                         )
                         % test
                     )
@@ -419,7 +420,10 @@ def RunMStressSlave(opts, clientsPerHost):
                 running_procs.remove(proc)
                 if ret != 0:
                     print(
-                        "\nSlave: mstress client failed. Please check client logs."
+                        (
+                            "\nSlave: mstress client failed. Please check"
+                            " client logs."
+                        )
                     )
                     success = False
             else:
@@ -487,12 +491,12 @@ def ReadPlanFile(opts):
 
     nodesPerProcess = 0
     leafNodesPerProcess = 0
-    for l in range(1, numLevels + 1):
-        nodesPerProcess += pow(nodesPerLevel, l)
-        if l == numLevels:
-            leafNodesPerProcess = pow(nodesPerLevel, l)
+    for lev in range(1, numLevels + 1):
+        nodesPerProcess += pow(nodesPerLevel, lev)
+        if lev == numLevels:
+            leafNodesPerProcess = pow(nodesPerLevel, lev)
     inters = nodesPerProcess - leafNodesPerProcess
-    overallNodes = nodesPerProcess * len(hostsList) * clientsPerHost
+    # overallNodes = nodesPerProcess * len(hostsList) * clientsPerHost
     overallLeafs = leafNodesPerProcess * len(hostsList) * clientsPerHost
     intermediateNodes = (
         inters * len(hostsList) * clientsPerHost
@@ -503,16 +507,31 @@ def ReadPlanFile(opts):
 
     print(
         (
-            "Plan:\n"
-            + "   o %d client processes on each of %d hosts will generate load.\n"
+            (
+                "Plan:\n"
+                "   o %d client processes on each of %d"
+                " hosts will generate load.\n"
+            )
             % (clientsPerHost, len(hostsList))
-            + "   o %d levels of %d nodes (%d leaf nodes, %d total nodes) will be created by each client process.\n"
+            + (
+                "   o %d levels of %d nodes (%d leaf nodes, %d total nodes)"
+                " will be created by each client process.\n"
+            )
             % (numLevels, nodesPerLevel, leafNodesPerProcess, nodesPerProcess)
-            + "   o Overall, %d leaf %ss will be created, %d intermediate directories will be created.\n"
+            + (
+                "   o Overall, %d leaf %ss will be created, %d"
+                " intermediate directories will be created.\n"
+            )
             % (overallLeafs, leafType, intermediateNodes)
-            + "   o Stat will be done on a random subset of %d leaf %ss by each client process, totalling %d stats.\n"
+            + (
+                "   o Stat will be done on a random subset of %d leaf"
+                " %ss by each client process, totalling %d stats.\n"
+            )
             % (numToStat, leafType, totalNumToStat)
-            + "   o Readdir (non-overlapping) will be done on the full file tree by all client processes.\n"
+            + (
+                "   o Readdir (non-overlapping) will be done on the"
+                " full file tree by all client processes.\n"
+            )
         )
     )
     return hostsList, clientsPerHost
