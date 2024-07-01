@@ -31,8 +31,14 @@ ENDIF (USE_STATIC_LIB_LINKAGE)
 
 add_custom_command (
     OUTPUT mstress.jar
-    COMMAND ant -f ${CMAKE_CURRENT_SOURCE_DIR}/build.xml
-    DEPENDS MStress_Client.java
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../../src/java/javabuild.sh
+        -d ${CMAKE_CURRENT_SOURCE_DIR}
+        -v ${CMAKE_CURRENT_SOURCE_DIR}/../../src/cc/common/buildversgit.sh
+        --
+        -DbuildDirectory=${CMAKE_CURRENT_BINARY_DIR}
+        -Dhadoop.release.version=2.10.1
+        package
+    DEPENDS src/main/java/com/quantcast/qfs/mstress/MStress_Client.java pom.xml
     COMMENT The HDFS mstress client bundled as a jar.
     VERBATIM
 )

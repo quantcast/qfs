@@ -46,7 +46,10 @@ run-cmake: dir
 
 .PHONY: build
 build: run-cmake
-	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} \
+	`echo ${QFSHADOOP_VERSIONS} | grep 2.10.1 >/dev/null 2>&1 && \
+		mvn --version >/dev/null 2>&1 && echo mstress-tarball` \
+	install
 
 .PHONY: java
 java: build
@@ -125,6 +128,9 @@ tarball: hadoop-jars python
 	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl > /dev/null 2>&1; then \
 		cp ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
 			"tmpreldir/$$tarname/lib/"; fi && \
+	if ls -1 ${BUILD_TYPE}/benchmarks/mstress.tgz > /dev/null 2>&1; then \
+		cp ${BUILD_TYPE}/benchmarks/mstress.tgz \
+			"tmpreldir/$$tarname/benchmarks/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 

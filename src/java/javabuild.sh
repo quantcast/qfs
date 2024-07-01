@@ -21,65 +21,80 @@
 # Helper script to build Java components of QFS.
 #
 
-if [ $# -eq 1 -a x"$1" = x'-h' ]; then
-    echo "Usage:"
-    echo "basename $0 [-r <retry count>] [<hadoop-version> | clean]"
-    echo "Script to build QFA Java access library and optionally the Apache Hadoop QFS plugin."
-    echo "Supported hadoop versions: 1.0.*, 1.1.*, 0.23.*, 2.*.*"
-    exit 0
-fi
+mymaxtry=1
+work_dir=''
+build_vers_git_path=../cc/common/buildversgit.sh
 
-cd "`dirname "$0"`"
-if [ $? -ne 0 ]; then
-    exit 1
-fi
+while [ $# -gt 0 ]; do
+    if [ x"$1" = x'-r' -a $# -gt 1 ]; then
+        shift
+        mymaxtry=${1-1}
+    elif [ x"$1" = x'-d' -a $# -gt 1 ]; then
+        shift
+        work_dir=$1
+    elif [ x"$1" = x'-v' -a $# -gt 1 ]; then
+        shift
+        build_vers_git_path=$1
+    elif [ x"$1" = x'--' ]; then
+        break
+    elif [ x"$1" = x'-j' ]; then
+        echo "Usage:"
+        echo "basename $0 [-r <retry count>] [-d <work-dir>] [-v <build-vers-path>] [<hadoop-version> | clean]"
+        echo "Script to build QFA Java access library and optionally the Apache Hadoop QFS plugin."
+        echo "Supported hadoop versions: 1.0.*, 1.1.*, 0.23.*, 2.*.*, 3.*.*"
+        exit 0
+    else
+        break
+    fi
+    shift
+done
 
-if mvn --version > /dev/null 2>&1; then
+if mvn --version >/dev/null 2>&1; then
     echo "Using Apache Maven to build QFS jars.."
 else
     echo "Skipping Java build of QFS. Please install Apache Maven and try again."
     exit 0
 fi
 
-mymaxtry=1
-if [ x"$1" = x'-r' ]; then
-    shift
-    mymaxtry=${1-1}
-    shift
+if [ x"$work_dir" = x ]; then
+    work_dir=$(dirname "$0")
 fi
+cd "$work_dir" || exit
 
 hadoop_qfs_profile="none"
 
 if [ $# -eq 1 ]; then
     if [ x"$1" = x'clean' ]; then
         mvn clean
-        exit 0
+        exit
     fi
-    myversion="`echo "$1" | cut -d. -f 1-2`"
-    myversionmaj="`echo "$1" | cut -d. -f 1`"
-    if [ x"$myversion" = x"1.0"  -o  x"$myversion" = x"1.1" ]; then
-        hadoop_qfs_profile="hadoop_branch1_profile"
-    elif [ x"$myversion" = x"0.23" ]; then
-        hadoop_qfs_profile="hadoop_trunk_profile"
-    elif [  x"$myversionmaj" = x"2" -o x"$myversionmaj" = x"3" ]; then
-        hadoop_qfs_profile="hadoop_trunk_profile,hadoop_trunk_profile_2"
-    else
-        echo "Unsupported Hadoop release version."
-        exit 1
+    if [ x"$1" != x'--' ]; then
+        myversion="$(echo "$1" | cut -d. -f 1-2)"
+        myversionmaj="$(echo "$1" | cut -d. -f 1)"
+        if [ x"$myversion" = x"1.0" -o x"$myversion" = x"1.1" ]; then
+            hadoop_qfs_profile="hadoop_branch1_profile"
+        elif [ x"$myversion" = x"0.23" ]; then
+            hadoop_qfs_profile="hadoop_trunk_profile"
+        elif [ x"$myversionmaj" = x"2" -o x"$myversionmaj" = x"3" ]; then
+            hadoop_qfs_profile="hadoop_trunk_profile,hadoop_trunk_profile_2"
+        else
+            echo "Unsupported Hadoop release version."
+            exit 1
+        fi
     fi
 fi
 
-qfs_release_version=`sh ../cc/common/buildversgit.sh --release`
-qfs_source_revision=`sh ../cc/common/buildversgit.sh --head`
+qfs_release_version=$(sh "$build_vers_git_path" --release) &&
+    qfs_source_revision=$(sh "$build_vers_git_path" --head) || exit
 if [ x"$qfs_source_revision" = x ]; then
-  qfs_source_revision="00000000"
+    qfs_source_revision="00000000"
 fi
 
 test_build_data=${test_build_data:-"/tmp"}
 
 min_supported_release=6
 until javac --release $min_supported_release -version >/dev/null 2>&1; do
-    if [ $min_supported_release -ge 20 ]; then
+    if [ $min_supported_release -ge 30 ]; then
         min_supported_release=6
         break
     fi
@@ -92,8 +107,7 @@ echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 echo "test_build_data     = $test_build_data"
 
-run_maven_exit_if_success()
-{
+run_maven_exit_if_success() {
     set -x
     mvn \
         -Dhttps.protocols='TLSv1,TLSv1.1,TLSv1.2' \
@@ -102,23 +116,26 @@ run_maven_exit_if_success()
         -Dqfs.release.version="$qfs_release_version" \
         -Dqfs.source.revision="$qfs_source_revision" \
         -Dtest.build.data="$test_build_data" \
-        ${1+"$@"} \
-    && exit
+        ${1+"$@"} &&
+        exit
     set +x
 }
 
 mytry=0
 while true; do
-    if [ x"$hadoop_qfs_profile" = x'none' ]; then
+    if [ x"$1" = x'--' ]; then
+        shift
+        run_maven_exit_if_success ${1+"$@"}
+    elif [ x"$hadoop_qfs_profile" = x'none' ]; then
         run_maven_exit_if_success --projects qfs-access package
     else
         run_maven_exit_if_success -P "$hadoop_qfs_profile" \
             -Dhadoop.release.version="$1" package
     fi
-    mytry=`expr $mytry + 1`
+    mytry=$(expr $mytry + 1)
     [ $mytry -lt $mymaxtry ] || break
     echo "Retry: $mytry in 20 * $mytry seconds"
-    sleep `expr 20 \* $mytry`
+    sleep $(expr 20 \* $mytry)
 done
 
 exit 1
