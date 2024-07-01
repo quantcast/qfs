@@ -32,6 +32,7 @@ QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.1
 QFS_PYTHON_DIR=python-qfs
 QFS_PYTHON_WHEEL_DIR=${QFS_PYTHON_DIR}/dist
 QFS_PYTHON_TEST_OPTION=test -d ${QFS_PYTHON_WHEEL_DIR} && echo -python-wheel-dir ${QFS_PYTHON_WHEEL_DIR}
+QFS_MSTRESS_ON=true
 
 .PHONY: all
 all: build
@@ -46,10 +47,10 @@ run-cmake: dir
 
 .PHONY: build
 build: run-cmake
-	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} \
-	`echo ${QFSHADOOP_VERSIONS} | grep 2.10.1 >/dev/null 2>&1 && \
-		mvn --version >/dev/null 2>&1 && echo mstress-tarball` \
-	install
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install \
+	`${QFS_MSTRESS_ON} && \
+		echo ${QFSHADOOP_VERSIONS} | grep 2.10.1 >/dev/null 2>&1 && \
+		mvn --version >/dev/null 2>&1 && echo mstress-tarball`
 
 .PHONY: java
 java: build

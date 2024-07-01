@@ -285,6 +285,8 @@ build_centos()
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS_CENTOS5
         MYCMAKE=$MYCMAKE_CENTOS5
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_CENTOS5
+    elif [ x"$1" = x'7' ]; then
+        QFS_MSTRESS_ON=false
     elif [ x"$1" = x'6' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1404_CENTOS6
     fi
@@ -299,7 +301,8 @@ build_centos()
             "cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
     fi
     do_build_linux PATH="$MYPATH" ${M2_HOME+M2_HOME="$M2_HOME"} \
-        ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
+        ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"} \
+        ${QFS_MSTRESS_ON+QFS_MSTRESS_ON="$QFS_MSTRESS_ON"}
 }
 
 set_build_type()
