@@ -253,6 +253,15 @@ build_centos()
             /etc/yum.repos.d/*.repo
         sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/6.10\//' \
             /etc/yum.repos.d/*.repo
+    elif [ x"$1" = x'7' ]; then
+        # Centos 7 EOL, use vault for now.
+        $MYSUDO sed -i 's/enabled=1/enabled=0/' \
+            /etc/yum/pluginconf.d/fastestmirror.conf
+        $MYSUDO sed -i 's/mirrorlist/#mirrorlist/' \
+            /etc/yum.repos.d/*.repo
+        $MYSUDO sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/7.9.2009\//' \
+            /etc/yum.repos.d/*.repo
+        $MYSUDO yum update -y
     elif [ x"$1" = x'8' ]; then
         # Centos 8 EOL, use vault for now.
         $MYSUDO sed -i 's/mirrorlist/#mirrorlist/' \
