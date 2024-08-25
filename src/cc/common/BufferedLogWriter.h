@@ -75,7 +75,7 @@ public:
         int         inFd                        = -1,
         const char* inFileNamePtr               = 0,
         int         inBufSize                   = 1 << 20,
-        const char* inTrucatedSuffixPtr         = 0,
+        const char* inTruncatedSuffixPtr        = 0,
         int64_t     inOpenRetryIntervalMicroSec = 5000000,
         int64_t     inFlushIntervalMicroSec     = 1000000,
         int64_t     inMaxLogFileSize            = -1,
