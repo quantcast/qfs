@@ -10,10 +10,11 @@ server backup script. QFS python module / bindings now is only compatible with
 python3, and python2 is no longer supported.
 
 2. All required QFS shared libraries are now installed along with QFS python
-module. On macOS and linux runtime relative linker paths are now used in order
-to make installed QFS shared libraries relocatable. With this explicitly
-specifying QFS libraries runtime linkers paths with python module is no longer
-required. Python QFS module wheel is not build and included into QFS tarball.
+module, making QFS module installation self contained. On macOS and linux
+runtime relative linker paths are now used in order to make installed QFS shared
+libraries relocatable. With this explicitly specifying QFS libraries runtime
+linkers paths with python module is no longer required. Python QFS module wheel
+is now built and included into QFS tarball.
 
 ## Minor improvements
 
