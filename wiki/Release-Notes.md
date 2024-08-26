@@ -6,8 +6,8 @@
 
 1. Support for python3. Native / platform independent python code is now
 compatible with python2 and python3, including QFS meta server web UI and meta
-server prune / backup script. QFS python module / bindings is only compatible
-with python3, and python2 is no longer supported.
+server backup script. QFS python module / bindings now is only compatible with
+python3, and python2 is no longer supported.
 
 2. All required QFS shared libraries are now installed along with QFS python
 module. On macOS and linux runtime relative linker paths are now used in order
@@ -17,8 +17,8 @@ required.
 
 ## Minor improvements
 
-1. Benchmarks mstress build now uses maven instead of ant, and now is included
-in QFS build and tarball by defaults.
+1. Benchmarks mstress build now uses maven instead of ant, and is now included
+in QFS build and tarball by default.
 
 2. QFS python module is now built, tested, and included into QFS tarball if
 python 3.6 or higher is available.
