@@ -13,7 +13,7 @@ python3, and python2 is no longer supported.
 module. On macOS and linux runtime relative linker paths are now used in order
 to make installed QFS shared libraries relocatable. With this explicitly
 specifying QFS libraries runtime linkers paths with python module is no longer
-required.
+required. Python QFS module wheel is not build and included into QFS tarball.
 
 ## Minor improvements
 
