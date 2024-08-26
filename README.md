@@ -1,5 +1,11 @@
 # QFS version 2
 
+QFS version 2.2.7
+
+Release 2.2.7
+
+- Release 2.2.7 updated python module, python3 support, and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
+
 QFS version 2.2.6
 
 Release 2.2.6
