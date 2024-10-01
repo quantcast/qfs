@@ -23,6 +23,11 @@ jobs:
           - distro: i386/ubuntu
         include:
           - distro: ubuntu
+            ver: 24.04
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: ubuntu
             ver: 22.04
             codecov: no
             btype: release
