@@ -231,7 +231,14 @@ public:
           mTargetDeleteFlagPtr(inTargetDeleteFlagPtr)
     {
         if (! inTargetDeleteFlagPtr) {
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
             inTargetDeleteFlagPtr = &mDeletedFlag;
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic pop
+#endif
         }
     }
 
