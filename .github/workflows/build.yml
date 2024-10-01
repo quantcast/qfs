@@ -25,7 +25,7 @@ jobs:
           - distro: ubuntu
             ver: 24.04
             codecov: no
-            btype: release
+            btype: debug
             buser: qfsbuild
           - distro: ubuntu
             ver: 22.04
