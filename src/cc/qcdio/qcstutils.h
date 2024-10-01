@@ -31,6 +31,7 @@
 
 #include "QCMutex.h"
 #include "qcdebug.h"
+#include "qcdefs.h"
 
 class QCStMutexLocker
 {
@@ -231,14 +232,10 @@ public:
           mTargetDeleteFlagPtr(inTargetDeleteFlagPtr)
     {
         if (! inTargetDeleteFlagPtr) {
-#if defined(__GNUC__) && ! defined(__clang__)
-#   pragma GCC diagnostic push
-#   pragma GCC diagnostic ignored "-Wdangling-pointer"
-#endif
+QC_GCC_13_PRAGMA(GCC diagnostic push)
+QC_GCC_13_PRAGMA(GCC diagnostic ignored "-Wdangling-pointer")
             inTargetDeleteFlagPtr = &mDeletedFlag;
-#if defined(__GNUC__) && ! defined(__clang__)
-#   pragma GCC diagnostic pop
-#endif
+QC_GCC_13_PRAGMA(GCC diagnostic pop)
         }
     }
 
