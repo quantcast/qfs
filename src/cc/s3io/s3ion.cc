@@ -2028,7 +2028,14 @@ private:
                 if (mReq.mClearBufferPtr) {
                     mReq.mClearBufferPtr->mBufferPtr = 0;
                 }
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
                 mReq.mClearBufferPtr = this;
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic pop
+#endif
             }
             ~StClearBuffer()
             {
