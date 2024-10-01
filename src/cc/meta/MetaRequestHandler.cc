@@ -283,9 +283,16 @@ MakeMetaRequestLogXmitHandler(
 class MetaRequestDeleter
 {
 public:
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
     static void Delete(
         MetaRequest* inReqPtr)
         {  MetaRequest::Release(inReqPtr); }
+#if defined(__GNUC__) && ! defined(__clang__)
+#   pragma GCC diagnostic pop
+#endif
 };
 
 template<typename INT_PARSER_T>
