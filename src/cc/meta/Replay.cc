@@ -2667,6 +2667,9 @@ Replay::getLastLogNum()
         KFS_LOG_EOM;
         return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
+    bool                 useDirIno = false;
+    string               pathName = dirName + '/';
+    const size_t         pathNameLen = pathName.length();
     int                  ret = 0;
     LogSegmentNumbers    logNums;
     const struct dirent* ent;
@@ -2676,15 +2679,39 @@ Replay::getLastLogNum()
         }
         const char* const p   = strrchr(ent->d_name, '.');
         const int64_t     num = p ? toNumber(p + 1) : int64_t(-1);
-        if (0 <= lastLogNum && lastst.st_ino == ent->d_ino) {
-            lastLogNum = num;
-            if (num < 0) {
-                KFS_LOG_STREAM_FATAL <<
-                    "invalid log segment name: " <<
-                        dirName << "/" << ent->d_name <<
-                KFS_LOG_EOM;
-                ret = -EINVAL;
-                break;
+        if (0 <= lastLogNum) {
+            bool lastLogFlag;
+            // Check if d_ino field can be used by comparing its value with
+            // st_ino. If these match for the first entry, then use d_ino,
+            // otherwise use stat to get i-node number.
+            if (useDirIno) {
+                lastLogFlag = lastst.st_ino == ent->d_ino;
+            } else {
+                pathName.erase(pathNameLen);
+                pathName += ent->d_name;
+                struct stat cur;
+                if (stat(pathName.c_str(), &cur)) {
+                    const int err = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "stat: " << pathName <<
+                        ": " << QCUtils::SysError(err) <<
+                    KFS_LOG_EOM;
+                    ret = 0 < err ? -err : -EINVAL;
+                    break;
+                }
+                lastLogFlag = lastst.st_ino == cur.st_ino;
+                useDirIno = cur.st_ino == ent->d_ino;
+            }
+            if (lastLogFlag) {
+                lastLogNum = num;
+                if (num < 0) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "invalid log segment name: " <<
+                            dirName << "/" << ent->d_name <<
+                    KFS_LOG_EOM;
+                    ret = -EINVAL;
+                    break;
+                }
             }
         }
         if (num < 0) {

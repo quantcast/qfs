@@ -934,18 +934,19 @@ private:
             return (0 < theErr ? -theErr : -EINVAL);
         }
         struct stat theStat = {0};
-        string theTmpStr;
-        bool   theHasLatestFlag = false;
+        string thePathNameStr;
+        thePathNameStr.reserve(1 << 10);
+        thePathNameStr = inDirNamePtr;
+        thePathNameStr += "/";
+        const size_t theDirNamePrefixLen = thePathNameStr.length();
+        bool         theHasLatestFlag    = false;
         if (inLatestNamePtr) {
-            theTmpStr.reserve(1 << 10);
-            theTmpStr = inDirNamePtr;
-            theTmpStr += "/";
-            theTmpStr += inLatestNamePtr;
-            if (stat(theTmpStr.c_str(), &theStat)) {
+            thePathNameStr += inLatestNamePtr;
+            if (stat(thePathNameStr.c_str(), &theStat)) {
                 const int theErr = errno;
                 if (ENOENT != theErr || inLatestRequiredFlag) {
                     KFS_LOG_STREAM_ERROR <<
-                        "stat: " << theTmpStr <<
+                        "stat: " << thePathNameStr <<
                         ": " << QCUtils::SysError(theErr) <<
                     KFS_LOG_EOM;
                     return -EINVAL;
@@ -954,10 +955,12 @@ private:
                 theHasLatestFlag = true;
             }
         }
-        int                  theRet       = 0;
-        size_t const         thePrefixLen = strlen(inNamePrefixPtr);
-        size_t               theTmpSufLen =
+        int                  theRet              = 0;
+        size_t const         thePrefixLen        = strlen(inNamePrefixPtr);
+        size_t               theTmpSufLen        =
             inTmpSuffixPtr ? strlen(inTmpSuffixPtr) : 0;
+        bool                 theUseDirentInoFlag = false;
+        bool                 theLatestFlag       = false;
         const struct dirent* thePtr;
         while ((thePtr = readdir(theDirPtr))) {
             const char* const theNamePtr = thePtr->d_name;
@@ -981,17 +984,16 @@ private:
                         (theNamePtr + thePrefixLen + theTmpSufLen <= theEndPtr &&
                         memcmp(theEndPtr - theTmpSufLen,
                             inTmpSuffixPtr, theTmpSufLen) == 0))) {
-                    theTmpStr = inDirNamePtr;
-                    theTmpStr += "/";
-                    theTmpStr += theNamePtr;
+                    thePathNameStr.erase(theDirNamePrefixLen);
+                    thePathNameStr += theNamePtr;
                     KFS_LOG_STREAM_DEBUG <<
                         (inRemoveTmpFlag ?
-                            "removing" : "ignoring") << ": " << theTmpStr <<
+                            "removing" : "ignoring") << ": " << thePathNameStr <<
                     KFS_LOG_EOM;
-                    if (inRemoveTmpFlag && remove(theTmpStr.c_str())) {
+                    if (inRemoveTmpFlag && remove(thePathNameStr.c_str())) {
                         const int theErr = errno;
                         KFS_LOG_STREAM_ERROR <<
-                            "remove: " << theTmpStr <<
+                            "remove: " << thePathNameStr <<
                             ": " << QCUtils::SysError(theErr) <<
                         KFS_LOG_EOM;
                         theRet = 0 < theErr ? -theErr : -EINVAL;
@@ -1005,8 +1007,31 @@ private:
                 theRet = -ENXIO;
                 break;
             }
+            if (theHasLatestFlag) {
+                // Check if d_ino field can be used by comparing its value with
+                // st_ino. If these match for the first entry, then use d_ino,
+                // otherwise use stat to get i-node number.
+                if (theUseDirentInoFlag) {
+                    theLatestFlag = theStat.st_ino == thePtr->d_ino;
+                } else {
+                    thePathNameStr.erase(theDirNamePrefixLen);
+                    thePathNameStr += theNamePtr;
+                    struct stat theCurStat;
+                    if (stat(thePathNameStr.c_str(), &theCurStat)) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "stat: " << thePathNameStr <<
+                            ": " << QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
+                        theRet = 0 < theErr ? -theErr : -EINVAL;
+                        break;
+                    }
+                    theLatestFlag = theStat.st_ino == theCurStat.st_ino;
+                    theUseDirentInoFlag = theCurStat.st_ino == thePtr->d_ino;
+                }
+            }
             if (0 != (theRet = inFunctor(theLogSeq, theSegNum, theNamePtr,
-                        theHasLatestFlag && theStat.st_ino == thePtr->d_ino))) {
+                        theLatestFlag))) {
                 break;
             }
         }
