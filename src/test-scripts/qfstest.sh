@@ -39,6 +39,7 @@ installprefix=''
 pythonwheeldir=''
 mynewlinechar='
 '
+metasrvdir=
 
 validnumorexit()
 {
@@ -125,6 +126,18 @@ while [ $# -ge 1 ]; do
         fi
         shift
         pythonwheeldir=$1
+    elif [ x"$1" = x'-test-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        testdir=$1
+    elif [ x"$1" = x'-meta-test-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        metasrvdir=$1
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -143,7 +156,9 @@ while [ $# -ge 1 ]; do
             "[-chunk-ex-config <param>]" \
             "[-client-ex-config <param>]" \
             "[-install-prefix <param>]" \
-            "[-python-wheel-dir <param>]"
+            "[-python-wheel-dir <param>]" \
+            "[-test-dir <param>]" \
+            "[-meta-test-dir <param>]"
         exit 1
     fi
     shift
@@ -243,7 +258,8 @@ kfstestnoshutdownwait=${kfstestnoshutdownwait-}
 
 metasrvchunkport=`expr $metasrvport + 100`
 chunksrvport=`expr $metasrvchunkport + 100`
-metasrvdir="$testdir/meta"
+testmetasrvdir=$testdir/meta
+metasrvdir=${metasrvdir:-$testmetasrvdir}
 chunksrvdir="$testdir/chunk"
 metasrvprop='MetaServer.prp'
 metasrvlog='metaserver.log'
@@ -551,9 +567,16 @@ export PATH
 export LD_LIBRARY_PATH
 
 rm -rf "$testdir"
+rm -rf "$metasrvdir"
 mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
+
+if [ ! -d "$testmetasrvdir" ]; then
+    # Sym link to make other tests work.
+    absmetasrvdir=`cd -- "$metasrvdir" && pwd` &&
+        ln -snf "$absmetasrvdir" "$testmetasrvdir" || exit
+fi
 
 if [ x"`uname`" = x'Darwin' ]; then
     # Note: on macos DYLD_LIBRARY_PATH will disappear in sub shell due to
