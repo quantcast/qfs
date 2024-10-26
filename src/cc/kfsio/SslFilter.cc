@@ -740,8 +740,13 @@ public:
         if (! theCurSessionPtr) {
             return (time(0) - 1);
         }
-        return ((int64_t)SSL_SESSION_get_time(theCurSessionPtr) +
-                SSL_SESSION_get_timeout(theCurSessionPtr));
+        return ((int64_t)
+#if OPENSSL_VERSION_NUMBER < 0x30300000L
+                SSL_SESSION_get_time(theCurSessionPtr)
+#else
+                SSL_SESSION_get_time_ex(theCurSessionPtr)
+#endif
+                + SSL_SESSION_get_timeout(theCurSessionPtr));
     }
     virtual bool RenewSession()
     {
