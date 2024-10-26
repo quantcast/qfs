@@ -2174,6 +2174,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     if (! sdfattr->CanWrite(euser, egroup)) {
         return -EACCES;
     }
+    if (outSrcFid) {
+        *outSrcFid = sfattr->id();
+    }
     fid_t  ddir;
     string dname;
     const string::size_type rslash = newname.rfind('/');
@@ -2296,9 +2299,6 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
             kKfsUserNone, kKfsGroupNone, 0, ddfattr, 0, mtime);
         assert(status == 0);
-    }
-    if (outSrcFid) {
-        *outSrcFid = srcfid;
     }
     return 0;
 }
