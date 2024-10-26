@@ -15,17 +15,18 @@ jobs:
   linux-build-docker:
     strategy:
       matrix:
-        distro: [ubuntu, centos, debian, i386/ubuntu]
+        distro: [ubuntu, centos, rockylinux, debian, i386/ubuntu]
         exclude:
           - distro: ubuntu
           - distro: centos
+          - distro: rockylinux
           - distro: debian
           - distro: i386/ubuntu
         include:
           - distro: ubuntu
             ver: 24.04
             codecov: no
-            btype: debug
+            btype: release
             buser: qfsbuild
           - distro: ubuntu
             ver: 22.04
@@ -68,6 +69,16 @@ jobs:
             btype: release
             buser: qfsbuild
           - distro: debian
+            ver: 12
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: debian
+            ver: 11
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: debian
             ver: 10
             codecov: no
             btype: release
@@ -84,6 +95,11 @@ jobs:
             buser: qfsbuild
           - distro: centos
             ver: 8
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: rockylinux
+            ver: 9
             codecov: no
             btype: release
             buser: qfsbuild
@@ -180,7 +196,7 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   cygwin-build:
-    if: ${{ false }}  # turn off for now
+    if: ${{ false }} # turn off for now
     runs-on: windows-latest
     env:
       CYG_MIRROR: http://cygwin.mirror.constant.com
