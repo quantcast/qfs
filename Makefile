@@ -70,7 +70,12 @@ hadoop-jars: java
 
 .PHONY: go
 go: build
-	if go version >/dev/null 2>&1 ; then \
+	if go version 2>/dev/null | awk '/go version/ { \
+			n = split($$3, v, "[^0-9]+"); \
+			ret = 4 == n && (1 < v[2] || 16 < v[3]); \
+			exit; \
+		} \
+		END { exit ret ? 0 : 1 }'; then \
 		QFS_BUILD_DIR=`pwd`/build/$(BUILD_TYPE) && \
 		cd src/go && \
 		CGO_CFLAGS="-I$${QFS_BUILD_DIR}/include" && \
@@ -82,7 +87,7 @@ go: build
 		go build -v || \
 		exit 1; \
 	else \
-		echo "go is not available"; \
+		echo "go version 1.17 or greater is not available"; \
 	fi
 
 .PHONY: tarball
@@ -93,25 +98,29 @@ tarball: hadoop-jars python
 	[ x"$$myarch" = x ] && \
 	    myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
-	if [ x"$$myuname" = x'Linux' -a \( -f /etc/issue -o -f /etc/system-release \) ]; then \
+	if [ x"$$myuname" = x'Linux' -a \
+			\( -f /etc/issue -o -f /etc/system-release \) ]; then \
 		if [ -f /etc/system-release ]; then \
 			myflavor=`head -n 1 /etc/system-release | cut -d' ' -f1` ; \
-			myflavor="$$myflavor-`head -n 1 /etc/system-release | sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
+			myflavor="$$myflavor-`head -n 1 /etc/system-release | \
+				sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
 		else \
 			myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 			if [ x"$$myflavor" = x'Ubuntu' ]; then \
-				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | \
+					cut -d' ' -f2 | cut -d. -f1,2`" ; \
 			elif [ x"$$myflavor" = x ]; then \
 				myflavor=$$myuname ; \
 			else \
-				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | \
+					cut -d' ' -f3 | cut -d. -f1,2`" ; \
 			fi ; \
 		fi ; \
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
-		myflavor=cygwin ; \
+			myflavor=cygwin ; \
 	    else \
-		myflavor=$$myuname ; \
+			myflavor=$$myuname ; \
 	    fi ; \
 	fi ; \
 	qfsversion=`../src/cc/common/buildversgit.sh --release` ; \
@@ -120,13 +129,15 @@ tarball: hadoop-jars python
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
 	mkdir "tmpreldir/$$tarname" && \
-	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib ${BUILD_TYPE}/include ../scripts ../webui \
+	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib \
+		${BUILD_TYPE}/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
-	if ls -1 ./java/qfs-access/qfs-access-*.jar > /dev/null 2>&1; then \
+	if ls -1 ./java/qfs-access/qfs-access-*.jar >/dev/null 2>&1; then \
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
-	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
+	if ls -1 ./java/hadoop-qfs/hadoop-*.jar >/dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
-	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl > /dev/null 2>&1; then \
+	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl >/dev/null 2>&1; \
+		then \
 		cp ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
 			"tmpreldir/$$tarname/lib/"; fi && \
 	if ls -1 ${BUILD_TYPE}/benchmarks/mstress.tgz > /dev/null 2>&1; then \
