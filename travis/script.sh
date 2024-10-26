@@ -33,12 +33,16 @@ DEPS_UBUNTU22=$DEPS_UBUNTU' golang-go'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
-DEPS_CENTOS=$DEPS_CENTOS' fuse-devel java-openjdk java-devel'
-DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
+DEPS_CENTOS=$DEPS_CENTOS' java-openjdk java-devel'
+DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel unzip sudo which openssl fuse gdb'
 
-DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
+DEPS_CENTOS_PRIOR_TO_9=' curl fuse-devel'
+DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake chrpath python3-devel'
 DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
+DEPS_CENTOS9=$DEPS_CENTOS8' zlib-devel fuse3-devel'
+DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
+DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
 MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz'
 
@@ -185,7 +189,8 @@ install_maven() {
 }
 
 build_ubuntu() {
-    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' ]; then
+    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' \
+        -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
         MYDEPS=$DEPS_UBUNTU22
     elif [ x"$1" = x'14.04' -o x"$1" = x'16.04' ]; then
         MYDEPS=$DEPS_UBUNTU14_16
@@ -200,12 +205,15 @@ build_ubuntu() {
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' -o x"$1" = x'22.04' \
-        -o x"$1" = x'24.04' ]; then
+        -o x"$1" = x'24.04' \
+        -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
     if [ x"$1" = x'14.04' ]; then
         install_maven
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1404_CENTOS6
+    elif [ x"$1" = x'24.04' -o x"$1" = x'd12' ]; then
+        MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS" -D CMAKE_CXX_FLAGS_RELWITHDEBINFO='-O1 -g'"
     fi
     do_build_linux \
         ${MYPATH+PATH="${MYPATH}:${PATH}"} \
@@ -218,12 +226,7 @@ build_ubuntu32() {
 }
 
 build_debian() {
-    if [ x"$1" = x'9' ]; then
-        true
-    else
-        QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
-    fi
-    build_ubuntu
+    build_ubuntu "d$1"
 }
 
 build_centos() {
@@ -304,6 +307,10 @@ build_centos() {
         ${QFS_MSTRESS_ON+QFS_MSTRESS_ON="$QFS_MSTRESS_ON"}
 }
 
+build_rockylinux() {
+    build_centos ${1+"$@"}
+}
+
 set_build_type() {
     if [ x"$1" = x ]; then
         true
@@ -320,7 +327,10 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
     else
         # Create regular user to run the build and test under it.
         id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
-        chown -R "$MYUSER" .
+        # Do not attempt to change ownership of read only files, as doing so
+        # fails with MacOS docker (due to use / modification of extendent
+        # attributes).
+        find . -perm /0111 -print0 | xargs -0 chown "$MYUSER"
     fi
     "$1_$(basename "$2")" "$3"
     exit
