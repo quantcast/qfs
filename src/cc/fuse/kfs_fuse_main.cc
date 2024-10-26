@@ -28,6 +28,10 @@
 //
 //----------------------------------------------------------------------------
 
+#ifndef FUSE_USE_VERSION
+#   define FUSE_USE_VERSION 26
+#endif
+
 #include "libclient/KfsClient.h"
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -43,6 +47,33 @@
 #include <errno.h>
 
 #include <iomanip>
+
+/* Do not compare FUSE_USE_VERSION with FUSE_MAKE_VERSION as the later on 3.0
+ * multiplies major version by 100, but on 2.0 by 10, and the conditionals int
+ * the fuse includes appears to be use using 2.0 convention with
+ * FUSE_USE_VERSION
+ */
+#if FUSE_USE_VERSION < 30
+#   define QFS_FUSE_USE_MAJOR_VERSION 2
+#   define FUSE2_API_ARG(x) , x
+#   define FUSE3_API_ARG(x)
+#   define QFS_FUSE_LOOP_MT(x) fuse_loop_mt(x)
+#   if FUSE_USE_VERSION > 24
+#       define FUSE_UMOUNT_ARG(x) , x
+#   else
+#       define FUSE_UMOUNT_ARG(x)
+#   endif
+#else
+#   define QFS_FUSE_USE_MAJOR_VERSION 3
+#   define FUSE_UMOUNT_ARG(x)
+#   define FUSE2_API_ARG(x)
+#   define FUSE3_API_ARG(x) , x
+#   if FUSE_USE_VERSION < 32
+#       define QFS_FUSE_LOOP_MT(x) fuse_loop_mt(x, 0)
+#   else
+#       define QFS_FUSE_LOOP_MT(x) fuse_loop_mt(x, NULL)
+#   endif
+#endif
 
 using std::string;
 using std::vector;
@@ -92,7 +123,8 @@ mode2kfs_mode(mode_t mode)
 }
 
 static int
-fuse_getattr(const char* path, struct stat* s)
+fuse_getattr(const char* path, struct stat* s
+    FUSE3_API_ARG(struct fuse_file_info*))
 {
     KfsFileAttr attr;
     int status = client->Stat(path, attr);
@@ -103,12 +135,14 @@ fuse_getattr(const char* path, struct stat* s)
     return 0;
 }
 
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
 static int
 fuse_fgetattr(const char* path, struct stat* s,
         struct fuse_file_info* /* finfo */)
 {
     return fuse_getattr(path, s);
 }
+#endif
 
 static int
 fuse_mkdir(const char* path, mode_t mode)
@@ -129,11 +163,13 @@ fuse_rmdir(const char* path)
 }
 
 static int
-fuse_rename(const char* src, const char* dst)
+fuse_rename(const char* src, const char* dst FUSE3_API_ARG(unsigned int flags))
 {
-    return client->Rename(src, dst, false);
+    return client->Rename(src, dst FUSE2_API_ARG(false)
+        FUSE3_API_ARG(flags != RENAME_NOREPLACE));
 }
 
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
 static int
 fuse_ftruncate(const char* path, off_t size, struct fuse_file_info* finfo)
 {
@@ -144,9 +180,11 @@ fuse_ftruncate(const char* path, off_t size, struct fuse_file_info* finfo)
     KFS_LOG_EOM;
     return client->Truncate(finfo->fh, size);
 }
+#endif
 
 static int
-fuse_truncate(const char* path, off_t size)
+fuse_truncate(const char* path, off_t size
+    FUSE3_API_ARG(struct fuse_file_info*))
 {
     KFS_LOG_STREAM_DEBUG << "qfs_fuse"
         " truncate:" << (path ? path : "") <<
@@ -346,7 +384,8 @@ fuse_opendir(const char* path, struct fuse_file_info* /* finfo */)
 static int
 fuse_readdir(const char* path, void* buf,
              fuse_fill_dir_t filler, off_t /* offset */,
-             struct fuse_file_info* /* finfo */)
+             struct fuse_file_info* /* finfo */
+             FUSE3_API_ARG(enum fuse_readdir_flags))
 {
     vector <KfsFileAttr> contents;
     int status = client->ReaddirPlus(path, contents);
@@ -357,7 +396,8 @@ fuse_readdir(const char* path, void* buf,
     for (int i = 0; i < n; i++) {
         struct stat s;
         contents[i].ToStat(s);
-        if (filler(buf, contents[i].filename.c_str(), &s, 0) != 0) {
+        if (filler(buf, contents[i].filename.c_str(), &s, 0
+                    FUSE3_API_ARG(FUSE_FILL_DIR_PLUS)) != 0) {
             break;
         }
     }
@@ -390,13 +430,14 @@ fuse_access(const char* path, int mode)
 }
 
 static int
-fuse_chmod(const char* path, mode_t mode)
+fuse_chmod(const char* path, mode_t mode FUSE3_API_ARG(struct fuse_file_info*))
 {
     return client->Chmod(path, mode2kfs_mode(mode));
 }
 
 static int
-fuse_chown(const char* path, uid_t user, gid_t group)
+fuse_chown(const char* path, uid_t user, gid_t group
+    FUSE3_API_ARG(struct fuse_file_info*))
 {
     return client->Chown(path,
         user  == (uid_t)-1 ? kKfsUserNone  : (kfsUid_t)user,
@@ -441,7 +482,9 @@ fuse_statfs(const char* path, struct statvfs* stat)
 struct fuse_operations ops = {
         fuse_getattr,
         NULL,                   /* readlink */
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         NULL,                   /* getdir */
+#endif
         NULL,                   /* mknod */
         fuse_mkdir,
         fuse_unlink,
@@ -452,7 +495,9 @@ struct fuse_operations ops = {
         fuse_chmod,             /* chmod */
         fuse_chown,             /* chown */
         fuse_truncate,
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         NULL,                   /* utime */
+#endif
         fuse_open,
         fuse_read,
         fuse_write,
@@ -472,14 +517,30 @@ struct fuse_operations ops = {
         NULL,                   /* destroy */
         fuse_access,            /* access */
         fuse_create,            /* create */
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         fuse_ftruncate,         /* ftruncate */
         fuse_fgetattr,          /* fgetattr */
+#else
+        NULL,                   /* lock */
+        NULL,                   /* utimens */
+        NULL,                   /* bmap */
+        NULL,                   /* ioctl */
+        NULL,                   /* poll */
+        NULL,                   /* write_buf */
+        NULL,                   /* read_buf */
+        NULL,                   /* flock */
+        NULL,                   /* fallocate */
+        NULL,                   /* copy_file_range */
+        NULL,                   /* lseek */
+#endif
 };
 
 struct fuse_operations ops_readonly = {
         fuse_getattr,
         NULL,                   /* readlink */
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         NULL,                   /* getdir */
+#endif
         NULL,                   /* mknod */
         NULL,                   /* mkdir */
         NULL,                   /* unlink */
@@ -490,7 +551,9 @@ struct fuse_operations ops_readonly = {
         NULL,                   /* chmod */
         NULL,                   /* chown */
         NULL,                   /* truncate */
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         NULL,                   /* utime */
+#endif
         fuse_open,
         fuse_read,
         NULL,                   /* write */
@@ -510,8 +573,22 @@ struct fuse_operations ops_readonly = {
         NULL,                   /* destroy */
         fuse_access,            /* access */
         NULL,                   /* create */
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
         NULL,                   /* ftruncate */
         fuse_fgetattr,          /* fgetattr */
+#else
+        NULL,                   /* lock */
+        NULL,                   /* utimens */
+        NULL,                   /* bmap */
+        NULL,                   /* ioctl */
+        NULL,                   /* poll */
+        NULL,                   /* write_buf */
+        NULL,                   /* read_buf */
+        NULL,                   /* flock */
+        NULL,                   /* fallocate */
+        NULL,                   /* copy_file_range */
+        NULL,                   /* lseek */
+#endif
 };
 
 static void
@@ -589,6 +666,7 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
     }
 }
 
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
 static struct fuse_args*
 get_fs_args(struct fuse_args* args)
 {
@@ -607,6 +685,7 @@ get_fs_args(struct fuse_args* args)
     args->allocated = 1;
     return args;
 }
+#endif
 
 static struct fuse_args*
 get_mount_args(struct fuse_args* args, const char* options)
@@ -617,7 +696,7 @@ get_mount_args(struct fuse_args* args, const char* options)
 
     args->argc = 2;
     args->argv = (char**)calloc(sizeof(char*), args->argc + 1);
-    args->argv[0] = strdup("unused_arg0");
+    args->argv[0] = strdup("qfs_fuse");
     args->argv[1] = strdup(options);
     args->allocated = 1;
     return args;
@@ -743,37 +822,60 @@ initfuse(char* kfs_host_address, const char* mountpoint,
         initkfs(kfs_host_address, cfg_file, cfg_props);
 
         struct fuse_args fs_args;
-        struct fuse_args mnt_args;
 
-        struct fuse_chan* ch = NULL;
-        ch = fuse_mount(mountpoint, get_mount_args(&mnt_args, options));
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
+        struct fuse_args mnt_args;
+        struct fuse_chan* const ch =
+            fuse_mount(mountpoint, get_mount_args(&mnt_args, options));
         if (ch == NULL) {
             const int err = errno;
             delete client;
             fatal(err, "fuse_mount: %s:", mountpoint);
         }
-
-        struct fuse* fuse = NULL;
-        fuse = fuse_new(ch, get_fs_args(&fs_args),
-                        (readonly ? &ops_readonly : &ops),
-                        (readonly ? sizeof(ops_readonly) : sizeof(ops)),
-                        NULL);
+#endif
+        struct fuse* const fuse = fuse_new(
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
+            ch,
+            get_fs_args(&fs_args),
+#else
+            get_mount_args(&fs_args, options),
+#endif
+            (readonly ? &ops_readonly : &ops),
+            (readonly ? sizeof(ops_readonly) : sizeof(ops)),
+            NULL
+        );
         if (fuse == NULL) {
             const int err = errno;
-            fuse_unmount(mountpoint, ch);
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
+            fuse_unmount(mountpoint FUSE_UMOUNT_ARG(ch));
+#endif
             delete client;
             fatal(err, "fuse_new:");
         }
+#if QFS_FUSE_USE_MAJOR_VERSION > 2
+        if (fuse_mount(fuse, mountpoint)) {
+            const int err = errno;
+            fuse_destroy(fuse);
+            delete client;
+            fatal(err, "fuse_mount: %s:", mountpoint);
+        }
+#endif
         sReadOnlyFlag = readonly;
 #ifndef KFS_OS_NAME_SUNOS
         if (! readonly) {
-            fuse_loop_mt(fuse);
+            QFS_FUSE_LOOP_MT(fuse);
         } else
 #endif
         {
             fuse_loop(fuse);
         }
-        fuse_unmount(mountpoint, ch);
+        fuse_unmount(
+#if QFS_FUSE_USE_MAJOR_VERSION < 3
+            mountpoint FUSE_UMOUNT_ARG(ch)
+#else
+            fuse
+#endif
+        );
         fuse_destroy(fuse);
         delete client;
     }
