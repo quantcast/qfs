@@ -218,7 +218,8 @@ build_ubuntu() {
     if [ x"$1" = x'14.04' ]; then
         install_maven
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1404_CENTOS6
-    elif [ x"$1" = x'24.04' -o x"$1" = x'd12' ]; then
+    elif [ x"$1" = x'24.04' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
+        # Work around -O2 optimization bugs.
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS" -D CMAKE_CXX_FLAGS_RELWITHDEBINFO='-O1 -g'"
     fi
     do_build_linux \
