@@ -30,7 +30,6 @@ DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb chrpath'
 DEPS_UBUNTU14_16=$DEPS_UBUNTU
 DEPS_UBUNTU=$DEPS_UBUNTU' python3-dev python3-venv'
 DEPS_UBUNTU22=$DEPS_UBUNTU' golang-go'
-DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
 DEPS_CENTOS=$DEPS_CENTOS' java-openjdk java-devel'
@@ -73,16 +72,24 @@ set_sudo() {
         MYSUDO=
         MYUSER=
         if [ $# -gt 0 ]; then
-            if [ x"$1" = x'root' ]; then
-                true
-            else
+            if [ x"$1" != x'root' ]; then
                 MYUSER=$1
             fi
         fi
         if [ x"$MYUSER" = x ]; then
             MYSU=
         else
-            MYSU="sudo -H -u $MYUSER"
+            MYSU='my_set_user'
+            my_set_user() {
+                runuser -u "$MYUSER" -- ${1+"$@"}
+            }
+            # Test if runuser is present and working, and fall back to sudo if
+            # it does not.
+            if ! $MYSU test 1 -eq 1; then
+                my_set_user() {
+                    sudo -H -u "$MYUSER" ${1+"$@"}
+                }
+            fi
         fi
     else
         MYSUDO='sudo'
@@ -189,8 +196,7 @@ install_maven() {
 }
 
 build_ubuntu() {
-    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' \
-        -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
+    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' -o x"$1" = x'd12' ]; then
         MYDEPS=$DEPS_UBUNTU22
     elif [ x"$1" = x'14.04' -o x"$1" = x'16.04' ]; then
         MYDEPS=$DEPS_UBUNTU14_16
@@ -312,19 +318,15 @@ build_rockylinux() {
 }
 
 set_build_type() {
-    if [ x"$1" = x ]; then
-        true
-    else
+    if [ x"$1" != x ]; then
         MYBUILD_TYPE=$1
     fi
 }
 
 if [ $# -eq 5 -a x"$1" = x'build' ]; then
     set_build_type "$4"
-    set_sudo "$5"
-    if [ x"$MYUSER" = x ]; then
-        true
-    else
+    make clean
+    if [ x"$MYUSER" != x ]; then
         # Create regular user to run the build and test under it.
         id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
         # Do not attempt to change ownership of read only files, as doing so
@@ -332,6 +334,7 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
         # attributes).
         find . -perm /0111 -print0 | xargs -0 chown "$MYUSER"
     fi
+    set_sudo "$5"
     "$1_$(basename "$2")" "$3"
     exit
 fi
