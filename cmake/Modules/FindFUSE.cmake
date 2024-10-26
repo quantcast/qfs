@@ -78,8 +78,15 @@ find_package(PkgConfig)
 
 set(PC_FUSE_INCLUDE_DIRS )
 set(PC_FUSE_LIBRARY_DIRS )
+set(SEARCH_FUSE_LIBRARY_NAMES "libosxfuse.dylib" "fuse")
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(PC_FUSE "fuse" QUIET)
+    if(NOT PC_FUSE_FOUND)
+        pkg_check_modules(PC_FUSE "fuse3" QUIET)
+        if(PC_FUSE_FOUND)
+            set(SEARCH_FUSE_LIBRARY_NAMES "fuse3")
+        endif()
+    endif()
     if(PC_FUSE_FOUND)
         fusedebug(PC_FUSE_LIBRARIES)
         fusedebug(PC_FUSE_LIBRARY_DIRS)
@@ -115,7 +122,7 @@ endif(NOT FUSE_INCLUDE_DIRS)
 
 find_library(
     FUSE_LIBRARIES
-    NAMES "libosxfuse.dylib" "fuse"
+    NAMES ${SEARCH_FUSE_LIBRARY_NAMES}
     PATHS "${PC_FUSE_LIBRARY_DIRS}"
     DOC "Libraries for FUSE"
 )
@@ -146,7 +153,12 @@ if(FUSE_FOUND)
     # Add FUSE compilation flags
     set(CMAKE_REQUIRED_INCLUDES "${CMAKE_REQUIRED_INCLUDES}" "${FUSE_INCLUDE_DIRS}")
     set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}" "${FUSE_LIBRARIES}")
-    set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS}" "${FUSE_DEFINITIONS}")
+    set(
+        CMAKE_REQUIRED_DEFINITIONS
+        "${CMAKE_REQUIRED_DEFINITIONS}"
+        "${FUSE_DEFINITIONS}"
+        -D FUSE_USE_VERSION="${FUSE_MAJOR_VERSION}${FUSE_MINOR_VERSION}"
+    )
     check_c_source_compiles("#include <stdlib.h>
 #include <fuse.h>
 #include <stdio.h>
