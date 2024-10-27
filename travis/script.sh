@@ -71,21 +71,20 @@ set_sudo() {
     if [ x"$(id -u)" = x'0' ]; then
         MYSUDO=
         MYUSER=
-        if [ $# -gt 0 ]; then
-            if [ x"$1" != x'root' ]; then
-                MYUSER=$1
-            fi
+        if [ $# -gt 0 -a x"${1-}" != x'root' ]; then
+            MYUSER=$1
         fi
         if [ x"$MYUSER" = x ]; then
             MYSU=
         else
             MYSU='my_set_user'
-            my_set_user() {
-                runuser -u "$MYUSER" -- ${1+"$@"}
-            }
             # Test if runuser is present and working, and fall back to sudo if
             # it does not.
-            if ! $MYSU test 1 -eq 1; then
+            if runuser -u root -- test 1 -eq 1 2>/dev/null; then
+                my_set_user() {
+                    runuser -u "$MYUSER" -- ${1+"$@"}
+                }
+            else
                 my_set_user() {
                     sudo -H -u "$MYUSER" ${1+"$@"}
                 }
@@ -326,6 +325,7 @@ set_build_type() {
 
 if [ $# -eq 5 -a x"$1" = x'build' ]; then
     set_build_type "$4"
+    set_sudo "$5"
     rm -rf build
     if [ x"$MYUSER" != x ]; then
         # Create regular user to run the build and test under it.
@@ -335,7 +335,6 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
         # attributes).
         find . -perm /0111 -print0 | xargs -0 chown "$MYUSER"
     fi
-    set_sudo "$5"
     "$1_$(basename "$2")" "$3"
     exit
 fi
@@ -375,7 +374,7 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
         "$0" build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     else
         if [ x"${DOCKER_IMAGE_PREFIX+x}" = x ]; then
-            if [ x"$DISTRO" = x'centos' -a 7 -lt $VER ]; then
+            if [ x"$DISTRO" = x'centos' ] && [ 7 -lt $VER ]; then
                 DOCKER_IMAGE_PREFIX='tgagor/'
             else
                 DOCKER_IMAGE_PREFIX=''
