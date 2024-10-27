@@ -326,7 +326,7 @@ set_build_type() {
 
 if [ $# -eq 5 -a x"$1" = x'build' ]; then
     set_build_type "$4"
-    make clean
+    rm -rf build
     if [ x"$MYUSER" != x ]; then
         # Create regular user to run the build and test under it.
         id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
