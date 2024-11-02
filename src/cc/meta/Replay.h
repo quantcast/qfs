@@ -101,8 +101,8 @@ public:
     int playLine(const char* line, int len, seq_t blockSeq);
     bool logSegmentHasLogSeq() const
         { return logSegmentHasLogSeq(number); }
-    void verifyAllLogSegmentsPreset(bool flag)
-        { verifyAllLogSegmentsPresetFlag = flag; }
+    void verifyAllLogSegmentsPresent(bool flag)
+        { verifyAllLogSegmentsPresentFlag = flag; }
     void setLogDir(const char* dir);
     MetaVrLogSeq getCheckpointCommitted() const
         { return checkpointCommitted; }
@@ -175,7 +175,7 @@ private:
     seq_t            lastLogNum;
     int              lastLogIntBase;
     bool             appendToLastLogFlag;
-    bool             verifyAllLogSegmentsPresetFlag;
+    bool             verifyAllLogSegmentsPresentFlag;
     bool             enqueueFlag;
     Tokenizer        replayTokenizer;
     MetaVrLogSeq&    checkpointCommitted;
