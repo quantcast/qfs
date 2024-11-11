@@ -274,8 +274,13 @@ build_centos() {
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
+    if [ x"$1" = x'9' ]; then
+        YUM_OPTS=--nobest
+    else
+        YUM_OPTS=
+    fi
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
-    $MYSUDO yum install -y $MYDEPS
+    $MYSUDO yum install -y $YUM_OPTS $MYDEPS
     MYPATH=$PATH
     # CentOS doesn't package maven directly so we have to install it manually
     install_maven
