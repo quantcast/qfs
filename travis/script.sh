@@ -407,6 +407,8 @@ elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     fi
     make rat clean
     sysctl machdep.cpu || true
+    xcode-select --version || true
+    clang --version || true
     df -h || true
     cpu_count=$(sysctl -n hw.ncpu)
     expr "$cpu_count" : '^[0-9]*$' >/dev/null 2>&1 || cpu_count=2
