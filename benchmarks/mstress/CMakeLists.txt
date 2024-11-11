@@ -89,8 +89,8 @@ if(${cmake_use_target_property})
     get_target_property(metaserver_location metaserver LOCATION)
     get_target_property(chunkserver_location chunkserver LOCATION)
 else(${cmake_use_target_property})
-    set(metaserver_location $<TARGET_FILE:metaserver)
-    set(chunkserver_location $<TARGET_FILE:chunkserver)
+    set(metaserver_location "$<TARGET_FILE:metaserver>")
+    set(chunkserver_location "$<TARGET_FILE:chunkserver>")
 endif(${cmake_use_target_property})
 
 add_custom_target(
@@ -100,10 +100,10 @@ add_custom_target(
     ${CMAKE_CURRENT_BINARY_DIR}/bin/
     COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location}
     ${CMAKE_CURRENT_BINARY_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${KFS_DIR_PREFIX}/webui
     ${CMAKE_CURRENT_BINARY_DIR}/webui
     COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/examples/sampleservers/sample_setup.py
+    ${KFS_DIR_PREFIX}/examples/sampleservers/sample_setup.py
     ${CMAKE_CURRENT_BINARY_DIR}/setup.py
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
     mstress/mstress_client
