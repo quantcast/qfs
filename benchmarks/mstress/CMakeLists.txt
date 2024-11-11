@@ -39,7 +39,7 @@ add_custom_command (
         -Dhadoop.release.version=2.10.1
         package
     DEPENDS src/main/java/com/quantcast/qfs/mstress/MStress_Client.java pom.xml
-    COMMENT The HDFS mstress client bundled as a jar.
+    COMMENT "The HDFS mstress client bundled as a jar."
     VERBATIM
 )
 
@@ -63,7 +63,7 @@ endforeach(script)
 add_custom_target (
     mstress-scripts
     DEPENDS ${mstress_scripts}
-    COMMENT Copy mstress scripts to build directory.
+    COMMENT "Copy mstress scripts to build directory."
 )
 
 add_custom_target (
@@ -74,7 +74,7 @@ add_custom_target (
                 mstress/*.py
                 mstress/*.sh
     DEPENDS mstress
-    COMMENT Bundle mstress files in a tar archive.
+    COMMENT "Bundle mstress files in a tar archive."
 )
 add_dependencies(mstress-tarball mstress-scripts)
 
@@ -109,7 +109,7 @@ add_custom_target (
                 mstress/bin/chunkserver
                 mstress/webui
     DEPENDS mstress metaserver chunkserver
-    COMMENT Bundle mstress files along with QFS binaries.
+    COMMENT "Bundle mstress files along with QFS binaries."
 )
 add_dependencies(mstress-bootstrap mstress-scripts)
 
