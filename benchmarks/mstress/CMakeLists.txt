@@ -73,7 +73,7 @@ add_custom_target (
                 mstress/mstress.jar
                 mstress/*.py
                 mstress/*.sh
-    DEPENDS mstress_client mstress.jar
+    DEPENDS mstress
     COMMENT Bundle mstress files in a tar archive.
 )
 add_dependencies(mstress-tarball mstress-scripts)
@@ -108,7 +108,7 @@ add_custom_target (
                 mstress/bin/metaserver
                 mstress/bin/chunkserver
                 mstress/webui
-    DEPENDS mstress_client mstress.jar metaserver chunkserver
+    DEPENDS mstress metaserver chunkserver
     COMMENT Bundle mstress files along with QFS binaries.
 )
 add_dependencies(mstress-bootstrap mstress-scripts)
