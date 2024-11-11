@@ -56,7 +56,8 @@ set(mstress_scripts
 foreach(script ${mstress_scripts})
     add_custom_command(
         OUTPUT ${script}
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${script} ${CMAKE_CURRENT_BINARY_DIR}/
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${script}
+        ${CMAKE_CURRENT_BINARY_DIR}/
     )
 endforeach(script)
 
