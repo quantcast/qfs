@@ -38,7 +38,7 @@ clicfg=${clicfg-"$qfstestdir"/client.prp}
 clirootcfg=${clirootcfg-"$qfstestdir"/clientroot.prp}
 metaport=${metaport-20200}
 metahost=${metahost-127.0.0.1}
-csstartport=${csstartport-20400}
+csstartport=${csstartport-`expr $metaport + 200`}
 csendport=${csendport-`expr $csstartport + 0`}
 
 cptoqfsextraopts=${cptoqfsextraopts-}
