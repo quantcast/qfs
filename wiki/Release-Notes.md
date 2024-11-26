@@ -24,6 +24,9 @@ in QFS build and tarball by default.
 2. QFS python module is now built, tested, and included into QFS tarball if
 python 3.6 or higher is available.
 
+3. ARM Neon support is now enabled for QFS Reed-Solomon and GF complete
+libraries on Mac OS with Apple silicon.
+
 ## QFS version 2.2.6
 
 ## New features
