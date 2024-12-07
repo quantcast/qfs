@@ -140,7 +140,7 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   osx-build:
-    runs-on: macos-latest
+    runs-on: macos-latest-large
     env:
       BUILD_OS_NAME: osx
     steps:
@@ -168,7 +168,7 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   osx-build-arm64:
-    runs-on: macos-latest-xlarge
+    runs-on: macos-latest
     env:
       BUILD_OS_NAME: osx
     steps:
