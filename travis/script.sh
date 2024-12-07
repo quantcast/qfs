@@ -412,9 +412,10 @@ elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     fi
     make rat clean
     sysctl machdep.cpu || true
+    df -h || true
     xcode-select --version || true
     clang --version || true
-    df -h || true
+    openssl version || true
     cpu_count=$(sysctl -n hw.ncpu)
     expr "$cpu_count" : '^[0-9]*$' >/dev/null 2>&1 || cpu_count=2
     do_build -j "$cpu_count"
