@@ -30,26 +30,43 @@
 # 1. how to stop thread if app has died
 # 2  cookies
 # ----------------
+from __future__ import print_function
+
 import socket
 import threading
 import time
+import sys
 from datetime import datetime
-from io import StringIO
 
-from chart import ChartData, ChartServerData
+from chart import ChartServerData
+
+if sys.version_info < (3, 0):
+    from StringIO import StringIO
+else:
+    from io import StringIO
 
 kDeltaPrefix = "D-"
 REQUEST_GET_SERVER_COUNTERS = (
-    "GET_CHUNK_SERVERS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode("utf-8")
-)
+    "GET_CHUNK_SERVERS_COUNTERS\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
+).encode("utf-8")
 REQUEST_GET_COUNTERS = (
-    "GET_REQUEST_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode("utf-8")
-)
+    "GET_REQUEST_COUNTERS\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
+).encode("utf-8")
 REQUEST_GET_CHUNK_COUNTERS = (
-    "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode(
-        "utf-8"
-    )
-)
+    "GET_CHUNK_SERVER_DIRS_COUNTERS\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
+).encode("utf-8")
 
 
 class ChunkArrayData:
@@ -108,12 +125,15 @@ class SavedChunkDataList:
         self.theList = []  # SavedChunkData
         self.firstTime = 0
         self.lastTime = 0
-        self.name = "data_list: maxlength %d, timespan = %d" % (self.maxLength, self.timespan)
+        self.name = "data_list: maxlength %d, timespan = %d" % (
+            self.maxLength,
+            self.timespan,
+        )
 
     def free_space_for_new_data(self):
         # move to next list if posssible
         oldData = self.extract(-1)
-        if self.nextList != None and oldData != None:
+        if self.nextList is not None and oldData is not None:
             self.nextList.addData(oldData, 0)
 
     def addData(self, data, always=1):
@@ -174,7 +194,15 @@ class SavedChunkDataList:
 
 
 class ChunkDataManager:
-    def __init__(self, mainColumnName, predefinedHeaders, monthly, dayly, hourly, current):
+    def __init__(
+        self,
+        mainColumnName,
+        predefinedHeaders,
+        monthly,
+        dayly,
+        hourly,
+        current,
+    ):
         # 1 entry per day
         # self.monthlyData = SavedChunkDataList(60*60*24, 30)
         # 1 entry per hour
@@ -194,19 +222,28 @@ class ChunkDataManager:
         self.selectedHeaders = predefinedHeaders
         self.mainColumnName = mainColumnName
 
-        # SavedChunkDataList.__init__(self, timespan, maxLength, nextList=None):
+        # SavedChunkDataList.__init__(self, timespan, maxLength,
+        # nextList=None):
         self.dataArray = []
-        theData = SavedChunkDataList(monthly.timespan, monthly.theSize)  # monthly
+        theData = SavedChunkDataList(
+            monthly.timespan, monthly.theSize
+        )  # monthly
         # theData = SavedChunkDataList(8.0, 6)    #monthly
         self.dataArray.append(theData)
 
-        theData = SavedChunkDataList(dayly.timespan, dayly.theSize, self.dataArray[0])  # dayly
+        theData = SavedChunkDataList(
+            dayly.timespan, dayly.theSize, self.dataArray[0]
+        )  # dayly
         self.dataArray.insert(0, theData)
 
-        theData = SavedChunkDataList(hourly.timespan, hourly.theSize, self.dataArray[0])  # hourly
+        theData = SavedChunkDataList(
+            hourly.timespan, hourly.theSize, self.dataArray[0]
+        )  # hourly
         self.dataArray.insert(0, theData)
 
-        theData = SavedChunkDataList(current.timespan, current.theSize, self.dataArray[0])  # current
+        theData = SavedChunkDataList(
+            current.timespan, current.theSize, self.dataArray[0]
+        )  # current
         self.dataArray.insert(0, theData)
 
     def getLastTime(self):
@@ -225,7 +262,9 @@ class ChunkDataManager:
         print("ChunkDataManager debug print")
         arrayNames = ["latestData", "hourlyData", "daylyData", "monthlyData"]
         for i in range(theLen):
-            print(arrayNames[i] + "---------------------------------------------")
+            print(
+                arrayNames[i] + "---------------------------------------------"
+            )
             self.dataArray[i].printDebug()
 
     def setSelectedHeaders(self, headers):
@@ -244,39 +283,41 @@ class ChunkDataManager:
 
         dataIter = DataIter(self.dataArray)
 
-        # data in arrays is sorted by descending time, so fromTime is bigger than toTime
+        # data in arrays is sorted by descending time, so fromTime is bigger
+        # than toTime
         if self.minusLatestTime > 0:
             fromTime = self.dataArray[0].lastTime - self.minusLatestTime
             if self.findArrayIndexByTime(dataIter, fromTime):
                 if self.findTimedData(dataIter, fromTime):
                     data1 = dataIter.getCur()
 
-        if data1 == None:
+        if data1 is None:
             dataIter.setFirst()
             data1 = dataIter.getCur()
 
         fromTime = data1.timestamp
         toTime = fromTime - self.deltaInterval
-        # print "---, fromTime, toTime, self.minusLatestTime, dataIter.iArray, dataIter.iElem
+        # print "---, fromTime, toTime, self.minusLatestTime, dataIter.iArray,
+        # dataIter.iElem
 
-        if dataIter.getNext() != None:
+        if dataIter.getNext() is not None:
             if self.findArrayIndexByTime(dataIter, toTime):
                 if self.findTimedData(dataIter, toTime):
                     data2 = dataIter.getCur()
-            if data2 == None:
+            if data2 is None:
                 dataIter.setLast()
                 data2 = dataIter.getCur()
-                if data2 != None and data2.timestamp == data1.timestamp:
+                if data2 is not None and data2.timestamp == data1.timestamp:
                     data2 = None
         else:
             dataPrev = dataIter.getPrev()
-            if dataPrev != None:
+            if dataPrev is not None:
                 data2 = data1
                 data1 = dataPrev
 
         # print data1.timestamp
 
-        if data2 != None:
+        if data2 is not None:
             # print data2.timestamp
             return [data1, data2]
         else:
@@ -287,7 +328,7 @@ class ChunkDataManager:
             return 0
 
         array = dataIter.getArray()
-        while array != None:
+        while array is not None:
             if theTime >= array.firstTime:
                 return 1
             array = dataIter.getNextArray()
@@ -295,7 +336,7 @@ class ChunkDataManager:
 
     def findTimedData(self, dataIter, timestamp):
         elem = dataIter.getCur()
-        while elem != None:
+        while elem is not None:
             if elem.timestamp - timestamp <= 0:
                 return 1
             elem = dataIter.getNext()
@@ -311,9 +352,11 @@ class ChunkDataManager:
     def getChartData(self, chartData):
         chartData.headers = self.selectedHeaders
         elem = self.dataArray[0].theList[0]
-        if self.mainColumnName != None:
+        if self.mainColumnName is not None:
             if self.mainColumnName in elem.chunkServerData.chunkHeaders:
-                serverNameIndex = elem.chunkServerData.chunkHeaders.index(self.mainColumnName)
+                serverNameIndex = elem.chunkServerData.chunkHeaders.index(
+                    self.mainColumnName
+                )
             else:
                 return
         else:
@@ -330,12 +373,19 @@ class ChunkDataManager:
             theList = array.theList
             for elem in theList:
                 timeDataArray = []
-                if self.mainColumnName == None:
+                if self.mainColumnName is None:
                     serverNameIndex = 0
                 else:
                     serverNameIndex = -1
-                    if self.mainColumnName in elem.chunkServerData.chunkHeaders:
-                        serverNameIndex = elem.chunkServerData.chunkHeaders.index(self.mainColumnName)
+                    if (
+                        self.mainColumnName
+                        in elem.chunkServerData.chunkHeaders
+                    ):
+                        serverNameIndex = (
+                            elem.chunkServerData.chunkHeaders.index(
+                                self.mainColumnName
+                            )
+                        )
                     if serverNameIndex == -1:
                         return
                 for i in range(len(elem.chunkServerData.chunkServers)):
@@ -358,7 +408,9 @@ class ChunkDataManager:
                     else:
                         theHeader = header
                     if theHeader in elem.chunkServerData.chunkHeaders:
-                        index = elem.chunkServerData.chunkHeaders.index(theHeader)
+                        index = elem.chunkServerData.chunkHeaders.index(
+                            theHeader
+                        )
                     else:
                         index = -1
                     value = None
@@ -376,13 +428,15 @@ class ChunkDataManager:
                 for j in range(1, len(serverArray)):
                     array0 = serverArray[j - 1]
                     array1 = serverArray[j]
-                    timediff = array1[0] - array0[0]  # first element in array is timestamp
+                    timediff = (
+                        array1[0] - array0[0]
+                    )  # first element in array is timestamp
                     val1 = None
                     if len(array0) > i + 1 and len(array1) > i + 1:
                         val1 = array1[i + 1]
                         if j == 1:
                             valPrev = array0[i + 1]
-                    if valPrev == None or val1 == None or timediff == 0:
+                    if valPrev is None or val1 is None or timediff == 0:
                         value = None
                     else:
                         value = (val1 - valPrev) / timediff
@@ -404,9 +458,12 @@ class ChunkDataManager:
 class DataIter:
     def __init__(self, dataArray):
         self.dataArray = dataArray
-        if dataArray == None or len(self.dataArray) == 0:
+        if dataArray is None or len(self.dataArray) == 0:
             self.iArray = self.iElem = -1
-        elif self.dataArray[0].theList == None or len(self.dataArray[0].theList) == 0:
+        elif (
+            self.dataArray[0].theList is None
+            or len(self.dataArray[0].theList) == 0
+        ):
             self.iArray = self.iElem = -1
         else:
             self.iArray = self.iElem = 0
@@ -435,7 +492,10 @@ class DataIter:
             self.iElem = self.iElem + 1
             # print "getNext", self.iArray, self.iElem
             return self.dataArray[self.iArray].theList[self.iElem]
-        elif self.iArray + 1 < len(self.dataArray) and len(self.dataArray[self.iArray + 1].theList) > 0:
+        elif (
+            self.iArray + 1 < len(self.dataArray)
+            and len(self.dataArray[self.iArray + 1].theList) > 0
+        ):
             self.iArray = self.iArray + 1
             self.iElem = 0
             # print "getNext", self.iArray, self.iElem
@@ -482,7 +542,15 @@ class DataIter:
 
 
 class ChunkThread(threading.Thread):
-    def __init__(self, serverName, port, interval, chunkDataManager, countersDataManager, chunkDirDataManager):
+    def __init__(
+        self,
+        serverName,
+        port,
+        interval,
+        chunkDataManager,
+        countersDataManager,
+        chunkDirDataManager,
+    ):
         threading.Thread.__init__(self)
         self.interval = float(interval)
         self.chunkDataManager = chunkDataManager
@@ -534,7 +602,7 @@ class ChunkThread(threading.Thread):
 
             time.sleep(self.interval)
 
-    ## chunk request to metaserver
+    # chunk request to metaserver
     def getChunkServerData(self, chunkServerData, req):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -584,7 +652,15 @@ class ChunkThread(threading.Thread):
 
 
 class HtmlPrintData:
-    def __init__(self, mainColumnName, deltaList, dataManager, formId, pageTitle, itemName):
+    def __init__(
+        self,
+        mainColumnName,
+        deltaList,
+        dataManager,
+        formId,
+        pageTitle,
+        itemName,
+    ):
         # list of 2 SavedChunkData: timestamp + ChunkServerData
         self.data1 = deltaList[0]
         self.data2 = None
@@ -599,7 +675,10 @@ class HtmlPrintData:
         self.serverNameIndex = -1
 
         self.selectedHeaders = dataManager.selectedHeaders
-        self.indexList = []  # index of corresponding headers in allHeaders for each selectedHeader in selectedHeaders
+        self.indexList = (
+            []
+        )  # index of corresponding headers in allHeaders for each
+        # selectedHeader in selectedHeaders
         self.mainColumnName = mainColumnName
         self.formId = formId
         self.pageTitle = pageTitle
@@ -608,28 +687,36 @@ class HtmlPrintData:
     # beginning of html
     def startHTML(self, buffer):
         # beginning of html
-        if self.data2 != None:
+        if self.data2 is not None:
             timediffStr = str(int(self.data1.timestamp - self.data2.timestamp))
             timestr = (
-                time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data2.timestamp))
+                time.strftime(
+                    "%m-%d-%Y %H:%M:%S", time.localtime(self.data2.timestamp)
+                )
                 + " - "
-                + time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp))
+                + time.strftime(
+                    "%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp)
+                )
                 + " ("
                 + timediffStr
                 + ")"
             )
         else:
-            timestr = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp))
+            timestr = time.strftime(
+                "%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp)
+            )
         numServers = len(self.data1.chunkServerData.chunkServers)
 
         print(
             """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
     <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
         <link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
-        <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
+        <script type="text/javascript" src="files/sorttable/sorttable.js">
+        </script>
         <title>""",
             self.pageTitle,
             """</title>
@@ -652,7 +739,8 @@ class HtmlPrintData:
     </tbody></table></div><br />
 
     <div class="floatleft">
-     <table class="sortable status-table" id="table1" cellspacing="0" cellpadding="0.1em" summary="Status of chunk servers">
+     <table class="sortable status-table" id="table1" cellspacing="0"
+        cellpadding="0.1em" summary="Status of chunk servers">
      <caption> %s %s </caption>"""
             % (numServers, self.pageTitle, timestr),
             file=buffer,
@@ -735,7 +823,13 @@ class HtmlPrintData:
         # table headers
         print("""<thead> <tr>""", end=" ", file=buffer)
         for i in range(len(self.selectedHeaders)):
-            print("""<th>""", self.selectedHeaders[i], """</th>""", end=" ", file=buffer)
+            print(
+                """<th>""",
+                self.selectedHeaders[i],
+                """</th>""",
+                end=" ",
+                file=buffer,
+            )
         print("""</tr></thead>""", file=buffer)
 
     def initHeaders(self):
@@ -743,13 +837,16 @@ class HtmlPrintData:
         newHeaders = []
         if len(self.indexList) != 0:
             del self.indexList
-        if self.mainColumnName == None:
+        if self.mainColumnName is None:
             self.serverNameIndex = 0
         for i in range(len(allHeaders)):
             header = allHeaders[i]
             d_header = kDeltaPrefix + header
 
-            if self.mainColumnName != None and header == self.mainColumnName:
+            if (
+                self.mainColumnName is not None
+                and header == self.mainColumnName
+            ):
                 self.serverNameIndex = i
 
             if header in self.selectedHeaders:
@@ -760,11 +857,16 @@ class HtmlPrintData:
                 self.indexList.append(i)
         self.selectedHeaders = newHeaders
 
-    #        print "serverNameIndex:%d, %s" % (self.serverNameIndex, allHeaders[self.serverNameIndex])
-    #        print self.indexList
+        # print(
+        #     "serverNameIndex:%d, %s"
+        #     % (self.serverNameIndex, allHeaders[self.serverNameIndex])
+        # )
+        # print(self.indexList)
 
     def findServerForData2(self, serverIndex):
-        serverName = self.data1.chunkServerData.chunkServers[serverIndex].nodes[self.serverNameIndex]
+        serverName = self.data1.chunkServerData.chunkServers[
+            serverIndex
+        ].nodes[self.serverNameIndex]
         #       print "ServerName:" + serverName
         if serverIndex < len(self.data2.chunkServerData.chunkServers):
             chunkData2 = self.data2.chunkServerData.chunkServers[serverIndex]
@@ -781,10 +883,10 @@ class HtmlPrintData:
         #       print "server index %d" % (serverIndex)
         chunkData1 = self.data1.chunkServerData.chunkServers[serverIndex]
         chunkData2 = None
-        if self.data2 != None:
+        if self.data2 is not None:
             chunkData2 = self.findServerForData2(serverIndex)
 
-        if chunkData2 != None:
+        if chunkData2 is not None:
             timediff = self.data1.timestamp - self.data2.timestamp
         else:
             #            print "No Chunk data2!!!"
@@ -808,27 +910,41 @@ class HtmlPrintData:
                         s = "undefined"
                     else:
                         if (
-                            chunkData1.nodes[index] == None
+                            chunkData1.nodes[index] is None
                             or chunkData1.nodes[index].isalpha() == 1
-                            or chunkData2.nodes[index] == None
+                            or chunkData2.nodes[index] is None
                             or chunkData2.nodes[index].isalpha() == 1
                         ):
-                            #                        print "not digit !%s! !%s!" % (chunkData1.nodes[index], chunkData2.nodes[index])
+                            # print(
+                            #     "not digit !%s! !%s!"
+                            #     % (
+                            #         chunkData1.nodes[index],
+                            #         chunkData2.nodes[index],
+                            #     )
+                            # )
                             s = "n/a"
                         else:
                             try:
                                 if self.divideByTime:
-                                    value = (float(chunkData1.nodes[index]) - float(chunkData2.nodes[index])) / timediff
+                                    value = (
+                                        float(chunkData1.nodes[index])
+                                        - float(chunkData2.nodes[index])
+                                    ) / timediff
                                 else:
-                                    value = float(chunkData1.nodes[index]) - float(chunkData2.nodes[index])
+                                    value = float(
+                                        chunkData1.nodes[index]
+                                    ) - float(chunkData2.nodes[index])
                                 s = "%.2e" % (value)
-                            except:
+                            except Exception:
                                 s = "n/a"
-                elif chunkData1.nodes[index] != None or chunkData1.nodes[index].isalpha() != 1:
+                elif (
+                    chunkData1.nodes[index] is not None
+                    or chunkData1.nodes[index].isalpha() != 1
+                ):
                     try:
                         value = float(chunkData1.nodes[index])
                         s = "%.2e" % (value)
-                    except:
+                    except Exception:
                         s = chunkData1.nodes[index]
                 else:
                     s = chunkData1.nodes[index]
@@ -844,7 +960,7 @@ class HtmlPrintData:
             )
             #        <td align="center">%s</td>''' % (s),
 
-            if totalValue != None and value != None:
+            if totalValue is not None and value is not None:
                 totalValue[i][0] = totalValue[i][0] + value
                 totalValue[i][1] = 1
 
@@ -856,8 +972,12 @@ class HtmlPrintData:
         else:
             checked = ""
         timediff = self.lastTime - self.firstTime
-        timestr_latest = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.lastTime))
-        timestr_first = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.firstTime))
+        timestr_latest = time.strftime(
+            "%m-%d-%Y %H:%M:%S", time.localtime(self.lastTime)
+        )
+        timestr_first = time.strftime(
+            "%m-%d-%Y %H:%M:%S", time.localtime(self.firstTime)
+        )
         minusTimeStr = ""
         minusTime = self.minusTime
         if minusTime > 0:
@@ -879,13 +999,27 @@ class HtmlPrintData:
         print(
             """
     <div class="floatleft">
-    <FORM action="/" method="post" name="selectHeaderForm" id="selectHeaderForm"> <br>
-        refresh in <INPUT type="text" id="refresh" name="refresh" class="theInputClr" value="%d" size=2 maxlength=5> sec <br>
-        available interval: %s - %s ( %d sec ) <br>
-        latest time minus <INPUT type="text" id="startTime" name="startTime" class="theInputClr" value="%s" size=20 maxlength=20>
-        (d-days, h-hours,m-minutes, s-seconds; default - seconds) <br>
-        show delta for <INPUT type="text" class="theInputClr" id="delta" name="delta" value="%d" size=6 maxlength=10> sec  &nbsp;&nbsp; &nbsp; &nbsp;
-        &nbsp; &nbsp;divide by time <INPUT type=checkbox  class="theInputClr" name="dividedelta" value="1" %s>"""
+    <FORM action="/" method="post" name="selectHeaderForm"
+        id="selectHeaderForm">
+        <br>
+        refresh in
+        <INPUT type="text" id="refresh" name="refresh"
+            class="theInputClr" value="%d" size=4 maxlength=5>
+        sec
+        <br>
+        available interval: %s - %s ( %d sec )
+        <br>
+        latest time minus
+        <INPUT type="text" id="startTime" name="startTime"
+            class="theInputClr" value="%s" size=20 maxlength=20>
+        (d-days, h-hours,m-minutes, s-seconds; default - seconds)
+        <br>
+        show delta for
+        <INPUT type="text" class="theInputClr" id="delta"
+            name="delta" value="%d" size=6 maxlength=10>
+        sec&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;divide by time
+        <INPUT type=checkbox  class="theInputClr"
+            name="dividedelta" value="1" %s>"""
             % (
                 self.refreshInterval,
                 timestr_first,
@@ -899,15 +1033,18 @@ class HtmlPrintData:
         )
 
     def printFormTypeToHTML(self, buffer):
-        #        &nbsp;&nbsp; &nbsp; &nbsp;<INPUT type="button" value="Charts" id = "chartButton">
+        # &nbsp;&nbsp; &nbsp; &nbsp;<INPUT type="button"
+        # value="Charts" id = "chartButton">
         print(
             '''
         <INPUT type=hidden name="chartInput" id="chartInput" value="''',
             self.formId,
             """">
-        <br><br>&nbsp;&nbsp; &nbsp; &nbsp;<INPUT type="submit" value="Selection done">
+        <br><br>&nbsp;&nbsp; &nbsp; &nbsp;
+        <INPUT type="submit" value="Selection done">
         <br><br>
-        <table class="status-table" cellspacing="6" cellpadding="0.1em" summary="Show/hide columns">
+        <table class="status-table" cellspacing="6" cellpadding="0.1em"
+            summary="Show/hide columns">
         <tbody>""",
             end=" ",
             file=buffer,
@@ -943,7 +1080,8 @@ class HtmlPrintData:
                     checked2 = ""
                 print(
                     """
-              <td> <INPUT TYPE=checkbox NAME=MUMU VALUE=%s %s>&nbsp&nbsp   #<INPUT TYPE=checkbox NAME=MUMU VALUE=%s %s> %s</td>"""
+              <td> <INPUT TYPE=checkbox NAME=MUMU VALUE=%s %s>&nbsp&nbsp   #
+              <INPUT TYPE=checkbox NAME=MUMU VALUE=%s %s> %s</td>"""
                     % (header, checked1, header2, checked2, header),
                     end=" ",
                     file=buffer,
@@ -959,27 +1097,37 @@ class HtmlPrintData:
 
 class HtmlPrintMetaData(HtmlPrintData):
     def __init__(self, deltaList, dataManager):
-        HtmlPrintData.__init__(self, None, deltaList, dataManager, "no", "none", "rows")
+        HtmlPrintData.__init__(
+            self, None, deltaList, dataManager, "no", "none", "rows"
+        )
 
     def startHTML(self, buffer):
         # beginning of html
-        if self.data2 != None:
+        if self.data2 is not None:
             timestr = (
-                time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data2.timestamp))
+                time.strftime(
+                    "%m-%d-%Y %H:%M:%S", time.localtime(self.data2.timestamp)
+                )
                 + " - "
-                + time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp))
+                + time.strftime(
+                    "%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp)
+                )
             )
         else:
-            timestr = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp))
+            timestr = time.strftime(
+                "%m-%d-%Y %H:%M:%S", time.localtime(self.data1.timestamp)
+            )
 
         print(
             """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\
+ "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
     <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
         <link rel="stylesheet" type="text/css" href="files/qfsstyle.css">
-        <script type="text/javascript" src="files/sorttable/sorttable.js"></script>
+        <script type="text/javascript" src="files/sorttable/sorttable.js">
+        </script>
         <title>Meta Server Status</title>
     </head>
 <body class="oneColLiqCtr">
@@ -993,14 +1141,15 @@ class HtmlPrintMetaData(HtmlPrintData):
     </tbody></table></div><br />
 
     <div class="floatleft">
-     <table class="sortable status-table" id="table1" cellspacing="0" cellpadding="0.1em" summary="Status of chunk servers">
+     <table class="sortable status-table" id="table1" cellspacing="0"
+        cellpadding="0.1em" summary="Status of chunk servers">
      <caption> Meta Server Status &nbsp;&nbsp;&nbsp;&nbsp; %s </caption>"""
             % (datetime.now().ctime(), timestr),
             file=buffer,
         )
 
     def initHeaders(self):
-        if self.selectedHeaders == None:
+        if self.selectedHeaders is None:
             self.selectedHeaders = []
             for header in self.data1.chunkServerData.chunkHeaders:
                 d_header = kDeltaPrefix + header
@@ -1011,17 +1160,20 @@ class HtmlPrintMetaData(HtmlPrintData):
     def printFormTypeToHTML(self, buffer):
         print(
             """
-        <INPUT type=hidden name="countersInput" id="countersInput" value="GETCOUNTERS">
-        <br><br>&nbsp;&nbsp; &nbsp; &nbsp;<INPUT type="submit" value="Selection done">
+        <INPUT type=hidden name="countersInput" id="countersInput"
+            value="GETCOUNTERS">
+        <br><br>&nbsp;&nbsp; &nbsp; &nbsp;<INPUT type="submit"
+            value="Selection done">
         <br><br>
-        <table class="status-table" cellspacing="6" cellpadding="0.1em" summary="Show/hide columns">
+        <table class="status-table" cellspacing="6" cellpadding="0.1em"
+            summary="Show/hide columns">
         <tbody>""",
             end=" ",
             file=buffer,
         )
 
     def printServerListToHTML(self, buffer):
-        theLen = len(self.selectedHeaders)
+        # theLen = len(self.selectedHeaders)
         # beginning of table body
         print(
             """

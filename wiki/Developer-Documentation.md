@@ -122,33 +122,6 @@ and performs various checks, it may take a couple of minutes to complete. If you
 are running this from a partition that is nearly full, the test may fail. Please
 refer to `maxSpaceUtilizationThreshold` in [[Configuration Reference]].
 
-#### Writing Tests
-C++ tests are stored in `src/cc/tests`. QFS uses [Google Test][gt] as its
-testing framework. Unit tests which test specific functionality in a function or
-library can simply use a bare test, e.g. `TEST(Foo, Bar)`. However, all
-integration tests (tests which interact with the metaserver or chunkserver)
-should use test fixtures, subclassing the `QFSTest` class. For example, you
-could add a new test class like so:
-
-    #include <gtest/gtest.h>
-    #include "tests/integtest.h"
-
-    class FooTest : public QFSTest {
-    public:
-        virtual void SetUp() { ... }
-        virtual void TearDown() { ... }
-    };
-
-    TEST_F(FooTest, TestBar) {
-        ...
-    }
-
-Furthermore, you should place tests in the corresponding directory for which
-functionality you are testing. For example, if you are testing functionality for
-code stored in the `libclient` directory, place the tests in
-`src/cc/tests/libclient`. Either a unit or integration test should be added for
-each functionality change to QFS. Please see the tests in `src/cc/tests` for
-some examples on how QFS has already implemented various tests.
 
 ### Developing a C++ client
 To develop a c++ client, see the sample code in the
@@ -196,26 +169,28 @@ To execute,
     $ qfsjar=`echo ../../build/qfs-access/qfs-access*.jar`
     $ java -Djava.library.path="$libdir" -classpath ".:$qfsjar" QfsSample 127.0.0.1 20000
 
-Compiling Python Side (Experimental)
+### Compiling Python Side
 ------------------------------------
 Python applications can access QFS by using the python extension module. This
 section describes how to build and install the python extension module. To build
-the python module, use the command `make python`. The file
-`build/build/<distdir>/qfs.so` will be created at the end.
+the python module, use the command `make python`. If build succeeds, then python
+wheel `build/release/python-qfs/dist/qfs*.whl` will be created at the end.
 
 ### Developing a Python Client
-Python applications use the python QFS extension module, `qfs.so`, to get at the
-C++ QFS client library. The example program
+Python applications use the python QFS extension module `qfs`. The example program
 `examples/python/qfssample.py` illustrates how to write a Python client for QFS.
+The module requires python 3.6 or later version.
 
-Set `PYTHONPATH` accordingly if you are using a `qfs.so` install path different
-from the default path, so that the python run-time can detect the `qfs.so`.
-Also, ensure that `LD_LIBRARY_PATH` has the path to the QFS libraries. For
-example,
-
-    $ export PYTHONPATH=/usr/lib/python2.7/dist-packages:$PYTHONPATH
-    $ export LD_LIBRARY_PATH=/usr/lib/python2.7/dist-packages/qfs:$LD_LIBRARY_PATH
-    $ python examples/python/qfssample.py
+All required QFS libraries are included with QFS python module. Relative run
+linker paths are used in QFS shared libraries, therefore additional run time
+linker configuration (like setting `LD_LIBRARY_PATH` and/or
+`DYLD_LIBRARRY_PATH`) should not be required.
+QFS python wheel can be installed using pip:
+`python -m pip install build/release/python-qfs/dist/qfs*.whl`
+To run the example program create or modify existing configuration file
+`examples/python/qfssample.cfg` by specifying meta server host and port, and
+then run the example:
+`python examples/python/qfssample.py examples/python/qfssample.cfg`
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
 

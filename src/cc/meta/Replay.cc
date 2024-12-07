@@ -2249,7 +2249,7 @@ Replay::Replay()
       lastLogNum(-1),
       lastLogIntBase(-1),
       appendToLastLogFlag(false),
-      verifyAllLogSegmentsPresetFlag(false),
+      verifyAllLogSegmentsPresentFlag(false),
       enqueueFlag(false),
       replayTokenizer(file, this, &enqueueFlag),
       checkpointCommitted(replayTokenizer.GetState().mCheckpointCommitted),
@@ -2667,6 +2667,9 @@ Replay::getLastLogNum()
         KFS_LOG_EOM;
         return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
+    bool                 useDirIno = false;
+    string               pathName = dirName + '/';
+    const size_t         pathNameLen = pathName.length();
     int                  ret = 0;
     LogSegmentNumbers    logNums;
     const struct dirent* ent;
@@ -2676,15 +2679,39 @@ Replay::getLastLogNum()
         }
         const char* const p   = strrchr(ent->d_name, '.');
         const int64_t     num = p ? toNumber(p + 1) : int64_t(-1);
-        if (0 <= lastLogNum && lastst.st_ino == ent->d_ino) {
-            lastLogNum = num;
-            if (num < 0) {
-                KFS_LOG_STREAM_FATAL <<
-                    "invalid log segment name: " <<
-                        dirName << "/" << ent->d_name <<
-                KFS_LOG_EOM;
-                ret = -EINVAL;
-                break;
+        if (0 <= lastLogNum) {
+            bool lastLogFlag;
+            // Check if d_ino field can be used by comparing its value with
+            // st_ino. If these match for the first entry, then use d_ino,
+            // otherwise use stat to get i-node number.
+            if (useDirIno) {
+                lastLogFlag = lastst.st_ino == ent->d_ino;
+            } else {
+                pathName.erase(pathNameLen);
+                pathName += ent->d_name;
+                struct stat cur;
+                if (stat(pathName.c_str(), &cur)) {
+                    const int err = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "stat: " << pathName <<
+                        ": " << QCUtils::SysError(err) <<
+                    KFS_LOG_EOM;
+                    ret = 0 < err ? -err : -EINVAL;
+                    break;
+                }
+                lastLogFlag = lastst.st_ino == cur.st_ino;
+                useDirIno = cur.st_ino == ent->d_ino;
+            }
+            if (lastLogFlag) {
+                lastLogNum = num;
+                if (num < 0) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "invalid log segment name: " <<
+                            dirName << "/" << ent->d_name <<
+                    KFS_LOG_EOM;
+                    ret = -EINVAL;
+                    break;
+                }
             }
         }
         if (num < 0) {
@@ -2713,7 +2740,7 @@ Replay::getLastLogNum()
             ret = -EINVAL;
             break;
         }
-        if ((verifyAllLogSegmentsPresetFlag || number <= num) &&
+        if ((verifyAllLogSegmentsPresentFlag || number <= num) &&
                 ! logNums.insert(make_pair(num, ent->d_name)).second) {
             KFS_LOG_STREAM_FATAL <<
                 "duplicate log segment number: " << num <<
@@ -2733,32 +2760,36 @@ Replay::getLastLogNum()
         KFS_LOG_EOM;
         ret = -EINVAL;
     }
-    LogSegmentNumbers::const_iterator it = logNums.begin();
-    if (logNums.end() == it || (verifyAllLogSegmentsPresetFlag ?
-            logNums.find(number) == logNums.end() : it->first != number)) {
-        KFS_LOG_STREAM_FATAL <<
-            "missing log segmnet: " << number <<
-        KFS_LOG_EOM;
-        ret = -EINVAL;
-    } else {
-        seq_t n = it->first;
-        while (logNums.end() != ++it) {
-            if (++n != it->first) {
-                KFS_LOG_STREAM_FATAL <<
-                    "missing log segmnets:"
-                    " from: " << n  <<
-                    " to: "   << it->first <<
-                KFS_LOG_EOM;
-                n = it->first;
-                ret = -EINVAL;
+    if (0 == ret) {
+        LogSegmentNumbers::const_iterator it = logNums.begin();
+        if (logNums.end() == it || (verifyAllLogSegmentsPresentFlag ?
+                logNums.find(number) == logNums.end() : it->first != number)) {
+            KFS_LOG_STREAM_FATAL <<
+                "missing log segmnet: " << number <<
+            KFS_LOG_EOM;
+            ret = -EINVAL;
+        } else {
+            seq_t n = it->first;
+            while (logNums.end() != ++it) {
+                if (++n != it->first) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "missing log segmnets:"
+                        " from: " << n  <<
+                        " to: "   << it->first <<
+                    KFS_LOG_EOM;
+                    n = it->first;
+                    ret = -EINVAL;
+                }
             }
         }
     }
     if (0 == ret && 0 <= logSeqStartNum) {
-        it = logNums.find(logSeqStartNum);
-        string name;
+        string name = dirName + '/';
+        const size_t prefLen = name.length();
+        LogSegmentNumbers::const_iterator it = logNums.find(logSeqStartNum);
         while (logNums.end() != it) {
-            name = dirName + "/" + it->second;
+            name.erase(prefLen);
+            name += it->second;
             ++it;
             if (0 != (ret = ValidateLogSegmentTrailer(
                     name.c_str(), logNums.end() != it))) {

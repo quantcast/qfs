@@ -30,6 +30,8 @@
 #include "LogWriter.h"
 #include "util.h"
 
+#include "qcdio/qcdefs.h"
+
 #include "common/RequestParser.h"
 #include "common/CIdChecksum.h"
 #include "common/StringIo.h"
@@ -283,9 +285,12 @@ MakeMetaRequestLogXmitHandler(
 class MetaRequestDeleter
 {
 public:
+QC_GCC_13_PRAGMA(GCC diagnostic push)
+QC_GCC_13_PRAGMA(GCC diagnostic ignored "-Warray-bounds")
     static void Delete(
         MetaRequest* inReqPtr)
         {  MetaRequest::Release(inReqPtr); }
+QC_GCC_13_PRAGMA(GCC diagnostic pop)
 };
 
 template<typename INT_PARSER_T>

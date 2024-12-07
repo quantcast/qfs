@@ -49,25 +49,30 @@ if (NOT DEFINED vectormode AND
     message(STATUS "System processor: ${CMAKE_SYSTEM_PROCESSOR}")
     # OS X uses sysctl instead of /proc/cpuinfo
     if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        execute_process(
-            COMMAND sh -c "sysctl machdep.cpu.features | grep -wi ssse3"
-            OUTPUT_QUIET
-            ERROR_QUIET
-            RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
-        )
-        if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-            set(vectormode ssse3)
-        else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+        if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+            message(STATUS "qcrs: enabling neon")
+            set(vectormode neon)
+        else ()
             execute_process(
-                COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse2"
+                COMMAND sh -c "sysctl machdep.cpu.features | grep -wi ssse3"
                 OUTPUT_QUIET
                 ERROR_QUIET
-                RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+                RESULT_VARIABLE MY_SSSE3_SUPPORTED_RET
             )
-            if (MY_SSE2_SUPPORTED_RET EQUAL 0)
-                set(vectormode sse2)
-            endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
-        endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+            if (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+                set(vectormode ssse3)
+            else (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+                execute_process(
+                    COMMAND sh -c "sysctl machdep.cpu.features | grep -wi sse2"
+                    OUTPUT_QUIET
+                    ERROR_QUIET
+                    RESULT_VARIABLE MY_SSE2_SUPPORTED_RET
+                )
+                if (MY_SSE2_SUPPORTED_RET EQUAL 0)
+                    set(vectormode sse2)
+                endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
+            endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
+        endif ()
     elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm OR
         CMAKE_SYSTEM_PROCESSOR MATCHES aarch64)
         if (EXISTS /proc/cpuinfo)
@@ -130,8 +135,15 @@ if (DEFINED vectormode)
         add_definitions(-msse2 -DLIBRS_USE_SSE2)
     elseif (vectormode STREQUAL neon)
         message(STATUS "qcrs: enabling neon")
-        add_definitions(-mfpu=neon -DLIBRS_USE_NEON)
-    else (vectormode STREQUAL neon)
+        # -mfpu=neon is implied on arm64 and no longer supported by the recent
+        # clang
+        include(CheckCXXCompilerFlag)
+        CHECK_CXX_COMPILER_FLAG(-mfpu=neon SUPPORTS_MFPU_NEON_FLAG)
+        if (SUPPORTS_MFPU_NEON_FLAG)
+            add_definitions(-mfpu=neon)
+        endif()
+        add_definitions(-DLIBRS_USE_NEON)
+    else ()
         message(STATUS "qcrs: unsupported ${vectormode}")
     endif (vectormode STREQUAL ssse3)
     if (vectormode STREQUAL ssse3 OR vectormode STREQUAL sse2)
@@ -158,3 +170,6 @@ add_dependencies (${rsmktablebin} kfsrs)
 install (TARGETS kfsrs kfsrs-shared
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib/static)
+
+install (TARGETS rstest
+        RUNTIME DESTINATION bin/devtools)

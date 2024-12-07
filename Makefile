@@ -29,6 +29,11 @@ QFSTEST_OPTIONS=
 JAVA_BUILD_OPTIONS=
 QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.10.1  3.1.4  3.2.2  3.3.1
 
+QFS_PYTHON_DIR=python-qfs
+QFS_PYTHON_WHEEL_DIR=${QFS_PYTHON_DIR}/dist
+QFS_PYTHON_TEST_OPTION=test -d ${QFS_PYTHON_WHEEL_DIR} && echo -python-wheel-dir ${QFS_PYTHON_WHEEL_DIR}
+QFS_MSTRESS_ON=true
+
 .PHONY: all
 all: build
 
@@ -42,7 +47,10 @@ run-cmake: dir
 
 .PHONY: build
 build: run-cmake
-	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install \
+	`${QFS_MSTRESS_ON} && \
+		echo ${QFSHADOOP_VERSIONS} | grep 2.10.1 >/dev/null 2>&1 && \
+		mvn --version >/dev/null 2>&1 && echo mstress-tarball`
 
 .PHONY: java
 java: build
@@ -62,7 +70,12 @@ hadoop-jars: java
 
 .PHONY: go
 go: build
-	if go version >/dev/null 2>&1 ; then \
+	if go version 2>/dev/null | awk '/go version/ { \
+			n = split($$3, v, "[^0-9]+"); \
+			ret = 4 == n && (1 < v[2] || 16 < v[3]); \
+			exit; \
+		} \
+		END { exit ret ? 0 : 1 }'; then \
 		QFS_BUILD_DIR=`pwd`/build/$(BUILD_TYPE) && \
 		cd src/go && \
 		CGO_CFLAGS="-I$${QFS_BUILD_DIR}/include" && \
@@ -73,35 +86,41 @@ go: build
 		go get -t -v && \
 		go build -v || \
 		exit 1; \
+	else \
+		echo "go version 1.17 or greater is not available"; \
 	fi
 
 .PHONY: tarball
-tarball: hadoop-jars
+tarball: hadoop-jars python
 	cd build && \
 	myuname=`uname -s`; \
 	myarch=`cc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && \
 	    myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
-	if [ x"$$myuname" = x'Linux' -a \( -f /etc/issue -o -f /etc/system-release \) ]; then \
+	if [ x"$$myuname" = x'Linux' -a \
+			\( -f /etc/issue -o -f /etc/system-release \) ]; then \
 		if [ -f /etc/system-release ]; then \
 			myflavor=`head -n 1 /etc/system-release | cut -d' ' -f1` ; \
-			myflavor="$$myflavor-`head -n 1 /etc/system-release | sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
+			myflavor="$$myflavor-`head -n 1 /etc/system-release | \
+				sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
 		else \
 			myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 			if [ x"$$myflavor" = x'Ubuntu' ]; then \
-				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | \
+					cut -d' ' -f2 | cut -d. -f1,2`" ; \
 			elif [ x"$$myflavor" = x ]; then \
 				myflavor=$$myuname ; \
 			else \
-				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | \
+					cut -d' ' -f3 | cut -d. -f1,2`" ; \
 			fi ; \
 		fi ; \
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
-		myflavor=cygwin ; \
+			myflavor=cygwin ; \
 	    else \
-		myflavor=$$myuname ; \
+			myflavor=$$myuname ; \
 	    fi ; \
 	fi ; \
 	qfsversion=`../src/cc/common/buildversgit.sh --release` ; \
@@ -110,27 +129,60 @@ tarball: hadoop-jars
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
 	mkdir "tmpreldir/$$tarname" && \
-	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib ${BUILD_TYPE}/include ../scripts ../webui \
+	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib \
+		${BUILD_TYPE}/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
-	if ls -1 ./java/qfs-access/qfs-access-*.jar > /dev/null 2>&1; then \
+	if ls -1 ./java/qfs-access/qfs-access-*.jar >/dev/null 2>&1; then \
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
-	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
+	if ls -1 ./java/hadoop-qfs/hadoop-*.jar >/dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
+	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl >/dev/null 2>&1; \
+		then \
+		cp ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
+			"tmpreldir/$$tarname/lib/"; fi && \
+	if ls -1 ${BUILD_TYPE}/benchmarks/mstress.tgz > /dev/null 2>&1; then \
+		cp ${BUILD_TYPE}/benchmarks/mstress.tgz \
+			"tmpreldir/$$tarname/benchmarks/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
 .PHONY: python
 python: build
-	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
+	if python3 -c 'import sys; exit(0 if sys.version_info >= (3, 6) else 1)' \
+			>/dev/null 2>&1 && \
+			python3 -c 'import venv' >/dev/null 2>&1 ; then \
+		cd build/${BUILD_TYPE} && \
+		rm -rf ${QFS_PYTHON_DIR} && \
+		mkdir ${QFS_PYTHON_DIR} && \
+		cd ${QFS_PYTHON_DIR} && \
+		ln -s .. qfs && \
+		ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
+		python3 -m venv .venv && \
+		. .venv/bin/activate && python -m pip install build && \
+		python -m build -w . ; \
+	else \
+		echo 'python3 module venv is not available'; \
+	fi
 
 .PHONY: mintest
-mintest: hadoop-jars
+mintest: hadoop-jars python
 	cd build/${BUILD_TYPE} && \
-	../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS}
+	../../src/test-scripts/qfstest.sh \
+		`${QFS_PYTHON_TEST_OPTION}` \
+		-install-prefix . -auth ${QFSTEST_OPTIONS}
 
 .PHONY: test
 test: mintest
 	cd build/${BUILD_TYPE} && \
+	installbindir=`pwd`/bin && \
+	metadir=$$installbindir && \
+	export metadir && \
+	chunkdir=$$installbindir && \
+	export chunkdir && \
+	toolsdir=$$installbindir/tools && \
+	export toolsdir && \
+	devtoolsdir=$$installbindir/devtools && \
+	export devtoolsdir && \
 	echo '--------- QC RS recovery test ---------' && \
 	../../src/test-scripts/recoverytest.sh && \
 	echo '--------- Jerasure recovery test ------' && \
@@ -138,7 +190,9 @@ test: mintest
 	../../src/test-scripts/recoverytest.sh && \
 	if [ -d qfstest/certs ]; then \
 		echo '--------- Test without authentication --------' && \
-		../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
+		../../src/test-scripts/qfstest.sh \
+			`${QFS_PYTHON_TEST_OPTION}` \
+			-install-prefix . -noauth ${QFSTEST_OPTIONS} ; \
 	fi
 
 .PHONY: rat

@@ -1,5 +1,11 @@
 # QFS version 2
 
+QFS version 2.2.7
+
+Release 2.2.7
+
+- Release 2.2.7 contains updated python module, python3 support, and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
+
 QFS version 2.2.6
 
 Release 2.2.6
@@ -60,7 +66,7 @@ configured QFS does not have single point of failure.
 
 Release notes are available [here](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
-# Quantcast File System
+## Quantcast File System
 
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
@@ -71,17 +77,21 @@ QFS used in Quantcast production cluster.
 QFS servers have been tested on 64-bit CentOS 6 extensively and run on Linux
 variants. The QFS client tools work on OS X and Cygwin as well.
 
-| Platform     | Build Status                                                                                                                                                   |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mac OS X     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 14.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 18.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 20.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 22.04 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 6     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 7     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 8     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 10    | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Platform      | Build Status                                                                                                                                                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mac OS X      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 14.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 18.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 20.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 22.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 24.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 6      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 7      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 8      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Rocky Linux 9 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 10     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 11     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 12     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 
 The implementation details and features of QFS are discussed in detail in the
 project [wiki](https://github.com/quantcast/qfs/wiki/Introduction-To-QFS).
@@ -104,55 +114,56 @@ Once you have aquired QFS through one of the methods above, you can take QFS for
 a quick test drive. Setting up a single node configuration to familiarize
 yourself with QFS is very easy.
 
-1.  Extract the distribution tarball.
+1. Extract the distribution tarball.
 
         $ tar -xzf qfs.tgz && cd qfs
-
-1.  Set up a single node QFS instance. This will create a workspace in
+        
+1. Set up a single node QFS instance. This will create a workspace in
     `~/qfsbase`, start two chunk servers and one metaserver.
 
-            $ ./examples/sampleservers/sample_setup.py -a install
-            Binaries presence checking - OK.
-            Setup directories - OK.
-            Setup config files - OK.
-            Started servers - OK.
+        $ ./examples/sampleservers/sample_setup.py -a install
+        Binaries presence checking - OK.
+        Setup directories - OK.
+        Setup config files - OK.
+        Started servers - OK.
 
-1.  Add tools binary path to`PATH`
+1. Add tools binary path to`PATH`
 
         $ PATH=${PWD}/bin/tools:${PATH}
-
-1.  Make a temporary directory on the file system
+        
+1. Make a temporary directory on the file system
 
         $ qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
-
-1.  Create a file containing "Hello World", Reed-Solomon encoded, with
+        
+1. Create a file containing "Hello World", Reed-Solomon encoded, with
     replication 1.
 
-            $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -k /qfs/tmp/helloworld -d -
-
-1.  Cat the file content.
+        $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -k /qfs/tmp/helloworld -d -
+        
+1. Cat the file content.
 
         $ qfscat -s localhost -p 20000 /qfs/tmp/helloworld
-
-1.  Stat the file to see encoding (RS or not), replication level, and mtime.
+        
+1. Stat the file to see encoding (RS or not), replication level, and mtime.
 
         $ qfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
-
-1.  Copy the file locally to the current directory.
+        
+1. Copy the file locally to the current directory.
 
         $ cpfromqfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
-
-1.  Remove the file from QFS.
+        
+1. Remove the file from QFS.
 
         $ qfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
-
-1.  Stop the servers.
+        
+1. Stop the servers.
 
         $ ./examples/sampleservers/sample_setup.py -a stop
-
-1.  Uninstall the single node instance.
+        
+1. Uninstall the single node instance.
 
         $ ./examples/sampleservers/sample_setup.py -a uninstall
+        
 
 ## Benchmarking QFS
 
@@ -173,7 +184,7 @@ when contributing code.
 Join the QFS Developer mailing list or search the archives at the
 [Google Group](http://groups.google.com/group/qfs-devel).
 
-Post comments or questions to qfs-devel@googlegroups.com.
+Post comments or questions to <qfs-devel@googlegroups.com>.
 
 ## License
 

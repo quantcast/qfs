@@ -21,49 +21,55 @@
 # participating hosts.
 #
 
-import optparse
+from __future__ import print_function
+
 import sys
-import subprocess
-import time
-import os
-import signal
-import datetime
-import commands
 
-if len(sys.argv) < 2 or sys.argv[1].startswith('-'):
-  print 'Usage: %s <planfile>\nThis will cleanup the planfile and the logs from all participating hosts.' % sys.argv[0]
-  sys.exit(0)
+if sys.version_info < (3, 0):
+    from commands import getoutput
+else:
+    from subprocess import getoutput
 
-if not sys.argv[1].startswith('/tmp'):
-  print 'Planfile is typically in the /tmp directory. Are you sure?'
-  sys.exit(1)
+if len(sys.argv) < 2 or sys.argv[1].startswith("-"):
+    print(
+        (
+            "Usage: %s <planfile>\n"
+            "This will cleanup the planfile and the logs from all"
+            " participating hosts."
+        )
+        % sys.argv[0]
+    )
+    sys.exit(0)
+
+if not sys.argv[1].startswith("/tmp"):
+    print("Planfile is typically in the /tmp directory. Are you sure?")
+    sys.exit(1)
 
 planFile = sys.argv[1]
 hostsList = None
 f = None
 
 try:
-  f = open(planFile, 'r')
-except IOError, e:
-  print 'Planfile not found'
-  sys.exit(1)
+    f = open(planFile, "r")
+except IOError as e:
+    print("Planfile %s: %s" % (planFile, str(e)))
+    sys.exit(1)
 
 for line in f:
-  if line.startswith('#'):
-    continue
-  if line.startswith('hostslist='):
-    hostsList = line[len('hostslist='):].strip().split(',')
-    break
+    if line.startswith("#"):
+        continue
+    if line.startswith("hostslist="):
+        hostsList = line[len("hostslist=") :].strip().split(",")
+        break
 f.close()
 
 if len(hostsList) == 0:
-  print 'No hosts list found in plan file. Exiting.'
-  sys.exit(1)
+    print("No hosts list found in plan file. Exiting.")
+    sys.exit(1)
 
 for host in hostsList:
-  cmd = 'ssh %s "rm -f %s*"' % (host, planFile)
-  print 'Executing "%s"' % cmd
-  print commands.getoutput(cmd)
+    cmd = 'ssh %s "rm -f %s*"' % (host, planFile)
+    print('Executing "%s"' % cmd)
+    print(getoutput(cmd))
 
-print 'Done'
-
+print("Done")

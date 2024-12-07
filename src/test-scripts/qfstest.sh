@@ -35,12 +35,14 @@ metaserverclithreads=${metaserverclithreads-2}
 myexmetaconfig=''
 myexchunkconfig=''
 myexclientconfig=''
+installprefix=''
+pythonwheeldir=''
 mynewlinechar='
 '
+metasrvdir=
 
-validnumorexit()
-{
-    if [ x"`expr "$2" - 0 2>/dev/null`" = x ]; then
+validnumorexit() {
+    if [ x"$(expr "$2" - 0 2>/dev/null)" = x ]; then
         echo "invalid argument value $1 $2"
         exit 1
     fi
@@ -111,6 +113,30 @@ while [ $# -ge 1 ]; do
         fi
         shift
         myexclientconfig=${myexclientconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-install-prefix' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        installprefix=$1
+    elif [ x"$1" = x'-python-wheel-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        pythonwheeldir=$1
+    elif [ x"$1" = x'-test-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        testdir=$1
+    elif [ x"$1" = x'-meta-test-dir' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        metasrvdir=$1
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -127,7 +153,11 @@ while [ $# -ge 1 ]; do
             "[-meta-cli-threads <num>]" \
             "[-meta-ex-config <param>]" \
             "[-chunk-ex-config <param>]" \
-            "[-client-ex-config <param>]"
+            "[-client-ex-config <param>]" \
+            "[-install-prefix <param>]" \
+            "[-python-wheel-dir <param>]" \
+            "[-test-dir <param>]" \
+            "[-meta-test-dir <param>]"
         exit 1
     fi
     shift
@@ -135,11 +165,11 @@ done
 
 if [ x"$s3test" = x'yes' ]; then
     if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
-            x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
-            x"$QFS_S3_BUCKET_NAME" = x ]; then
+        x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
+        x"$QFS_S3_BUCKET_NAME" = x ]; then
         echo "environment variables QFS_S3_ACCESS_KEY_ID," \
             "QFS_S3_SECRET_ACCESS_KEY," \
-            "QFS_S3_BUCKET_NAME, and optionally"\
+            "QFS_S3_BUCKET_NAME, and optionally" \
             "QFS_S3_REGION_NAME must be set accordintly"
         exit 1
     fi
@@ -156,7 +186,7 @@ exec </dev/null
 cd ${1-.} || exit
 
 if [ x"$auth" = x ]; then
-    if openssl version | grep 'SSL 0\.' > /dev/null; then
+    if openssl version | grep 'SSL 0\.' >/dev/null; then
         auth='no'
     else
         auth='yes'
@@ -179,12 +209,39 @@ else
     iptobind='0.0.0.0'
 fi
 
-clientuser=${clientuser-"`id -un`"}
+clientuser=${clientuser-"$(id -un)"}
 
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
-testdir=${testdir-`pwd`/`basename "$0" .sh`}
-objectstorebuffersize=${objectstorebuffersize-`expr 500 \* 1024`}
+testdir=${testdir-$(pwd)/$(basename "$0" .sh)}
+objectstorebuffersize=${objectstorebuffersize-$(expr 500 \* 1024)}
+
+if [ x"$installprefix" = x ]; then
+    installbindir=''
+    installlibdir=''
+else
+    installprefix=$(cd "$installprefix" >/dev/null && pwd) || exit
+    installbindir=$installprefix/bin
+    installlibdir=$installprefix/lib
+fi
+
+if [ x"$pythonwheeldir" = x ]; then
+    kfspythonwheel=''
+else
+    pythonwheeldir=$(cd "$pythonwheeldir" >/dev/null && pwd) || exit
+    kfspythonwheel=$(find "$pythonwheeldir" -name 'qfs*.whl' -type f)
+    if [ ! -f "$kfspythonwheel" ]; then
+        echo "$pythonwheeldir: no QFS python wheel found" 1>&2
+        exit 1
+    fi
+    kfspythontest=$(dirname "$0")/../../examples/python
+    kfspythontest=$(cd "$kfspythontest" >/dev/null 2>&1 && pwd)
+    kfspythontest=$kfspythontest/qfssample.py
+    if [ ! -f "$kfspythontest" ]; then
+        echo "$kfspythontest: no QFS python test found" 1>&2
+        exit 1
+    fi
+fi
 
 export metahost
 export metasrvport
@@ -198,9 +255,10 @@ fanouttestsize=${fanouttestsize-1e5}
 fanoutpartitions=${fanoutpartitions-3}
 kfstestnoshutdownwait=${kfstestnoshutdownwait-}
 
-metasrvchunkport=`expr $metasrvport + 100`
-chunksrvport=`expr $metasrvchunkport + 100`
-metasrvdir="$testdir/meta"
+metasrvchunkport=$(expr $metasrvport + 100)
+chunksrvport=$(expr $metasrvchunkport + 100)
+testmetasrvdir=$testdir/meta
+metasrvdir=${metasrvdir:-$testmetasrvdir}
 chunksrvdir="$testdir/chunk"
 metasrvprop='MetaServer.prp'
 metasrvlog='metaserver.log'
@@ -223,13 +281,11 @@ lowrequreddiskspace=${lowrequreddiskspace-20e9}
 lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
 csheartbeatinterval=${csheartbeatinterval-5}
 cptestextraopts=${cptestextraopts-}
-mkcerts=`dirname "$0"`
-mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+mkcerts=$(dirname "$0")
+mkcerts="$(cd "$mkcerts" && pwd)/qfsmkcerts.sh"
 
-[ x"`uname`" = x'Darwin' ] && dontusefuser=yes
-if [ x"$dontusefuser" = x'yes' ]; then
-    true
-else
+[ x"$(uname)" = x'Darwin' ] && dontusefuser=yes
+if [ x"$dontusefuser" != x'yes' ]; then
     fuser "$0" >/dev/null 2>&1 || dontusefuser=yes
 fi
 
@@ -238,8 +294,8 @@ sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6
 meta=${meta-"-s $metahost -p $metasrvport"}
 export sizes
 export meta
-if find "$0" -type f -print0 2>/dev/null \
-        | xargs -0 echo > /dev/null 2>/dev/null; then
+if find "$0" -type f -print0 2>/dev/null |
+    xargs -0 echo >/dev/null 2>/dev/null; then
     findprint=-print0
     xargsnull=-0
 else
@@ -247,24 +303,20 @@ else
     xargsnull=''
 fi
 
-findpids()
-{
+findpids() {
     find . -name \*"${pidsuf}" $findprint | xargs $xargsnull ${1+"$@"}
 }
 
-getpids()
-{
-   findpids cat
+getpids() {
+    findpids cat
 }
 
-showpids()
-{
+showpids() {
     findpids grep -v x /dev/null
 }
 
-myrunprog()
-{
-    p=`which "$1"`
+myrunprog() {
+    p=$(which "$1")
     shift
     if [ x"$myvalgrind" = x ]; then
         exec "$p" ${1+"$@"}
@@ -273,11 +325,10 @@ myrunprog()
     fi
 }
 
-ensurerunning()
-{
+ensurerunning() {
     rem=${2-10}
     until kill -0 "$1"; do
-        rem=`expr $rem - 1`
+        rem=$(expr $rem - 1)
         [ $rem -le 0 ] && return 1
         sleep 1
     done
@@ -286,8 +337,7 @@ ensurerunning()
 
 mytailpids=''
 
-mytailwait()
-{
+mytailwait() {
     exec tail -1000f "$2" &
     mytailpids="$mytailpids $!"
     wait $1
@@ -295,8 +345,7 @@ mytailwait()
     return $myret
 }
 
-waitqfscandcptests()
-{
+waitqfscandcptests() {
     mytailwait $qfscpid test-qfsc.out
     qfscstatus=$?
     rm "$qfscpidf"
@@ -317,6 +366,14 @@ waitqfscandcptests()
         rm "$kfsgopidf"
     fi
 
+    if [ x"$kfspythonpid" = x ]; then
+        kfspythonstatus=0
+    else
+        mytailwait $kfspythonpid kfspython_test.out
+        kfspythonstatus=$?
+        rm "$kfspythonpidf"
+    fi
+
     mytailwait $cppid cptest.out
     cpstatus=$?
     rm "$cppidf"
@@ -325,10 +382,10 @@ waitqfscandcptests()
 fodir='src/cc/fanout'
 smsdir='src/cc/sortmaster'
 if [ x"$sortdir" = x -a \( -d "$smsdir" -o -d "$fodir" \) ]; then
-    sortdir="`dirname "$0"`/../../../sort"
+    sortdir="$(dirname "$0")/../../../sort"
 fi
 if [ -d "$sortdir" ]; then
-    sortdir=`cd "$sortdir" >/dev/null 2>&1 && pwd`
+    sortdir=$(cd "$sortdir" >/dev/null 2>&1 && pwd)
 else
     sortdir=''
 fi
@@ -340,8 +397,14 @@ if [ x"$sortdir" = x ]; then
     fotest=0
 else
     smdir="$sortdir/$smsdir"
-    smdir=`cd "$smdir" >/dev/null 2>&1 && pwd`
-    builddir="`pwd`/src/cc"
+    smdir=$(cd "$smdir" >/dev/null 2>&1 && pwd)
+    if [ x"$installbindir" = x ]; then
+        builddir="$(pwd)/src/cc"
+    else
+        builddir=xxx-sortmaster-do-not-add-build-dirs-to-path
+        quantsort=$installbindir/quantsort/quantsort
+        export quantsort
+    fi
     export builddir
     metaport=$metasrvport
     export metaport
@@ -352,20 +415,17 @@ else
         smtestqfsvalgrind='yes'
     fi
     export smtestqfsvalgrind
-# Use QFS_CLIENT_CONFIG for sort master.
-#    if [ x"$auth" = x'yes' ]; then
-#        smauthconf="$testdir/sortmasterauth.prp"
-#        export smauthconf
-#    fi
+    # Use QFS_CLIENT_CONFIG for sort master.
+    #    if [ x"$auth" = x'yes' ]; then
+    #        smauthconf="$testdir/sortmasterauth.prp"
+    #        export smauthconf
+    #    fi
     for name in \
-            "$smsdir/ksortmaster" \
-            "$smtest" \
-            "quantsort/quantsort" \
-            "$smdir/../../../glue/ksortcontroller" \
-            ; do
-        if [ -x "$name" ]; then
-            true
-        else
+        "${installbindir:-$smsdir}/ksortmaster" \
+        "$smtest" \
+        "${installbindir:+$installbindir/}quantsort/quantsort" \
+        "$smdir/../../../glue/ksortcontroller"; do
+        if [ ! -x "$name" ]; then
             echo "$name doesn't exist or not executable, skipping sort master test"
             smtest=''
             break
@@ -383,14 +443,14 @@ else
     fi
 fi
 
-accessdir='src/cc/access'
-if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
-    kfsjar="`dirname "$0"`"
-    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh --release`
-    kfsjar="`cd "$kfsjar/../../build/java/qfs-access" >/dev/null 2>&1 && pwd`"
+accessdir=${installlibdir:-'src/cc/access'}
+if [ -e "$accessdir/libqfs_access."* -a -x "$(which java 2>/dev/null)" ]; then
+    kfsjar="$(dirname "$0")"
+    kfsjarvers=$($kfsjar/../cc/common/buildversgit.sh --release)
+    kfsjar="$(cd "$kfsjar/../../build/java/qfs-access" >/dev/null 2>&1 && pwd)"
     kfsjar="${kfsjar}/qfs-access-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then
-        accessdir="`cd "${accessdir}" >/dev/null 2>&1 && pwd`"
+        accessdir="$(cd "${accessdir}" >/dev/null 2>&1 && pwd)"
     else
         accessdir=''
     fi
@@ -398,71 +458,122 @@ else
     accessdir=''
 fi
 
-qfscdir=`cd src/cc/qfsc >/dev/null 2>&1 && pwd`
-kfsgosrcdir="`dirname "$0"`"
-kfsgosrcdir="`cd "$kfsgosrcdir/../go" >/dev/null 2>&1 && pwd`"
-monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
+qfscdir=${installlibdir:-$(cd src/cc/qfsc >/dev/null 2>&1 && pwd)}
+kfsgosrcdir="$(dirname "$0")"
+kfsgosrcdir="$(cd "$kfsgosrcdir/../go" >/dev/null 2>&1 && pwd)"
+monitorpluginlib="$(pwd)/$(echo 'contrib/plugins/libqfs_monitor.'*)"
 
 fusedir='src/cc/fuse'
-if [ x'yes' = x"$myopttestfuse" -a -d "$fusedir" ] && \
-        { [ x'Darwin' = x"`uname`" -a -w /dev/osxfuse0 ] || \
-            [ x'FreeBSD' = x"`uname`" -a -w /dev/fuse ] || \
-            { [ x'Linux' = x"`uname`" -a -w /dev/fuse ] && \
-                fusermount -V > /dev/null 2>&1 ; } }; then
+if [ x'yes' = x"$myopttestfuse" -a -d "${installbindir:-$fusedir}" ] &&
+    { [ x'Darwin' = x"$(uname)" -a -w /dev/osxfuse0 ] ||
+        [ x'FreeBSD' = x"$(uname)" -a -w /dev/fuse ] ||
+        { [ x'Linux' = x"$(uname)" -a -w /dev/fuse ] &&
+            fusermount -V >/dev/null 2>&1; }; }; then
     testfuse=1
 else
     testfuse=0
     fusedir=''
 fi
 
-for dir in  \
-        'src/cc/devtools' \
-        'src/cc/chunk' \
-        'src/cc/meta' \
-        'src/cc/tools' \
-        'src/cc/libclient' \
-        'src/cc/kfsio' \
-        'src/cc/qcdio' \
-        'src/cc/common' \
-        'src/cc/qcrs' \
-        'src/cc/qfsc' \
-        'src/cc/krb' \
-        'src/cc/emulator' \
-        "$fusedir" \
-        "`dirname "$0"`" \
-        "$fosdir" \
-        "$fodir" \
-        ; do
+if [ x"$installbindir" = x ]; then
+    qfsbindirs=$(
+        echo \
+            'src/cc/devtools' \
+            'src/cc/chunk' \
+            'src/cc/meta' \
+            'src/cc/tools' \
+            'src/cc/libclient' \
+            'src/cc/kfsio' \
+            'src/cc/qcdio' \
+            'src/cc/common' \
+            'src/cc/qcrs' \
+            'src/cc/qfsc' \
+            'src/cc/krb' \
+            'src/cc/emulator'
+    )
+else
+    qfsbindirs=''
+    fusedir=''
+    fodir=${fodir:+$installbindir/fanout}
+fi
+
+qfsshareddirs=''
+for dir in \
+    $qfsbindirs \
+    "${installbindir}" \
+    "${installbindir:+$installbindir/tools}" \
+    "${installbindir:+$installbindir/devtools}" \
+    "${installbindir:+$installbindir/emulator}" \
+    "$fusedir" \
+    "$(dirname "$0")" \
+    "$fosdir" \
+    "$fodir"; do
     if [ x"${dir}" = x ]; then
-        continue;
+        continue
     fi
     if [ -d "${dir}" ]; then
-        dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
-        dname=`basename "$dir"`
+        dir=$(cd "${dir}" >/dev/null 2>&1 && pwd)
+        dname=$(basename "$dir")
         if [ x"$dname" = x'meta' ]; then
             metabindir=$dir
-        elif  [ x"$dname" = x'chunk' ]; then
+        elif [ x"$dname" = x'chunk' ]; then
             chunkbindir=$dir
         fi
     fi
-    if [ -d "${dir}" ]; then
-        true
-    else
+    if [ ! -d "${dir}" ]; then
         echo "missing directory: ${dir}"
         exit 1
     fi
     PATH="${dir}:${PATH}"
-    LD_LIBRARY_PATH="${dir}:${LD_LIBRARY_PATH}"
+    qfsshareddirs="${dir}${qfsshareddirs:+:$qfsshareddirs}"
 done
+
+if [ x"$installlibdir" = x ]; then
+    for dir in \
+        'gf-complete/lib' \
+        'jerasure/lib'; do
+        if [ -d "${dir}" ]; then
+            dir=$(cd "${dir}" >/dev/null 2>&1 && pwd)
+            if [ -d "${dir}" ]; then
+                if [ x"$(uname)" = x'Darwin' ]; then
+                    # Link on MacOS as run time path has been changed.
+                    ln -snf "$dir"/*.dylib src/cc/libclient || exit
+                else
+                    qfsshareddirs="${dir}${qfsshareddirs:+:$qfsshareddirs}"
+                fi
+            fi
+        fi
+    done
+else
+    qfsshareddirs=$installlibdir
+    metabindir=$installbindir
+    chunkbindir=$installbindir
+fi
+
 # fuser might be in sbin
 PATH="${PATH}:/sbin:/usr/sbin"
+LD_LIBRARY_PATH="${qfsshareddirs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH
 export LD_LIBRARY_PATH
 
 rm -rf "$testdir"
+rm -rf "$metasrvdir"
 mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
+
+if [ ! -d "$testmetasrvdir" ]; then
+    # Sym link to make other tests work.
+    absmetasrvdir=$(cd -- "$metasrvdir" && pwd) &&
+        ln -snf "$absmetasrvdir" "$testmetasrvdir" || exit
+fi
+
+if [ x"$(uname)" = x'Darwin' ]; then
+    # Note: on macos DYLD_LIBRARY_PATH will disappear in sub shell due to
+    # integrity system protection.
+    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    export DYLD_LIBRARY_PATH
+fi
 
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 cabundlefile="$chunksrvdir/ca-bundle.crt"
@@ -473,8 +584,8 @@ if [ x"$s3test" = x'yes' ]; then
         echo "Using $cabundlefileos"
         cabundlefile=$cabundlefileos
     else
-        if [ -x "`which curl 2>/dev/null`" ]; then
-            curl "$cabundleurl" > "$cabundlefile" || exit
+        if [ -x "$(which curl 2>/dev/null)" ]; then
+            curl "$cabundleurl" >"$cabundlefile" || exit
         else
             wget "$cabundleurl" -O "$cabundlefile" || exit
         fi
@@ -525,13 +636,13 @@ fi
 
 if [ x"$auth" = x'yes' ]; then
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit
-cat > "$clientprop" << EOF
+    cat >"$clientprop" <<EOF
 client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
 else
-    cp /dev/null  "$clientprop"
+    cp /dev/null "$clientprop"
 fi
 
 QFS_CLIENT_CONFIG="FILE:${clientprop}"
@@ -540,7 +651,7 @@ export QFS_CLIENT_CONFIG
 ulimit -c unlimited
 echo "Running RS unit test with 6 data stripes"
 mytimecmd='time'
-{ $mytimecmd true ; } > /dev/null 2>&1 || mytimecmd=
+{ $mytimecmd true; } >/dev/null 2>&1 || mytimecmd=
 $mytimecmd rstest 6 65536 2>&1 || exit
 
 # Cleanup handler
@@ -556,7 +667,7 @@ echo "Starting meta server $metahosturl:$metasrvport"
 if [ x"$myvalgrind" = x ]; then
     csheartbeattimeout=60
     csheartbeatskippedinterval=50
-    cssessionmaxtime=`expr $csheartbeatinterval + 10`
+    cssessionmaxtime=$(expr $csheartbeatinterval + 10)
     clisessionmaxtime=5
     csmininactivityinterval=25
 else
@@ -566,18 +677,16 @@ else
     fi
     csheartbeattimeout=900
     csheartbeatskippedinterval=800
-    cssessionmaxtime=`expr $csheartbeatinterval + 50`
+    cssessionmaxtime=$(expr $csheartbeatinterval + 50)
     clisessionmaxtime=25
     csmininactivityinterval=200
-    cat >> "$clientprop" << EOF
+    cat >>"$clientprop" <<EOF
 client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
 EOF
 fi
-if [ x"$myexclientconfig" = x ]; then
-    true
-else
-    cat >> "$clientprop" << EOF
+if [ x"$myexclientconfig" != x ]; then
+    cat >>"$clientprop" <<EOF
 $myexclientconfig
 EOF
 fi
@@ -585,7 +694,7 @@ fi
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
 mkdir kfslog || exit
-cat > "$metasrvprop" << EOF
+cat >"$metasrvprop" <<EOF
 metaServer.clientIp = $iptobind
 metaServer.chunkServerIp = $iptobind
 metaServer.clientPort = $metasrvport
@@ -610,8 +719,8 @@ metaServer.auditLogWriter.logFilePrefixes = audit.log
 metaServer.auditLogWriter.maxLogFileSize = 1e9
 metaServer.auditLogWriter.maxLogFiles = 5
 metaServer.auditLogWriter.waitMicroSec = 36000e6
-metaServer.rootDirUser = `id -u`
-metaServer.rootDirGroup = `id -g`
+metaServer.rootDirUser = $(id -u)
+metaServer.rootDirGroup = $(id -g)
 metaServer.rootDirMode = 0777
 metaServer.maxSpaceUtilizationThreshold = 0.99999
 metaServer.clientCSAllowClearText = $csallowcleartext
@@ -646,17 +755,15 @@ chunkServer.getFsSpaceAvailableIntervalSecs = 2
 chunkServer.objecStorageTierPrefixes = s3://__test_0 0 __test_2 2
 EOF
 
-if [ x"$myvalgrind" = x ]; then
-    true
-else
-    cat >> "$metasrvprop" << EOF
+if [ x"$myvalgrind" != x ]; then
+    cat >>"$metasrvprop" <<EOF
 metaServer.chunkServer.chunkAllocTimeout   = 500
 metaServer.chunkServer.chunkReallocTimeout = 500
 EOF
 fi
 
 if [ x"$auth" = x'yes' ]; then
-    cat >> "$metasrvprop" << EOF
+    cat >>"$metasrvprop" <<EOF
 metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
 metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
@@ -682,7 +789,7 @@ fi
 
 # Test meta server distributing S3 configuration to chunk servers.
 if [ x"$s3test" = x'yes' ]; then
-    cat >> "$metasrvprop" << EOF
+    cat >>"$metasrvprop" <<EOF
 chunkServer.diskQueue.aws.bucketName                 = $QFS_S3_BUCKET_NAME
 chunkServer.diskQueue.aws.accessKeyId                = $QFS_S3_ACCESS_KEY_ID
 chunkServer.diskQueue.aws.secretAccessKey            = $QFS_S3_SECRET_ACCESS_KEY
@@ -696,7 +803,7 @@ EOF
 else
     # Create fake bucket to add default tier with non empty
     # chunkServer.objecStorageTierPrefixes
-    cat >> "$metasrvprop" << EOF
+    cat >>"$metasrvprop" <<EOF
 chunkServer.diskQueue._test.bucketName = fale_default_15
 EOF
 fi
@@ -705,20 +812,18 @@ QFS_DEBUG_CHECK_LEAKS_ON_EXIT=1
 export QFS_DEBUG_CHECK_LEAKS_ON_EXIT
 
 "$metabindir"/metaserver \
-        -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
+    -c "$metasrvprop" >"${metaservercreatefsout}" 2>&1 || {
     status=$?
     cat "${metaservercreatefsout}"
     exit $status
 }
 
-cat >> "$metasrvprop" << EOF
+cat >>"$metasrvprop" <<EOF
 metaServer.csmap.unittest = 1
 EOF
 
-if [ x"$myexmetaconfig" = x ]; then
-    true
-else
-    cat >> "$metasrvprop" << EOF
+if [ x"$myexmetaconfig" != x ]; then
+    cat >>"$metasrvprop" <<EOF
 $myexmetaconfig
 EOF
 fi
@@ -734,30 +839,27 @@ fi
 
 QFS_DEBUG_CHECK_LEAKS_ON_EXIT=$myqfsleakscheck \
     myrunprog "$metabindir"/metaserver \
-    "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+    "$metasrvprop" "$metasrvlog" >"${metasrvout}" 2>&1 &
 metapid=$!
-echo "$metapid" > "$metasrvpid"
+echo "$metapid" >"$metasrvpid"
 
 cd "$testdir" || exit
 ensurerunning "$metapid" || exit
 echo "Waiting for the meta server startup unit tests to complete."
-if [ x"$myvalgrind" = x ]; then
-    true
-else
+if [ x"$myvalgrind" != x ]; then
     echo "With valgrind meta server unit tests might take serveral minutes."
 fi
 
 myfsurl="qfs://${metahost}:${metasrvport}/"
 
-runqfsuser()
-{
+runqfsuser() {
     qfs -D fs.msgLogWriter.logLevel=ERROR -fs "$myfsurl" ${1+"$@"}
 }
 
 remretry=20
 until runqfsuser -test -e / 1>/dev/null; do
     kill -0 "$metapid" || exit
-    remretry=`expr $remretry - 1`
+    remretry=$(expr $remretry - 1)
     if [ $remretry -le 0 ]; then
         echo "Wait for meta server startup timed out."
         exit 1
@@ -772,13 +874,13 @@ else
 fi
 
 i=$chunksrvport
-e=`expr $i + $numchunksrv`
+e=$(expr $i + $numchunksrv)
 while [ $i -lt $e ]; do
     dir="$chunksrvdir/$i"
     mkdir "$dir" || exit
     mkdir "$dir/kfschunk" || exit
     mkdir "$dir/kfschunk-tier0" || exit
-    cat > "$dir/$chunksrvprop" << EOF
+    cat >"$dir/$chunksrvprop" <<EOF
 chunkServer.clientIp = $iptobind
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
@@ -819,32 +921,30 @@ chunkServer.recAppender.dropLockMinSize = 0
 # chunkServer.diskErrorSimulator.enqueueFailInterval = 5
 EOF
     if [ $i -eq $chunksrvport ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.hostname = 0.0.0.0
 chunkServer.nodeId = FILE:$chunksrvprop
 EOF
     else
-        cat >> "$dir/$chunksrvprop" << EOF
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.nodeId = ${i}_node_id
 EOF
     fi
-    if [ x"$myvalgrind" = x ]; then
-        true
-    else
-        cat >> "$dir/$chunksrvprop" << EOF
+    if [ x"$myvalgrind" != x ]; then
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.diskIo.maxIoTimeSec = 580
 EOF
     fi
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit
-        cat >> "$dir/$chunksrvprop" << EOF
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
 chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
     fi
     if [ x"$s3test" = x'yes' ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.objectDir = s3://aws.
 # Give the buffer manager the same as with no S3 8192*0.4, appender
 # 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 10MB + 64KB
@@ -855,77 +955,71 @@ chunkServer.bufferManager.maxRatio            = 0.0705
 chunkServer.ioBufferPool.partitionBufferCount = 46460
 EOF
     else
-        cat >> "$dir/$chunksrvprop" << EOF
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
 EOF
     fi
-    if [ `expr $chunksrvport + 1` -eq $i ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+    if [ $(expr $chunksrvport + 1) -eq $i ]; then
+        cat >>"$dir/$chunksrvprop" <<EOF
 chunkServer.resolverCacheExpiration = 5
 chunkServer.useOsResolver           = 1
 EOF
     fi
-    if [ x"$myexchunkconfig" = x ]; then
-        true
-    else
-        cat >> "$dir/$chunksrvprop" << EOF
+    if [ x"$myexchunkconfig" != x ]; then
+        cat >>"$dir/$chunksrvprop" <<EOF
 $myexchunkconfig
 EOF
     fi
     cd "$dir" || exit
     echo "Starting chunk server $i"
     myrunprog "$chunkbindir"/chunkserver \
-        "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
-    echo $! > "$chunksrvpid"
-    i=`expr $i + 1`
+        "$chunksrvprop" "$chunksrvlog" >"${chunksrvout}" 2>&1 &
+    echo $! >"$chunksrvpid"
+    i=$(expr $i + 1)
 done
 
 cd "$testdir" || exit
 
 # Ensure that chunk and meta servers are running.
-for pid in `getpids`; do
+for pid in $(getpids); do
     ensurerunning "$pid" || exit
 done
 
 if [ x"$auth" = x'yes' ]; then
-    clientdelegation=`runqfsuser -delegate | awk '
+    clientdelegation=$(runqfsuser -delegate | awk '
     { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
-    END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
+    END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }')
     clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
 
-    cat > "$clientrootprop" << EOF
+    cat >"$clientrootprop" <<EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
 else
     clientenvcfg=
-    cat > "$clientrootprop" << EOF
+    cat >"$clientrootprop" <<EOF
 client.euser=0
 EOF
 fi
 qfstoolrootauthcfg=$clientrootprop
-clientenvcfg="${clientenvcfg} client.nodeId=`expr $chunksrvport + 1`_node_id"
+clientenvcfg="${clientenvcfg} client.nodeId=$(expr $chunksrvport + 1)_node_id"
 
-if [ x"$myvalgrind" = x ]; then
-    true
-else
-    cat >> "$clientrootprop" << EOF
+if [ x"$myvalgrind" != x ]; then
+    cat >>"$clientrootprop" <<EOF
 client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
 EOF
 fi
 
-runqfsadmin()
-{
+runqfsadmin() {
     QFS_CLIENT_CONFIG= \
-    qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
+        qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
 }
 
-report_test_status()
-{
+report_test_status() {
     if [ $2 -ne 0 ]; then
         echo "$1 test failure"
     else
@@ -933,10 +1027,9 @@ report_test_status()
     fi
 }
 
-metaserversetparameter()
-{
+metaserversetparameter() {
     {
-        cat >> "$metasrvdir/$metasrvprop" << EOF
+        cat >>"$metasrvdir/$metasrvprop" <<EOF
 $1
 EOF
     } || exit
@@ -944,10 +1037,10 @@ EOF
 
     # Ensure that parameter has changed.
     i=10
-    until runqfsadmin ping \
-            | grep -E 'Config:.*( |;)'"$1"'(;|$)' \
-            > /dev/null; do
-        i=`expr $i - 1`
+    until runqfsadmin ping |
+        grep -E 'Config:.*( |;)'"$1"'(;|$)' \
+            >/dev/null; do
+        i=$(expr $i - 1)
         if [ $i -le 0 ]; then
             echo "meta server parameter update has failed" 1>&2
             exit 1
@@ -956,15 +1049,14 @@ EOF
     done
 }
 
-waitrecoveryperiodend()
-{
+waitrecoveryperiodend() {
     remretry=30
-    until runqfsadmin ping 2>/dev/null \
-            | grep 'System Info:' \
-            | tr '\t' '\n' \
-            | grep 'In recovery= 0' > /dev/null; do
+    until runqfsadmin ping 2>/dev/null |
+        grep 'System Info:' |
+        tr '\t' '\n' |
+        grep 'In recovery= 0' >/dev/null; do
         kill -0 "$metapid" || exit
-        remretry=`expr $remretry - 1`
+        remretry=$(expr $remretry - 1)
         if [ $remretry -le 0 ]; then
             echo "Wait for QFS chunk servers to connect timed out" 1>&2
             exit 1
@@ -977,16 +1069,15 @@ echo "Waiting for chunk servers to connect to meta server."
 waitrecoveryperiodend
 
 echo "Testing dumpster"
-runqfsroot()
-{
+runqfsroot() {
     QFS_CLIENT_CONFIG= \
-    qfs -D fs.msgLogWriter.logLevel=ERROR \
+        qfs -D fs.msgLogWriter.logLevel=ERROR \
         -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
         ${1+"$@"}
 }
 runqfsroot -touchz '/dumpstertest' || exit
 runqfsroot -rm -skipTrash /dumpstertest || exit
-dumpstertest="`runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
+dumpstertest="$(runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}')"
 runqfsroot -D dfs.force.remove=true -rm "$dumpstertest" && exit 1
 runqfsroot -chmod -w "$dumpstertest" || exit
 runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit 1
@@ -1013,31 +1104,30 @@ runqfsroot -D 'fs.createParams=0,0,0,0,1,2,2' \
 # Test with OS DNS resolver.
 clientpropresolver=${clientprop}.res.cfg
 cp "$clientprop" "$clientpropresolver" || exit
-cat >> "$clientpropresolver" << EOF
+cat >>"$clientpropresolver" <<EOF
 client.useOsResolver           = 1
 client.resolverCacheExpiration = 10
 EOF
 QFS_CLIENT_CONFIG= \
-qfs -D fs.msgLogWriter.logLevel=ERROR \
-    -cfg "$clientpropresolver" -ls / > /dev/null || exit 1
+    qfs -D fs.msgLogWriter.logLevel=ERROR \
+    -cfg "$clientpropresolver" -ls / >/dev/null || exit 1
 
 until runqfsroot -rmr -skipTrash '/dumpster' \
-        2>"$testdir/dumpster-test-run.err" ; do
+    2>"$testdir/dumpster-test-run.err"; do
     sleep 0.1
-done > "$testdir/dumpster-test.log" 2>&1 &
+done >"$testdir/dumpster-test.log" 2>&1 &
 dumpstertestpid=$!
 dumpstertestpidf="$testdir/dumpster-test${pidsuf}"
-echo $dumpstertestpid > "$dumpstertestpidf"
+echo $dumpstertestpid >"$dumpstertestpidf"
 
-runcptoqfsroot()
-{
+runcptoqfsroot() {
     QFS_CLIENT_CONFIG= \
-    cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
+        cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
 }
 
 truncatetest='/truncate.test'
-rand-sfmt -g 24577 1234 \
-| runcptoqfsroot -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
+rand-sfmt -g 24577 1234 |
+    runcptoqfsroot -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
 
 # Test move into chunk delete queue enforcement..
 metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1'
@@ -1061,7 +1151,7 @@ runqfsuser -mkdir "$chunkinventorytestdir" || exit
 i=0
 while [ $i -lt 10 ]; do
     echo "$i" | runqfsuser -put - "$chunkinventorytestdir/$i.dat" || exit
-    i=`expr $i + 1`
+    i=$(expr $i + 1)
 done
 [ $spacecheck -ne 0 ] && sleep 2
 # Create object store files.
@@ -1069,12 +1159,12 @@ i=0
 while [ $i -lt 10 ]; do
     echo "$i" | runqfsuser -D fs.createParams=0,1,0,0,1,15,15 \
         -put - "$chunkinventorytestdir/os.$i.dat" || exit
-    i=`expr $i + 1`
+    i=$(expr $i + 1)
 done
 [ $spacecheck -ne 0 ] && sleep 3
 
 if [ x"$jerasuretest" = 'x' ]; then
-    if qfs -ecinfo | grep -w jerasure > /dev/null; then
+    if qfs -ecinfo | grep -w jerasure >/dev/null; then
         jerasuretest='yes'
     else
         jerasuretest='no'
@@ -1084,8 +1174,7 @@ fi
 ostestname='object store file overwrite'
 echo "Testing $ostestname"
 myostestlog='os-overwrite-test.log'
-ostestrunqfs()
-{
+ostestrunqfs() {
     qfs -v -D fs.createParams=0 -fs "$myfsurl" ${1+"$@"}
 }
 
@@ -1102,12 +1191,12 @@ ostestrunqfs()
     ostestrunqfs -cp "$myostestfile" "$myostestfile1"
     ostestrunqfs -cp "$myostestfile1" "$myostestfile"
     ostestrunqfs -rmr -skipTrash "$myostestdir"
-) > "$myostestlog" 2>&1 \
-|| {
-    echo "Test $ostestname failed"
-    cat "$myostestlog"
-    exit 1
-}
+) >"$myostestlog" 2>&1 ||
+    {
+        echo "Test $ostestname failed"
+        cat "$myostestlog"
+        exit 1
+    }
 echo "Test $ostestname passed"
 
 echo "Starting copy test. Test file sizes: $sizes"
@@ -1117,12 +1206,10 @@ echo "Starting copy test. Test file sizes: $sizes"
 # Schedule meta server checkpoint after the first two tests.
 
 if [ x"$myvalgrind" = x ]; then
-    if [ x"$cptestextraopts" = x ]; then
-        true
-    else
+    if [ x"$cptestextraopts" != x ]; then
         $cptestextraopts=" $cptestextraopts"
     fi
-    if [ $spacecheck -ne 0 ] || uname | grep CYGWIN > /dev/null; then
+    if [ $spacecheck -ne 0 ] || uname | grep CYGWIN >/dev/null; then
         # Sleep before renaming test directories to ensure that all files
         # are closed / flushed by QFS / os
         cptestendsleeptime=3
@@ -1137,45 +1224,43 @@ fi
 cp /dev/null cptest.out
 cppidf="cptest${pidsuf}"
 {
-#    cptokfsopts='-W 2 -b 32767 -w 32767' && \
+    #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1'"$cptestextraopts" \
-    cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
-    cptest.sh && \
-    sleep $cptestendsleeptime && \
-    mv cptest.log cptest-os.log && \
-    cptokfsopts='-r 3 -m 1 -l 15 -w -1'"$cptestextraopts" \
-    cpfromkfsopts='-r 1e6 -w 65537'"$cptestextraopts" \
-    cptest.sh && \
-    sleep $cptestendsleeptime && \
-    mv cptest.log cptest-0.log && \
-    kill -USR1 $metapid && \
-    cptokfsopts='-S -m 2 -l 2 -w -1'"$cptestextraopts" \
-    cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
-    cptest.sh && \
-    { \
-        [ x"$jerasuretest" = x'no' ] || { \
-            sleep $cptestendsleeptime && \
-            mv cptest.log cptest-rs.log && \
-            cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1'"$cptestextraopts" \
+        cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1'"$cptestextraopts" \
+        cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
+        cptest.sh &&
+        sleep $cptestendsleeptime &&
+        mv cptest.log cptest-os.log &&
+        cptokfsopts='-r 3 -m 1 -l 15 -w -1'"$cptestextraopts" \
+            cpfromkfsopts='-r 1e6 -w 65537'"$cptestextraopts" \
+            cptest.sh &&
+        sleep $cptestendsleeptime &&
+        mv cptest.log cptest-0.log &&
+        kill -USR1 $metapid &&
+        cptokfsopts='-S -m 2 -l 2 -w -1'"$cptestextraopts" \
             cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
-            cptest.sh ; \
-        } \
-    }
-} >> cptest.out 2>&1 &
+            cptest.sh &&
+        {
+            [ x"$jerasuretest" = x'no' ] || {
+                sleep $cptestendsleeptime &&
+                    mv cptest.log cptest-rs.log &&
+                    cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1'"$cptestextraopts" \
+                        cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
+                        cptest.sh
+            }
+        }
+} >>cptest.out 2>&1 &
 cppid=$!
-echo "$cppid" > "$cppidf"
+echo "$cppid" >"$cppidf"
 
 qfscpidf="qfsctest${pidsuf}"
 cp /dev/null test-qfsc.out
 QFS_CLIENT_LOG_LEVEL=DEBUG \
     test-qfsc "$metahost:$metasrvport" 1>>test-qfsc.out 2>test-qfsc.log &
 qfscpid=$!
-echo "$qfscpid" > "$qfscpidf"
+echo "$qfscpid" >"$qfscpidf"
 
-if [ x"$accessdir" = x ]; then
-    true
-else
+if [ x"$accessdir" != x ]; then
     kfsaccesspidf="kfsaccess_test${pidsuf}"
     clientproppool="$clientprop.pool.prp"
     if [ -f "$clientprop" ]; then
@@ -1183,61 +1268,81 @@ else
     else
         cp /dev/null "$clientproppool" || exit
     fi
-    cat >> "$clientproppool" << EOF
+    cat >>"$clientproppool" <<EOF
 client.connectionPool = 1
 client.rackId = 0
 EOF
     if [ -f "$monitorpluginlib" ]; then
-        cat >> "$clientproppool" << EOF
+        cat >>"$clientproppool" <<EOF
 client.monitorPluginPath=$monitorpluginlib
 EOF
     fi
     javatestclicfg="FILE:${clientproppool}"
     cp /dev/null kfsaccess_test.out
     QFS_CLIENT_MONITOR_LOG_DIR="$testdir/monitor_plugin" \
-    QFS_CLIENT_CONFIG="$javatestclicfg" \
-    java \
+        QFS_CLIENT_CONFIG="$javatestclicfg" \
+        java \
         -Xms800M \
         -Djava.library.path="$accessdir" \
         -classpath "$kfsjar" \
-        -Dkfs.euid="`id -u`" \
-        -Dkfs.egid="`id -g`" \
+        -Dkfs.euid="$(id -u)" \
+        -Dkfs.egid="$(id -g)" \
         com.quantcast.qfs.access.KfsTest "$metahost" "$metasrvport" \
-        >> kfsaccess_test.out 2>&1 &
+        >>kfsaccess_test.out 2>&1 &
     kfsaccesspid=$!
-    echo "$kfsaccesspid" > "$kfsaccesspidf"
+    echo "$kfsaccesspid" >"$kfsaccesspidf"
 fi
 
 if [ x"$kfsgosrcdir" != x ] && go version >/dev/null 2>&1; then
     kfsgopidf="kfsgo${pidsuf}"
-    (
-        include_path=include/kfs/c &&
-        mkdir -p "$include_path" &&
-        cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$include_path" &&
-        [ x"`uname`" != x'Darwin' ] || {
-            DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH+:$DYLD_LIBRARY_PATH}" &&
-            export DYLD_LIBRARY_PATH
-        } &&
-        CGO_CFLAGS="-I`pwd`/include" &&
-        export CGO_CFLAGS &&
-        CGO_LDFLAGS="-L$qfscdir" &&
-        export CGO_LDFLAGS &&
-        QFS_CLIENT_CONFIG=$clientenvcfg &&
-        export QFS_CLIENT_CONFIG &&
-        cd "$kfsgosrcdir" &&
-        go get -t -v &&
-        go test -qfs.addr "$metahost:$metasrvport"
-    ) > kfsgo_test.out 2>&1 &
+    cp /dev/null kfsgo_test.out
+    {
+        if [ x"$installprefix" = x ]; then
+            qfscincludedir=$(pwd)/include &&
+                qfscincludesubdir=$qfscincludedir/kfs/c &&
+                mkdir -p "$qfscincludesubdir" &&
+                cp "$kfsgosrcdir/../cc/qfsc/qfs.h" "$qfscincludesubdir"
+        else
+            qfscincludedir=$installprefix/include
+        fi &&
+            cd "$kfsgosrcdir" &&
+            go get -t -v &&
+            CGO_CFLAGS="-I$qfscincludedir" \
+                CGO_LDFLAGS="-L$qfscdir" \
+                QFS_CLIENT_CONFIG=$clientenvcfg \
+                go test -qfs.addr "$metahost:$metasrvport"
+    } >>kfsgo_test.out 2>&1 &
     kfsgopid=$!
-    echo "$kfsgopid" > "$kfsgopidf"
+    echo "$kfsgopid" >"$kfsgopidf"
 else
     kfsgopid=''
 fi
 
+if [ x"$kfspythonwheel" = x ]; then
+    kfspythonpid=''
+else
+    kfspythonpidf="kfspython${pidsuf}"
+    cp /dev/null kfspython_test.out
+    {
+        cd "$testdir" &&
+            python3 -m venv .venv &&
+            . .venv/bin/activate &&
+            python -m pip install "$kfspythonwheel" &&
+            kfspythonconf=kfspython.cfg &&
+            cat >"$kfspythonconf" <<EOF || exit 1
+metaServer.name = $metahost
+metaServer.port = $metasrvport
+EOF
+        python "$kfspythontest" "$kfspythonconf"
+    } >>kfspython_test.out 2>&1 &
+    kfspythonpid=$!
+    echo "$kfspythonpid" >"$kfspythonpidf"
+fi
+
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
-    pausesec=`expr $csheartbeatinterval \* 2`
-    echo "Pausing for two chunk server chunk server heartbeat intervals:"\
+    pausesec=$(expr $csheartbeatinterval \* 2)
+    echo "Pausing for two chunk server chunk server heartbeat intervals:" \
         "$pausesec sec. to give a chance for space update to occur."
     sleep $pausesec
     n=0
@@ -1259,7 +1364,7 @@ if [ $spacecheck -ne 0 ]; then
         }
     }'; do
         sleep 1
-        n=`expr $n + 1`
+        n=$(expr $n + 1)
         [ $n -le 30 ] || break
     done
 fi
@@ -1267,13 +1372,13 @@ fi
 cp /dev/null qfs_tool-test.out
 qfstoolpidf="qfstooltest${pidsuf}"
 qfstoolopts='-v' \
-qfstoolmeta="$metahosturl:$metasrvport" \
-qfstooltrace=on \
-qfstoolrootauthcfg=$qfstoolrootauthcfg \
-qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
+    qfstoolmeta="$metahosturl:$metasrvport" \
+    qfstooltrace=on \
+    qfstoolrootauthcfg=$qfstoolrootauthcfg \
+    qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
     1>>qfs_tool-test.out 2>qfs_tool-test.log &
 qfstoolpid=$!
-echo "$qfstoolpid" > "$qfstoolpidf"
+echo "$qfstoolpid" >"$qfstoolpidf"
 
 if [ $fotest -ne 0 ]; then
     if [ x"$myvalgrind" = x ]; then
@@ -1295,19 +1400,16 @@ if [ $fotest -ne 0 ]; then
             -read-retries 1 \
             -kfanout-extra-opts "-U $p -P 3""$foextraopts" \
             -cpfromkfs-extra-opts "$cptestextraopts" \
-        || exit
-    done >> kfanout_test.out 2>&1 &
+            ${installbindir:+-bin-prefix xxx-no-add-fanout-build-dir-to-path} ||
+            exit
+    done >>kfanout_test.out 2>&1 &
     fopid=$!
-    echo "$fopid" > "$fopidf"
+    echo "$fopid" >"$fopidf"
 fi
 
-if [ x"$smtest" = x ]; then
-    true
-else
-    if [ x"$smauthconf" = x ]; then
-        true
-    else
-       cat > "$smauthconf" << EOF
+if [ x"$smtest" != x ]; then
+    if [ x"$smauthconf" != x ]; then
+        cat >"$smauthconf" <<EOF
 sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
@@ -1316,9 +1418,9 @@ EOF
     smpidf="sortmaster_test${pidsuf}"
     echo "Starting sort master test"
     cp /dev/null sortmaster_test.out
-    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >> sortmaster_test.out 2>&1 &
+    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >>sortmaster_test.out 2>&1 &
     smpid=$!
-    echo "$smpid" > "$smpidf" || exit
+    echo "$smpid" >"$smpidf" || exit
 fi
 
 if [ $spacecheck -eq 0 ]; then
@@ -1369,44 +1471,41 @@ cd "$testdir" || exit
 # Clean up write leases, if any, (sorters' speculative sorts might leave
 # stale leases), and force chunks deletion by truncating files in dumpster.
 # This is needed to minimize the "retire" test time, as write leases, and files
-# in the dumpster with replication larger than the number of chunk server
+# in the dumpster with replication larger than the number of chunk servers
 # would prevent chunk server "retirement", until expiration / cleanup.
-# until they expire.
 
 echo "Cleaning up write leases by removing and truncating files"
 
-rootrmlist=`runqfsroot -ls '/' \
-| awk '/^[d-]/{ if ($NF != "/dumpster" &&
-    $NF != "'"$chunkinventorytestdir"'") print $NF; }'`
-if [ x"$rootrmlist" = x ]; then
-    true
-else
+rootrmlist=$(runqfsroot -ls '/' |
+    awk '/^[d-]/{ if ($NF != "/dumpster" &&
+    $NF != "'"$chunkinventorytestdir"'") print $NF; }')
+if [ x"$rootrmlist" != x ]; then
     runqfsroot -rmr -skipTrash $rootrmlist || exit
 fi
 
 movefromdumpster='/movefromdumpster.tmp'
 runqfsroot -mkdir "$movefromdumpster" || exit
-runqfsroot -ls '/dumpster' \
-| awk '/^-/{ if (0 < $2 && $NF != "/dumpster/deletequeue") print $NF; }' \
-| while read fn; do
-    if runqfsroot -mv "$fn" "$movefromdumpster/" 2>/dev/null; then
-        n=`basename "$fn"`
-        runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
-    else
-        # Check if the file has already been removed.
-        if runqfsroot -test -e "$fn"; then
-            # Try again, emitting error / diagnostic message.
-            if runqfsroot -mv "$fn" "$movefromdumpster/"; then
-                continue
+runqfsroot -ls '/dumpster' |
+    awk '/^-/{ if (0 < $2 && $NF != "/dumpster/deletequeue") print $NF; }' |
+    while read fn; do
+        if runqfsroot -mv "$fn" "$movefromdumpster/" 2>/dev/null; then
+            n=$(basename "$fn")
+            runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
+        else
+            # Check if the file has already been removed.
+            if runqfsroot -test -e "$fn"; then
+                # Try again, emitting error / diagnostic message.
+                if runqfsroot -mv "$fn" "$movefromdumpster/"; then
+                    continue
+                fi
+                # The meta server is likely started deleting the file, by truncating
+                # n chunks at a time.
+                # List and stat the file for diagnostics.
+                runqfsroot -ls "$fn"
+                runqfsroot -astat "$fn"
             fi
-            # The meta server is likely started deleting the file, by truncating
-            # n chunks at a time.
-            # List and stat the file for diagnostics.
-            runqfsroot -ls    "$fn"
-            runqfsroot -astat "$fn"
         fi
-    fi
-done || exit
+    done || exit
 
 if kill -0 $dumpstertestpid; then
     kill $dumpstertestpid
@@ -1419,36 +1518,33 @@ fi
 echo "Testing admin commands"
 
 adminstatus=0
-myfsid=`awk -F / '/^filesysteminfo\//{print $3; exit 0;}' \
-    "$metasrvdir/kfscp/latest"`
+myfsid=$(awk -F / '/^filesysteminfo\//{print $3; exit 0;}' \
+    "$metasrvdir/kfscp/latest")
 mymetareadargs="-F FsId=$myfsid -F Read-pos=0 -F Read-size=2047"
 for cmd in \
-        get_chunk_server_dirs_counters \
-        get_chunk_servers_counters \
-        get_request_counters \
-        ping \
-        dump_chunkreplicationcandidates \
-        dump_chunktoservermap \
-        open_files \
-        stats \
-        upservers \
-        check_leases \
-        recompute_dirsize \
-        "vr_get_status || true" \
-        "-F op-type=help vr_reconfiguration" \
-        "-F Toggle-WORM=1 toggle_worm" \
-        "-F Toggle-WORM=0 toggle_worm" \
-        "-F Checkpoint=1      $mymetareadargs read_meta_data && echo ''" \
-        "-F Start-log='0 0 0' $mymetareadargs read_meta_data && echo ''" \
-    ; do
+    get_chunk_server_dirs_counters \
+    get_chunk_servers_counters \
+    get_request_counters \
+    ping \
+    dump_chunkreplicationcandidates \
+    dump_chunktoservermap \
+    open_files \
+    stats \
+    upservers \
+    check_leases \
+    recompute_dirsize \
+    "vr_get_status || true" \
+    "-F op-type=help vr_reconfiguration" \
+    "-F Toggle-WORM=1 toggle_worm" \
+    "-F Toggle-WORM=0 toggle_worm" \
+    "-F Checkpoint=1      $mymetareadargs read_meta_data && echo ''" \
+    "-F Start-log='0 0 0' $mymetareadargs read_meta_data && echo ''"; do
     echo "===================== start $cmd ==================================="
-    if eval runqfsadmin $cmd; then
-        true
-    else
-        adminstatus=`expr $adminstatus + 1`
+    if ! eval runqfsadmin $cmd; then
+        adminstatus=$(expr $adminstatus + 1)
     fi
     echo "===================== end $cmd ====================================="
-done > qfsadmintest.out 2>qfsadmintest.err
+done >qfsadmintest.out 2>qfsadmintest.err
 
 echo "Testing chunk server hibernate and retire"
 
@@ -1456,14 +1552,14 @@ echo "Testing chunk server hibernate and retire"
 metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
 
 upserverslist='upservers.tmp'
-runqfsadmin upservers > "$upserverslist" || exit
+runqfsadmin upservers >"$upserverslist" || exit
 
 # Tell chunk servers to re-connect to the meta server, in order to exercise
 # chunk inventory sync. logic.
 while read server port; do
     pidf=$chunksrvdir/$port/$chunksrvpid
-    xargs kill -HUP < "$pidf" || exit
-done < "$upserverslist"
+    xargs kill -HUP <"$pidf" || exit
+done <"$upserverslist"
 # Give chunk servers couple seconds to initiate re-connect.
 sleep 2
 waitrecoveryperiodend
@@ -1474,10 +1570,10 @@ while read server port; do
     qfshibernate -m "$metahost" -p "$metasrvport" -s "$hibernatesleep" \
         -f "$clientrootprop" -c "$server" -d "$port" || exit
     pidf=$chunksrvdir/$port/$chunksrvpid
-    pid=`cat "$pidf"`
+    pid=$(cat "$pidf")
     i=0
     while kill -0 "$pid" 2>/dev/null; do
-        i=`expr $i + 1`
+        i=$(expr $i + 1)
         if [ $i -gt $hibernateshutdowntimeout ]; then
             echo "hibernate failed; chunk server still up after" \
                 " $hibernateshutdowntimeout sec; $pidf" 1>&2
@@ -1494,34 +1590,32 @@ while read server port; do
     fi
     [ $hibernatesleep -gt 0 ] && break
     hibernatesleep=10000
-done < "$upserverslist"
+done <"$upserverslist"
 
 # Turn off chunk inventory mismatch debug, as retire does not delete evacuated
 # chunks.
 metaserversetparameter 'metaServer.debugPanicOnHelloResumeFailureCount=-1'
 
 i=$chunksrvport
-e=`expr $i + $numchunksrv`
+e=$(expr $i + $numchunksrv)
 while [ $i -lt $e ]; do
     cd "$chunksrvdir/$i" || exit
-    if [ -e "$chunksrvpid" ]; then
-        true
-    else
+    if [ ! -e "$chunksrvpid" ]; then
         echo "Restarting chunk server $i"
         if [ -e "$myvalgrindlog" ]; then
             mv "$myvalgrindlog" "$myvalgrindlog"'.run.log' || exit
         fi
         myrunprog "$chunkbindir"/chunkserver \
-            "$chunksrvprop" "$chunksrvlog" >> "${chunksrvout}" 2>&1 &
-        echo $! > "$chunksrvpid"
+            "$chunksrvprop" "$chunksrvlog" >>"${chunksrvout}" 2>&1 &
+        echo $! >"$chunksrvpid"
     fi
-    i=`expr $i + 1`
+    i=$(expr $i + 1)
 done
 cd "$testdir" || exit
 waitrecoveryperiodend
 
 echo "Testing chunk server directory evacuation"
-i=`expr $e - 1`
+i=$(expr $e - 1)
 myevacuatefile="$chunksrvdir/$i/kfschunk/evacuate"
 touch "$myevacuatefile" || exit
 
@@ -1535,7 +1629,7 @@ until [ -f "$myevacuatefile" ]; do
         myevacuatestatus=1
         break
     fi
-    i=`expr $i + 1`
+    i=$(expr $i + 1)
     sleep 1
 done
 echo "Chunk server directory evacuation is now complete"
@@ -1545,7 +1639,7 @@ sleep 5
 echo "Shutting down"
 kill -QUIT "$metapid" || exit
 
-pids=`getpids | grep -v "$metapid"`
+pids=$(getpids | grep -v "$metapid")
 # For now pause to let chunk server IOs complete
 sleep 2
 for pid in $pids; do
@@ -1565,13 +1659,13 @@ while true; do
             estatus=$?
             if [ $estatus -ne 0 ]; then
                 echo "Exit status: $estatus pid: $pid"
-                status=$estatus;
+                status=$estatus
             fi
         fi
     done
     pids=$rpids
     [ x"$pids" = x ] && break
-    i=`expr $i + 1`
+    i=$(expr $i + 1)
     if [ $i -le $nsecwait ]; then
         sleep 1
     else
@@ -1587,11 +1681,12 @@ if [ $status -ne 0 ]; then
     showpids
 fi
 
-if [ x"$mytailpids" = x ]; then
-    true
-else
+if [ x"$mytailpids" != x ]; then
     # Let tail -f poll complete, then shut them down.
-    { sleep 1 ; kill -TERM $mytailpids ; } &
+    {
+        sleep 1
+        kill -TERM $mytailpids
+    } &
     wait 2>/dev/null
 fi
 
@@ -1639,33 +1734,38 @@ if [ $status -eq 0 ]; then
     report_test_status "Re-balance planner" $status
 fi
 
-find "$testdir" -name core\* || status=1
+# Check for core files, and fail the test if any.
+find "$testdir" -path "$testdir/.venv" -prune -o -type f -name core\* -print |
+    awk '{ print; } END{ exit (NR > 0 ? 1 : 0); }' || status=1
 
 if [ $status -eq 0 \
-        -a $cpstatus -eq 0 \
-        -a $qfstoolstatus -eq 0 \
-        -a $fostatus -eq 0 \
-        -a $smstatus -eq 0 \
-        -a $kfsaccessstatus -eq 0 \
-        -a $kfsgostatus -eq 0 \
-        -a $qfscstatus -eq 0 \
-        -a $fsckstatus -eq 0 \
-        -a $fusestatus -eq 0 \
-        -a $adminstatus -eq 0 \
-        -a $myevacuatestatus -eq 0 \
-        ]; then
+    -a $cpstatus -eq 0 \
+    -a $qfstoolstatus -eq 0 \
+    -a $fostatus -eq 0 \
+    -a $smstatus -eq 0 \
+    -a $kfsaccessstatus -eq 0 \
+    -a $kfsgostatus -eq 0 \
+    -a $kfspythonstatus -eq 0 \
+    -a $qfscstatus -eq 0 \
+    -a $fsckstatus -eq 0 \
+    -a $fusestatus -eq 0 \
+    -a $adminstatus -eq 0 \
+    -a $myevacuatestatus -eq 0 \
+    ]; then
     echo "Passed all tests"
 else
-    report_test_status "Copy"        $cpstatus
-    report_test_status "Qfs tool"    $qfstoolstatus
-    report_test_status "Fanout"      $fostatus
+    report_test_status "Copy" $cpstatus
+    report_test_status "Qfs tool" $qfstoolstatus
+    report_test_status "Fanout" $fostatus
     report_test_status "Sort master" $smstatus
-    report_test_status "Java shim"   $kfsaccessstatus
-    report_test_status "C bindings"  $qfscstatus
-    report_test_status "Fsck"        $fsckstatus
-    report_test_status "Fuse"        $fusestatus
-    report_test_status "Admin"       $adminstatus
-    report_test_status "Evacuate"    $myevacuatestatus
+    report_test_status "Java shim" $kfsaccessstatus
+    report_test_status "Go shim" $kfsgostatus
+    report_test_status "Python shim" $kfspythonstatus
+    report_test_status "C bindings" $qfscstatus
+    report_test_status "Fsck" $fsckstatus
+    report_test_status "Fuse" $fusestatus
+    report_test_status "Admin" $adminstatus
+    report_test_status "Evacuate" $myevacuatestatus
     echo "Test failure"
     status=1
 fi

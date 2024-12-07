@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #
 # $Id$
 #
@@ -23,35 +23,64 @@
 # A simple webserver that displays KFS status by pinging the metaserver.
 #
 
-import configparser
+from __future__ import print_function
+
 import os
 import platform
 import socket
-import socketserver
 import sys
 import time
 from datetime import datetime
-from http.server import SimpleHTTPRequestHandler
-from io import StringIO
-from urllib.request import urlopen
 
 from browse import QFSBrowser
 from chart import ChartData, ChartHTML
-from chunks import (ChunkArrayData, ChunkDataManager, ChunkServerData,
-                    ChunkThread, HtmlPrintData, HtmlPrintMetaData)
-
-REQUEST_PING = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode("utf-8")
-REQUEST_GET_DIRS_COUNTERS = (
-    "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n".encode(
-        "utf-8"
-    )
+from chunks import (
+    ChunkArrayData,
+    ChunkDataManager,
+    ChunkServerData,
+    ChunkThread,
+    HtmlPrintData,
+    HtmlPrintMetaData,
 )
+
+if sys.version_info < (3, 0):
+    from urllib import urlopen
+
+    import ConfigParser as configparser
+    import SocketServer as socketserver
+    from SimpleHTTPServer import SimpleHTTPRequestHandler
+    from StringIO import StringIO
+else:
+    import configparser
+    import socketserver
+    from http.server import SimpleHTTPRequestHandler
+    from io import StringIO
+    from urllib.request import urlopen
+
+
+REQUEST_PING = (
+    "PING\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
+).encode("utf-8")
+REQUEST_GET_DIRS_COUNTERS = (
+    "GET_CHUNK_SERVER_DIRS_COUNTERS\r\n"
+    "Version: KFS/1.0\r\n"
+    "Cseq: 1\r\n"
+    "Client-Protocol-Version: 116\r\n"
+    "\r\n"
+).encode("utf-8")
 
 gHasCollections = True
 try:
     from collections import OrderedDict
-except:
-    sys.stderr.write("Warning: '%s'. Proceeding without collections.\n" % str(sys.exc_info()[1]))
+except Exception:
+    sys.stderr.write(
+        "Warning: '%s'. Proceeding without collections.\n"
+        % str(sys.exc_info()[1])
+    )
     gHasCollections = False
 
 gJsonSupported = True
@@ -88,7 +117,10 @@ try:
             return obj
 
 except ImportError:
-    sys.stderr.write("Warning: '%s'. Proceeding without query support.\n" % str(sys.exc_info()[1]))
+    sys.stderr.write(
+        "Warning: '%s'. Proceeding without query support.\n"
+        % str(sys.exc_info()[1])
+    )
     gJsonSupported = False
 
 metaserverPort = 20000
@@ -145,7 +177,12 @@ def showUptime(uptime):
     rem = rem / 60
     hours = rem % 24
     days = rem / 24
-    return "%d&nbsp;days,&nbsp;%02d:%02d:%02d" % (days, hours, minutes, seconds)
+    return "%d&nbsp;days,&nbsp;%02d:%02d:%02d" % (
+        days,
+        hours,
+        minutes,
+        seconds,
+    )
 
 
 class ServerLocation:
@@ -312,7 +349,6 @@ class Status:
         vrStatus,
     ):
         global gQfsBrowser
-        rows = ""
         if gQfsBrowser.browsable:
             browseLink = '<A href="/browse-it">Browse Filesystem</A>'
         else:
@@ -326,16 +362,22 @@ class Status:
             displayName,
             """</h1>
         <P>
-            <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            <A href="/chunkdir-it">Chunk Directories Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            <A href="/meta-conf-html">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;""",
+            <A href="/chunk-it">Chunk Servers Status</A>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/meta-it">Meta Server Status</A>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/chunkdir-it">Chunk Directories Status</A>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/meta-conf-html">Meta Server Configuration</A>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;""",
             file=buffer,
         )
         if 0 <= systemInfo.vrNodeId:
             print(
                 """
-            <A href="/meta-vr-status-html">Meta Server Viewstamped Replication Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;""",
+            <A href="/meta-vr-status-html">
+            Meta Server Viewstamped Replication Status</A>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;""",
                 file=buffer,
             )
         print(
@@ -350,7 +392,11 @@ class Status:
         )
 
         if systemInfo.isInRecovery and 0 != systemInfo.vrPrimaryFlag:
-            print("""<tr><td>Recovery status: </td><td>:</td><td>IN RECOVERY</td></tr>""", file=buffer)
+            print(
+                """<tr><td>Recovery status: </td><td>:</td>
+                <td>IN RECOVERY</td></tr>""",
+                file=buffer,
+            )
         fsFree = systemInfo.freeFsSpace
         if fsFree < 0:
             fsFree = freeFsSpace
@@ -365,7 +411,9 @@ class Status:
             time.strftime("%a %b %d %H:%M:%S %Y"),
             """ </td></tr>
         <tr> <td> Started at </td><td>:</td><td> """,
-            systemInfo.startedAt + "&nbsp;uptime:&nbsp;" + showUptime(systemInfo.uptime),
+            systemInfo.startedAt
+            + "&nbsp;uptime:&nbsp;"
+            + showUptime(systemInfo.uptime),
             """ </td></tr>""",
             file=buffer,
         )
@@ -406,7 +454,10 @@ class Status:
             )
         if 0 < systemInfo.objStoreEnabled:
             print(
-                "<tr> <td> Object store delete queue</td><td>:</td><td>size:&nbsp;"
+                (
+                    "<tr> <td> Object store delete queue</td><td>:</td>"
+                    "<td>size:&nbsp;"
+                )
                 + splitThousands(systemInfo.objStoreDeletes)
                 + "&nbsp;in&nbsp;flight:&nbsp;"
                 + splitThousands(systemInfo.objStoreDeletesInFlight)
@@ -422,16 +473,26 @@ class Status:
         if 0 <= systemInfo.logPendingOpsCount:
             if systemInfo.logTimeOpsCount:
                 avg = systemInfo.logTimeUsec / systemInfo.logTimeOpsCount
-                opWriteAvg = systemInfo.logDiskWriteUsec / systemInfo.logTimeOpsCount
+                opWriteAvg = (
+                    systemInfo.logDiskWriteUsec / systemInfo.logTimeOpsCount
+                )
             else:
                 avg = 0
                 opWriteAvg = 0
             if 0 < systemInfo.uptime:
-                rate = systemInfo.logTimeOpsCount * systemInfo.logAvgReqRateDiv / systemInfo.uptime
+                rate = (
+                    systemInfo.logTimeOpsCount
+                    * systemInfo.logAvgReqRateDiv
+                    / systemInfo.uptime
+                )
             else:
                 rate = 0
             if 0 < systemInfo.logTotalRequestCount:
-                droppedPct = 100.0 * systemInfo.logExceedQueueDepthFailedCount / systemInfo.logTotalRequestCount
+                droppedPct = (
+                    100.0
+                    * systemInfo.logExceedQueueDepthFailedCount
+                    / systemInfo.logTotalRequestCount
+                )
             else:
                 droppedPct = 0.0
             print(
@@ -441,24 +502,35 @@ class Status:
                 + "/"
                 + bytesToReadable(systemInfo.logPendingAckByteCount)
                 + ";&nbsp;dropped:&nbsp;"
-                + splitThousands(systemInfo.logExceedLogQueueDepthFailureCount300SecAvg)
+                + splitThousands(
+                    systemInfo.logExceedLogQueueDepthFailureCount300SecAvg
+                )
                 + "/%.2e%%" % droppedPct
-                + ";&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;total/disk"
-                + "&nbsp;[5;&nbsp;10;&nbsp;15&nbsp;sec.;&nbsp;total&nbsp;averages]:"
-                + "&nbsp;"
-                + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv)
+                + (
+                    ";&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;"
+                    "usec.&nbsp;total/disk"
+                    "&nbsp;[5;&nbsp;10;&nbsp;15&nbsp;sec.;"
+                    "&nbsp;total&nbsp;averages]:&nbsp;"
+                )
+                + showRate(
+                    systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv
+                )
                 + "&nbsp;"
                 + splitThousands(systemInfo.log5SecAvgUsec)
                 + "/"
                 + splitThousands(systemInfo.logOpWrite5SecAvgUsec)
                 + ";&nbsp;"
-                + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv)
+                + showRate(
+                    systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv
+                )
                 + "&nbsp;"
                 + splitThousands(systemInfo.log10SecAvgUsec)
                 + "/"
                 + splitThousands(systemInfo.logOpWrite10SecAvgUsec)
                 + ";&nbsp;"
-                + showRate(systemInfo.log15SecAvgReqRate, systemInfo.logAvgReqRateDiv)
+                + showRate(
+                    systemInfo.log15SecAvgReqRate, systemInfo.logAvgReqRateDiv
+                )
                 + "&nbsp;"
                 + splitThousands(systemInfo.log15SecAvgUsec)
                 + "/"
@@ -472,7 +544,11 @@ class Status:
                 + "</td></tr>",
                 file=buffer,
             )
-        print("""<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> """, file=buffer)
+        print(
+            """<tr> <td> Meta server viewstamped replication (VR)
+            </td><td>:</td><td> """,
+            file=buffer,
+        )
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
             print("""not&nbsp;configured""", file=buffer)
         else:
@@ -490,38 +566,56 @@ class Status:
                     status = int(vrStatus["vr.status"])
                     if 0 != status:
                         primaryId = vrStatus["vr.primaryId"]
-                        textBuf = textBuf + "&nbsp;primary&nbsp;node&nbsp;id:&nbsp;" + primaryId
+                        textBuf = (
+                            textBuf
+                            + "&nbsp;primary&nbsp;node&nbsp;id:&nbsp;"
+                            + primaryId
+                        )
                         for k in vrStatus:
-                            if k.startswith("configuration.node.") and k.endswith(".id") and vrStatus[k] == primaryId:
+                            if (
+                                k.startswith("configuration.node.")
+                                and k.endswith(".id")
+                                and vrStatus[k] == primaryId
+                            ):
                                 try:
-                                    host = vrStatus[k.replace(".id", ".listener")].split()[0]
-                                    textBuf += '&nbsp;host:&nbsp;<A href="http://'
+                                    host = vrStatus[
+                                        k.replace(".id", ".listener")
+                                    ].split()[0]
+                                    textBuf += (
+                                        '&nbsp;host:&nbsp;<A href="http://'
+                                    )
                                     textBuf += host
                                     textBuf += ":"
                                     textBuf += str(myWebserverPort)
                                     textBuf += '/">'
                                     textBuf += host
                                     textBuf += "</A>"
-                                except:
+                                except Exception:
                                     pass
                     try:
-                        viewTime = int(vrStatus["vr.currentTime"]) - int(vrStatus["vr.viewChangeStartTime"])
+                        viewTime = int(vrStatus["vr.currentTime"]) - int(
+                            vrStatus["vr.viewChangeStartTime"]
+                        )
                         textBuf += "&nbsp;view started:&nbsp;"
                         textBuf += showUptime(viewTime)
                         textBuf += "&nbsp;ago&nbsp;reason:&nbsp;"
                         textBuf += htmlEscape(vrStatus["vr.viewChangeReason"])
-                    except:
+                    except Exception:
                         pass
                     if 0 == status:
                         try:
                             textBuf += "&nbsp;up&nbsp;nodes:&nbsp;"
-                            textBuf += vrStatus["logTransmitter.activeUpNodesCount"]
+                            textBuf += vrStatus[
+                                "logTransmitter.activeUpNodesCount"
+                            ]
                             textBuf += "&nbsp;channels:&nbsp;"
-                            textBuf += vrStatus["logTransmitter.activeUpChannelsCount"]
-                        except:
+                            textBuf += vrStatus[
+                                "logTransmitter.activeUpChannelsCount"
+                            ]
+                        except Exception:
                             pass
                 print(textBuf, file=buffer)
-            except:
+            except Exception:
                 print("""VR&nbsp;status&nbsp;parse&nbsp;errror""", file=buffer)
         print(
             """</td></tr>
@@ -534,11 +628,16 @@ class Status:
             file=buffer,
         )
         if systemInfo.hibernatedServerCount >= 0:
-            print("""&nbsp;hibernated:&nbsp;""" + splitThousands(systemInfo.hibernatedServerCount), file=buffer)
+            print(
+                """&nbsp;hibernated:&nbsp;"""
+                + splitThousands(systemInfo.hibernatedServerCount),
+                file=buffer,
+            )
         print("""</td></tr>""", file=buffer)
         if systemInfo.replications >= 0:
             print(
-                """<tr> <td> Replications </td><td>:</td><td>in&nbsp;flight:&nbsp;"""
+                """<tr> <td> Replications </td><td>:</td><td>in&nbsp;flight:
+                &nbsp;"""
                 + str(systemInfo.replications)
                 + """&nbsp;check:&nbsp;"""
                 + splitThousands(systemInfo.replicationsCheck)
@@ -555,14 +654,29 @@ class Status:
             )
         if systemInfo.clients >= 0:
             print(
-                """<tr> <td> Allocations </td><td>:</td><td>clients:&nbsp;""" + splitThousands(systemInfo.clients),
+                """<tr> <td> Allocations </td><td>:</td><td>clients:&nbsp;"""
+                + splitThousands(systemInfo.clients),
                 file=buffer,
             )
             if 0 <= systemInfo.maxClients:
-                print("""&nbsp;(max:&nbsp;""" + splitThousands(systemInfo.maxClients) + ")", file=buffer)
-            print("""&nbsp;chunk&nbsp;servers:&nbsp;""" + splitThousands(systemInfo.chunkServers), file=buffer)
+                print(
+                    """&nbsp;(max:&nbsp;"""
+                    + splitThousands(systemInfo.maxClients)
+                    + ")",
+                    file=buffer,
+                )
+            print(
+                """&nbsp;chunk&nbsp;servers:&nbsp;"""
+                + splitThousands(systemInfo.chunkServers),
+                file=buffer,
+            )
             if 0 <= systemInfo.maxChunkServers:
-                print("""&nbsp;(max:&nbsp;""" + splitThousands(systemInfo.maxChunkServers) + ")", file=buffer)
+                print(
+                    """&nbsp;(max:&nbsp;"""
+                    + splitThousands(systemInfo.maxChunkServers)
+                    + ")",
+                    file=buffer,
+                )
             print(
                 """&nbsp;requests:&nbsp;"""
                 + splitThousands(systemInfo.allocatedRequests)
@@ -571,7 +685,12 @@ class Status:
                 file=buffer,
             )
             if 0 <= systemInfo.totalBuffers:
-                print("""&nbsp;(max:&nbsp;""" + splitThousands(systemInfo.totalBuffers) + ")", file=buffer)
+                print(
+                    """&nbsp;(max:&nbsp;"""
+                    + splitThousands(systemInfo.totalBuffers)
+                    + ")",
+                    file=buffer,
+                )
             print(
                 """&nbsp;sockets:&nbsp;"""
                 + splitThousands(systemInfo.sockets)
@@ -580,11 +699,16 @@ class Status:
                 file=buffer,
             )
             if systemInfo.appendCacheSize >= 0:
-                print("""&nbsp;append cache:&nbsp;""" + splitThousands(systemInfo.appendCacheSize), file=buffer)
+                print(
+                    """&nbsp;append cache:&nbsp;"""
+                    + splitThousands(systemInfo.appendCacheSize),
+                    file=buffer,
+                )
             print("""</td></tr>""", file=buffer)
         if systemInfo.internalNodes >= 0:
             print(
-                """<tr> <td> Allocations&nbsp;b+tree</td><td>:</td><td>internal:&nbsp;"""
+                """<tr> <td> Allocations&nbsp;b+tree</td><td>:</td><td>
+                internal:&nbsp;"""
                 + splitThousands(systemInfo.internalNodes)
                 + """x"""
                 + splitThousands(systemInfo.internalNodeSize)
@@ -615,7 +739,8 @@ class Status:
             )
         if systemInfo.csmapNodes >= 0:
             print(
-                """<tr> <td> Allocations&nbsp;chunk2server</td><td>:</td><td>nodes:&nbsp;"""
+                """<tr> <td> Allocations&nbsp;chunk2server</td><td>:</td><td>
+                nodes:&nbsp;"""
                 + splitThousands(systemInfo.csmapNodes)
                 + """x"""
                 + splitThousands(systemInfo.csmapNodeSize)
@@ -632,11 +757,14 @@ class Status:
         if 0 != systemInfo.vrPrimaryFlag:
             if systemInfo.csMaxGoodCandidateLoadAvg >= 0:
                 print(
-                    """<tr> <td>Chunk&nbsp;placement&nbsp;load&nbsp;threshold</td><td>:</td><td>"""
+                    """<tr> <td>Chunk&nbsp;placement&nbsp;load&nbsp;
+                    threshold</td><td>:</td><td>"""
                     + "avg:&nbsp;%5.2e" % systemInfo.csMaxGoodCandidateLoadAvg
                     + "&nbsp;"
-                    + "&nbsp;master:&nbsp;%5.2e" % systemInfo.csMaxGoodMasterLoadAvg
-                    + "&nbsp;slave:&nbsp;%5.2e" % systemInfo.csMaxGoodSlaveLoadAvg
+                    + "&nbsp;master:&nbsp;%5.2e"
+                    % systemInfo.csMaxGoodMasterLoadAvg
+                    + "&nbsp;slave:&nbsp;%5.2e"
+                    % systemInfo.csMaxGoodSlaveLoadAvg
                     + """</td></tr>""",
                     file=buffer,
                 )
@@ -644,7 +772,11 @@ class Status:
                 mult = 0
             else:
                 mult = 100.0 / float(serverCount)
-            print("""<tr> <td>Chunk&nbsp;placement&nbsp;candidates</td><td>:</td><td>""", file=buffer)
+            print(
+                """<tr> <td>Chunk&nbsp;placement&nbsp;candidates</td>
+                <td>:</td><td>""",
+                file=buffer,
+            )
             if systemInfo.goodMasters >= 0 and systemInfo.goodSlaves >= 0:
                 allGood = systemInfo.goodMasters + systemInfo.goodSlaves
                 print(
@@ -661,11 +793,18 @@ class Status:
                 )
             else:
                 allGood = serverCount - canNotBeUsedForPlacment
-                print("all:&nbsp;" + splitThousands(allGood) + "&nbsp;%.2f%%" % (float(allGood) * mult), file=buffer)
+                print(
+                    "all:&nbsp;"
+                    + splitThousands(allGood)
+                    + "&nbsp;%.2f%%" % (float(allGood) * mult),
+                    file=buffer,
+                )
             if goodNoRackAssignedCount < allGood:
                 all = allGood - goodNoRackAssignedCount
                 print(
-                    "&nbsp;in&nbsp;racks:&nbsp;" + splitThousands(all) + "&nbsp;%.2f%%" % (float(all) * mult),
+                    "&nbsp;in&nbsp;racks:&nbsp;"
+                    + splitThousands(all)
+                    + "&nbsp;%.2f%%" % (float(all) * mult),
                     file=buffer,
                 )
             print("""</td></tr>""", file=buffer)
@@ -680,7 +819,8 @@ class Status:
                     + splitThousands(systemInfo.totalDrives)
                     + "&nbsp;writable:&nbsp;"
                     + splitThousands(systemInfo.writableDrives)
-                    + "&nbsp;%.2f%%" % (float(systemInfo.writableDrives) * mult)
+                    + "&nbsp;%.2f%%"
+                    % (float(systemInfo.writableDrives) * mult)
                     + "&nbsp;avg&nbsp;capacity:&nbsp;"
                     + bytesToReadable(systemInfo.totalSpace * mult / 100.0),
                     """</td></tr>""",
@@ -707,9 +847,11 @@ class Status:
             print(
                 """
             <div class="floatleft">
-             <table class="sortable status-table" id="tableEvacuating" cellspacing="0" cellpadding="0.1em"
+             <table class="sortable status-table" id="tableEvacuating"
+                cellspacing="0" cellpadding="0.1em"
                 summary="Status of evacuating nodes in the system">
-             <caption> <a name="EvacuatingNodes">Evacuating Nodes Status</a> </caption>
+             <caption> <a name="EvacuatingNodes">Evacuating Nodes Status</a>
+             </caption>
              <thead>
              <tr>
              <th>Chunkserver</th>
@@ -744,9 +886,11 @@ class Status:
             print(
                 """
             <div class="floatleft">
-             <table class="sortable status-table" id="tiersInfo" cellspacing="0" cellpadding="0.1em"
+             <table class="sortable status-table" id="tiersInfo"
+                cellspacing="0" cellpadding="0.1em"
                 summary="Status of storage tiers in the system">
-             <caption> <a name="StorageTiers">Storage Tiers Available For Placement Status</a> </caption>
+             <caption> <a name="StorageTiers">
+                Storage Tiers Available For Placement Status</a> </caption>
              <thead>
              <tr>
             """,
@@ -783,7 +927,6 @@ class Status:
             )
             rowCnt = 0
             colCnt = 0
-            trclass = ""
             for val in tiersInfo:
                 if colCnt == 0:
                     print("""<tr>""", file=buffer)
@@ -816,8 +959,10 @@ class Status:
         print(
             """
         <div class="floatleft">
-         <table class="sortable status-table" id="table1" cellspacing="0" cellpadding="0.1em"
-            summary="Status of nodes in the system: who is up/down and when we last heard from them">
+         <table class="sortable status-table" id="table1" cellspacing="0"
+            cellpadding="0.1em"
+            summary="Status of nodes in the system: who is up/down and when we
+            last heard from them">
          <caption> All Nodes </caption>
          <thead>
          <tr>
@@ -860,10 +1005,13 @@ class Status:
             print(
                 """
             <div class="floatleft">
-             <table class="status-table" cellspacing="0" cellpadding="0.1em" summary="Status of retiring nodes in the system">
-             <caption> <a name="RetiringNodes">Retiring Nodes Status</a> </caption>
+             <table class="status-table" cellspacing="0" cellpadding="0.1em"
+             summary="Status of retiring nodes in the system">
+             <caption> <a name="RetiringNodes">Retiring Nodes Status</a>
+             </caption>
              <thead>
-             <tr><th> Chunkserver </th> <th> Start </th> <th>  # blks done </th> <th> # blks left </th> </tr>
+             <tr><th> Chunkserver </th> <th> Start </th> <th>  # blks done
+             </th> <th> # blks left </th> </tr>
              </thead>
              <tbody>
             """,
@@ -883,10 +1031,12 @@ class Status:
         if len(downServers) > 0:
             print(
                 """<div class="floatleft">
-            <table class="status-table" cellspacing="0" cellpadding="0.1em" summary="Status of down nodes in the system">
+            <table class="status-table" cellspacing="0" cellpadding="0.1em"
+                summary="Status of down nodes in the system">
             <caption> <a name="DeadNodes">Dead Nodes History</a></caption>
          <thead>
-            <tr><th> Chunkserver </th> <th> Down Since </th> <th> Reason </th> </tr>
+            <tr><th> Chunkserver </th> <th> Down Since </th> <th> Reason </th>
+            </tr>
          </thead>
          <tbody>
             """,
@@ -917,7 +1067,8 @@ class Status:
 def printStyle(buffer, title):
     print(
         """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\
+ "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -971,7 +1122,14 @@ class DownServer:
         if self.stillDown:
             trclass = "class=dead"
 
-        print("""<tr """, trclass, """><td align="center">""", self.displayName, """</td>""", file=buffer)
+        print(
+            """<tr """,
+            trclass,
+            """><td align="center">""",
+            self.displayName,
+            """</td>""",
+            file=buffer,
+        )
         print("""<td>""", self.down, """</td>""", file=buffer)
         print("""<td>""", self.reason, """</td>""", file=buffer)
         print("""</tr>""", file=buffer)
@@ -1028,7 +1186,14 @@ class RetiringServer:
         else:
             trclass = "class=odd"
 
-        print("""<tr """, trclass, """><td align="center">""", self.displayName, """</td>""", file=buffer)
+        print(
+            """<tr """,
+            trclass,
+            """><td align="center">""",
+            self.displayName,
+            """</td>""",
+            file=buffer,
+        )
         print("""<td>""", self.started, """</td>""", file=buffer)
         print("""<td align="right">""", self.numDone, """</td>""", file=buffer)
         print("""<td align="right">""", self.numLeft, """</td>""", file=buffer)
@@ -1224,22 +1389,22 @@ class UpServer:
 
             try:
                 self.connected = int(self.connected)
-            except:
+            except Exception:
                 self.connected = 1
 
             try:
                 self.replay = int(self.replay)
-            except:
+            except Exception:
                 self.replay = 0
 
             try:
                 self.stopped = int(self.stopped)
-            except:
+            except Exception:
                 self.stopped = 0
 
             try:
                 self.chunks = int(self.chunks)
-            except:
+            except Exception:
                 self.chunks = -1
 
             self.tiersCount = self.tiers.count(";") + 1
@@ -1320,9 +1485,23 @@ class UpServer:
         else:
             trclass = ""
 
-        print("""<tr """, trclass, """><td align="right">""", self.displayName, """</td>""", file=buffer)
-        print("""<td align="right">""", self.numDrives, """</td>""", file=buffer)
-        print("""<td align="right">""", self.numWritableDrives, """</td>""", file=buffer)
+        print(
+            """<tr """,
+            trclass,
+            """><td align="right">""",
+            self.displayName,
+            """</td>""",
+            file=buffer,
+        )
+        print(
+            """<td align="right">""", self.numDrives, """</td>""", file=buffer
+        )
+        print(
+            """<td align="right">""",
+            self.numWritableDrives,
+            """</td>""",
+            file=buffer,
+        )
         print("""<td align="right">""", self.nwrites, """</td>""", file=buffer)
         if self.tiersCount > 0 and displayChunkServerStorageTiers:
             print(
@@ -1334,7 +1513,8 @@ class UpServer:
                 """
                             <span>
                             <div class="floatleft">
-                            <table class="sortable status-table-span" id="cs%stiers">"""
+                            <table class="sortable status-table-span"
+                                id="cs%stiers">"""
                 % count,
                 """
                             <thead><tr>
@@ -1347,7 +1527,9 @@ class UpServer:
                                 <th>%Used</th>
                              </tr></thead><tbody><tr><td>
                                 """,
-                self.tiers.replace(";", "</td></tr><tr><td>").replace(":", "</td><td>"),
+                self.tiers.replace(";", "</td></tr><tr><td>").replace(
+                    ":", "</td><td>"
+                ),
                 """
                             </td></tr></tbody></table></div></span>
                         </a>
@@ -1357,19 +1539,45 @@ class UpServer:
                 file=buffer,
             )
         else:
-            print("""<td align="right">""", self.tiersCount, """</td>""", file=buffer)
+            print(
+                """<td align="right">""",
+                self.tiersCount,
+                """</td>""",
+                file=buffer,
+            )
         print("""<td>""", "%.2e" % self.used, """</td>""", file=buffer)
         print("""<td>""", "%.2e" % self.free, """</td>""", file=buffer)
         print("""<td>""", "%.2e" % self.total, """</td>""", file=buffer)
-        print("""<td align="right">""", "%.2f" % self.util, """</td>""", file=buffer)
+        print(
+            """<td align="right">""",
+            "%.2f" % self.util,
+            """</td>""",
+            file=buffer,
+        )
         print("""<td align="right">""", self.nblocks, """</td>""", file=buffer)
         print("""<td align="right">""", self.chunks, """</td>""", file=buffer)
-        print("""<td align="right">""", self.lastheard, """</td>""", file=buffer)
-        print("""<td align="right">""", self.numReplications, """</td>""", file=buffer)
-        print("""<td align="right">""", self.numReadReplications, """</td>""", file=buffer)
-        print("""<td align="right">""", self.ncorrupt, """</td>""", file=buffer)
+        print(
+            """<td align="right">""", self.lastheard, """</td>""", file=buffer
+        )
+        print(
+            """<td align="right">""",
+            self.numReplications,
+            """</td>""",
+            file=buffer,
+        )
+        print(
+            """<td align="right">""",
+            self.numReadReplications,
+            """</td>""",
+            file=buffer,
+        )
+        print(
+            """<td align="right">""", self.ncorrupt, """</td>""", file=buffer
+        )
         print("""<td>""", "%.2e" % self.load, """</td>""", file=buffer)
-        print("""<td align="right">""", self.rack, """</td></tr>""", file=buffer)
+        print(
+            """<td align="right">""", self.rack, """</td></tr>""", file=buffer
+        )
 
 
 class RackNode:
@@ -1396,7 +1604,14 @@ class RackNode:
         if not self.wasStarted:
             trclass = "class=notstarted"
 
-        print("""<tr """, trclass, """><td align="center">""", self.displayName, """</td> </tr>""", file=buffer)
+        print(
+            """<tr """,
+            trclass,
+            """><td align="center">""",
+            self.displayName,
+            """</td> </tr>""",
+            file=buffer,
+        )
 
 
 def nodeIsNotUp(status, d):
@@ -1405,7 +1620,11 @@ def nodeIsNotUp(status, d):
 
 
 def nodeIsRetiring(status, u):
-    x = [r for r in status.retiringServers if u.host == r.host and u.port == r.port]
+    x = [
+        r
+        for r in status.retiringServers
+        if u.host == r.host and u.port == r.port
+    ]
     return len(x) > 0
 
 
@@ -1422,7 +1641,11 @@ def mergeDownUpNodes(status):
 
 def mergeRetiringUpNodes(status):
     """merge retiring nodes with up nodes"""
-    [u.setRetiring(status) for u in status.upServers if nodeIsRetiring(status, u)]
+    [
+        u.setRetiring(status)
+        for u in status.upServers
+        if nodeIsRetiring(status, u)
+    ]
 
 
 def processUpNodes(status, nodes):
@@ -1449,7 +1672,9 @@ def processEvacuatingNodes(status, nodes):
     servers = nodes.split("\t")
     if not servers:
         return
-    status.evacuatingServers = [EvacuatingServer(c) for c in servers if c != ""]
+    status.evacuatingServers = [
+        EvacuatingServer(c) for c in servers if c != ""
+    ]
     status.evacuatingServers.sort()
 
 
@@ -1717,7 +1942,9 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.logTotalRequestCount = int(info[84].split("=")[1])
     if len(info) < 86:
         return
-    systemInfo.logExceedLogQueueDepthFailureCount300SecAvg = int(info[85].split("=")[1])
+    systemInfo.logExceedLogQueueDepthFailureCount300SecAvg = int(
+        info[85].split("=")[1]
+    )
     if len(info) < 87:
         return
     systemInfo.watchDogPolls = int(info[86].split("=")[1])
@@ -1732,7 +1959,9 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.watchDogTimerOverrunUsecs = int(info[89].split("=")[1])
     if len(info) < 91:
         return
-    systemInfo.watchDogTimeSinseLastTimerOverrunUsecs = int(info[90].split("=")[1])
+    systemInfo.watchDogTimeSinseLastTimerOverrunUsecs = int(
+        info[90].split("=")[1]
+    )
     if len(info) < 92:
         return
     systemInfo.checkpointTimeSinceLastRunStart = int(info[91].split("=")[1])
@@ -1807,7 +2036,7 @@ def ping(status, metaserver):
                     status.systemInfo.wormMode = "Enabled"
                 else:
                     status.systemInfo.wormMode = "Disabled"
-            except:
+            except Exception:
                 pass
 
         if line.startswith("Build-version:"):
@@ -1815,11 +2044,15 @@ def ping(status, metaserver):
             continue
 
         if line.startswith("Source-version:"):
-            status.systemInfo.sourceVersion = line[line.find(":") + 1 :].strip()
+            status.systemInfo.sourceVersion = line[
+                line.find(":") + 1 :
+            ].strip()
             continue
 
         if line.startswith("System Info:"):
-            processSystemInfo(status.systemInfo, line[line.find(":") + 1 :].strip())
+            processSystemInfo(
+                status.systemInfo, line[line.find(":") + 1 :].strip()
+            )
             continue
 
         if line.startswith("Servers:"):
@@ -1827,7 +2060,9 @@ def ping(status, metaserver):
             continue
 
         if line.startswith("Storage tiers info names:"):
-            status.tiersColumnNames = line[line.find(":") + 1 :].strip().split("\t")
+            status.tiersColumnNames = (
+                line[line.find(":") + 1 :].strip().split("\t")
+            )
             continue
 
         if line.startswith("Storage tiers info:"):
@@ -1835,7 +2070,9 @@ def ping(status, metaserver):
             continue
 
         if line.startswith("Rebalance status:"):
-            status.rebalanceStatus = parse_fields(line, field_sep="\t", key_sep="=")
+            status.rebalanceStatus = parse_fields(
+                line, field_sep="\t", key_sep="="
+            )
             continue
 
         if line.startswith("Config:"):
@@ -1873,7 +2110,7 @@ def parse_fields(line, field_sep="\t", key_sep="="):
 
 def splitThousands(s, tSep=",", dSep="."):
     """Splits a general float on thousands. GIGO on general input"""
-    if s == None:
+    if s is None:
         return 0
     if not isinstance(s, str):
         s = str(s)
@@ -1909,7 +2146,8 @@ def printRackViewHTML(rack, servers, buffer):
     print(
         """
     <div class="floatleft">
-     <table class="network-status-table" cellspacing="0" cellpadding="0.1em" summary="Status of nodes in the rack """,
+     <table class="network-status-table" cellspacing="0" cellpadding="0.1em"
+        summary="Status of nodes in the rack """,
         rack,
         """ ">
      <tbody><tr><td><b>Rack : """,
@@ -1946,7 +2184,8 @@ def rackView(buffer, status):
         <tr class=dead><td></td><td>Dead Node</td></tr>
         <tr class=retiring><td></td><td>Retiring Node</td></tr>
         <tr class=><td ></td><td>Healthy</td></tr>
-        <tr class=overloaded><td></td><td>Healthy, but not enough space for writes</td></tr>
+        <tr class=overloaded><td></td><td>
+            Healthy, but not enough space for writes</td></tr>
       </tbody>
       </table>
       </td>
@@ -1996,7 +2235,9 @@ class ChunkHandler:
             return -1
         newInputBody = inputBody[index:]
         headers = newInputBody.split("&")
-        newHeaders = [header.strip()[5:].replace("%25", "%") for header in headers]
+        newHeaders = [
+            header.strip()[5:].replace("%25", "%") for header in headers
+        ]
         # newHeaders = [header.strip()[5:] for header in headers]
         # data MUMU=header1&MUMU=header22&MUMU=header3
 
@@ -2010,7 +2251,14 @@ class ChunkHandler:
         return theType
 
     def setIntervalData(
-        self, refreshInterval, predefinedHeaders, predefinedChunkDirHeaders, monthly, dayly, hourly, current
+        self,
+        refreshInterval,
+        predefinedHeaders,
+        predefinedChunkDirHeaders,
+        monthly,
+        dayly,
+        hourly,
+        current,
     ):
         self.interval = refreshInterval
         headers = []
@@ -2019,15 +2267,25 @@ class ChunkHandler:
         dirHeaders = []
         if predefinedChunkDirHeaders != "":
             dirHeaders = predefinedChunkDirHeaders.split("&")
-        self.chunkDataManager = ChunkDataManager(kServerName, headers, monthly, dayly, hourly, current)
-        self.countersDataManager = ChunkDataManager(None, None, monthly, dayly, hourly, current)
-        self.chunkDirDataManager = ChunkDataManager(kChunkDirName, dirHeaders, monthly, dayly, hourly, current)
+        self.chunkDataManager = ChunkDataManager(
+            kServerName, headers, monthly, dayly, hourly, current
+        )
+        self.countersDataManager = ChunkDataManager(
+            None, None, monthly, dayly, hourly, current
+        )
+        self.chunkDirDataManager = ChunkDataManager(
+            kChunkDirName, dirHeaders, monthly, dayly, hourly, current
+        )
 
     def startThread(self, serverHost, serverPort):
-        if self.chunkDataManager == None or self.countersDataManager == None or self.chunkDirDataManager == None:
+        if (
+            self.chunkDataManager is None
+            or self.countersDataManager is None
+            or self.chunkDirDataManager is None
+        ):
             print("ERROR - need to set the chunk intervals data first")
             return
-        if self.thread != None:
+        if self.thread is not None:
             return
 
         self.thread = ChunkThread(
@@ -2041,30 +2299,35 @@ class ChunkHandler:
         self.thread.start()
 
     def chunksToHTML(self, buffer):
-        if self.chunkDataManager == None:
+        if self.chunkDataManager is None:
             return 0
         self.chunkDataManager.lock.acquire()
         # print "deltaInterval", self.deltaInterval
         deltaList = self.chunkDataManager.getDelta()
 
         iRet = 0
-        if deltaList != None:
+        if deltaList is not None:
             HtmlPrintData(
-                kServerName, deltaList, self.chunkDataManager, "no", "Chunk Servers Status", "servers"
+                kServerName,
+                deltaList,
+                self.chunkDataManager,
+                "no",
+                "Chunk Servers Status",
+                "servers",
             ).printToHTML(buffer)
             iRet = 1
         self.chunkDataManager.lock.release()
         return iRet
 
     def chunkDirsToHTML(self, buffer):
-        if self.chunkDirDataManager == None:
+        if self.chunkDirDataManager is None:
             return 0
         self.chunkDirDataManager.lock.acquire()
         # print "deltaInterval", self.deltaInterval
         deltaList = self.chunkDirDataManager.getDelta()
 
         iRet = 0
-        if deltaList != None:
+        if deltaList is not None:
             HtmlPrintData(
                 kChunkDirName,
                 deltaList,
@@ -2078,21 +2341,23 @@ class ChunkHandler:
         return iRet
 
     def countersToHTML(self, buffer):
-        if self.countersDataManager == None:
+        if self.countersDataManager is None:
             return 0
         self.countersDataManager.lock.acquire()
         # print "deltaInterval", self.deltaInterval
         deltaList = self.countersDataManager.getDelta()
 
         iRet = 0
-        if deltaList != None:
-            HtmlPrintMetaData(deltaList, self.countersDataManager).printToHTML(buffer)
+        if deltaList is not None:
+            HtmlPrintMetaData(deltaList, self.countersDataManager).printToHTML(
+                buffer
+            )
             iRet = 1
         self.countersDataManager.lock.release()
         return iRet
 
     def chartsToHTML(self, buffer):
-        if self.chunkDataManager == None:
+        if self.chunkDataManager is None:
             return 0
         chartData = ChartData()
         self.chunkDataManager.lock.acquire()
@@ -2147,7 +2412,7 @@ class ChunkHandler:
                 dataManager = self.chunkDirDataManager
             else:
                 dataManager = self.chunkDataManager
-        if dataManager == None:
+        if dataManager is None:
             return
 
         value = self.getIntValue(inputStr, "refresh")
@@ -2155,7 +2420,7 @@ class ChunkHandler:
             dataManager.refreshInterval = value
 
         str1 = self.getValue(inputStr, "startTime")
-        if str1 != None:
+        if str1 is not None:
             dataManager.minusLatestTime = self.parseMinusTime(str1)
         else:
             dataManager.minusLatestTime = 0
@@ -2171,7 +2436,7 @@ class ChunkHandler:
 
     def getIntValue(self, inputStr, keyword):
         str1 = self.getValue(inputStr, keyword)
-        if str1 == None:
+        if str1 is None:
             return -1
         else:
             return int(str1)
@@ -2214,7 +2479,9 @@ class QueryCache:
     @staticmethod
     def GetMatchingCounters(chunkserverHosts):
         result = {}
-        chunkserverIndex = QueryCache.DIR_COUNTERS.chunkHeaders.index("Chunk-server")
+        chunkserverIndex = QueryCache.DIR_COUNTERS.chunkHeaders.index(
+            "Chunk-server"
+        )
         chunkDirIndex = QueryCache.DIR_COUNTERS.chunkHeaders.index("Chunk-dir")
         for entry in QueryCache.DIR_COUNTERS.chunkServers:
             dirResult = {}
@@ -2235,7 +2502,8 @@ class QueryCache:
         global metaserverPort, metaserverHost
         if time.time() - QueryCache.TIME < QueryCache.REFRESH_INTERVAL:
             if len(QueryCache.DIR_COUNTERS.chunkServers) > 0:
-                # print "Using cached numbers:", QueryCache.DIR_COUNTERS.printDebug()
+                # print("Using cached numbers:",
+                #   QueryCache.DIR_COUNTERS.printDebug())
                 return QueryCache.GetMatchingCounters(chunkserverHosts)
         dir_counters = ChunkServerData()
         req = REQUEST_GET_DIRS_COUNTERS
@@ -2314,14 +2582,23 @@ class QFSQueryHandler:
             status = Status()
             try:
                 ping(status, metaserver)
-                print(json.dumps(status.__dict__, cls=ObjectEncoder), file=buffer)
+                print(
+                    json.dumps(status.__dict__, cls=ObjectEncoder), file=buffer
+                )
                 return (200, "")
             except IOError:
                 return (504, "Unable to ping metaserver")
         elif queryPath.startswith("/query/chunkserverdirs/"):
             try:
-                hostsToMatch = queryPath[len("/query/chunkserverdirs/") :].split("&")
-                print(json.dumps(QueryCache.GetChunkServerCounters(set(hostsToMatch))), file=buffer)
+                hostsToMatch = queryPath[
+                    len("/query/chunkserverdirs/") :
+                ].split("&")
+                print(
+                    json.dumps(
+                        QueryCache.GetChunkServerCounters(set(hostsToMatch))
+                    ),
+                    file=buffer,
+                )
                 return (200, "")
             except IOError:
                 return (504, "Unable to ping metaserver")
@@ -2330,7 +2607,9 @@ class QFSQueryHandler:
 
 class Pinger(SimpleHTTPRequestHandler):
     def __init__(self, request, client_address, server):
-        SimpleHTTPRequestHandler.__init__(self, request, client_address, server)
+        SimpleHTTPRequestHandler.__init__(
+            self, request, client_address, server
+        )
 
     def setMeta(self, meta):
         self.metaserver = meta
@@ -2338,7 +2617,7 @@ class Pinger(SimpleHTTPRequestHandler):
     def sendErrorResponse(self, code, msg):
         self.send_response(code)
 
-        body = f"error {msg}".encode("utf-8")
+        body = ("error %s" % msg).encode("utf-8")
         # Send standard HTP headers
         self.send_header("Content-type", "text/html; charset=utf-8")
         self.send_header("Connection", "close")
@@ -2351,7 +2630,7 @@ class Pinger(SimpleHTTPRequestHandler):
     def do_POST(self):
         global gChunkHandler
         try:
-            interval = 60  # todo
+            # interval = 60  # todo
 
             clen = int(self.headers.get("Content-Length").strip())
             if clen <= 0:
@@ -2388,8 +2667,8 @@ class Pinger(SimpleHTTPRequestHandler):
                 self.send_response(400)
                 return
 
-            reqHost = self.headers.get("Host")
-            refresh = "%d ; URL=http://%s%s" % (interval, reqHost, self.path)
+            # reqHost = self.headers.get("Host")
+            # refresh = "%d ; URL=http://%s%s" % (interval, reqHost, self.path)
 
             self.send_response(200)
             self.send_header("Content-type", "text/html")
@@ -2402,8 +2681,9 @@ class Pinger(SimpleHTTPRequestHandler):
             print("Unable to post to metaserver, IO error")
             self.send_error(504, "Unable to post to metaserver, IO error")
         except Exception as e:
-            print(f"Unable to post to metaserver, {e}")
-            self.send_error(504, f"Unable to post to metaserver, {e}")
+            err = "Unable to post to metaserver %s" % e
+            print(err)
+            self.send_error(504, err)
 
     def do_GET(self):
         global metaserverPort, metaserverHost, docRoot
@@ -2417,11 +2697,13 @@ class Pinger(SimpleHTTPRequestHandler):
                 fpath = os.path.abspath(os.path.join(docRoot, self.path[7:]))
                 try:
                     self.send_response(200)
-                    self.send_header("Content-length", str(os.path.getsize(fpath)))
+                    self.send_header(
+                        "Content-length", str(os.path.getsize(fpath))
+                    )
                     self.end_headers()
                     self.copyfile(urlopen("file://" + fpath), self.wfile)
                 except IOError:
-                    print(f" failed to find file: {'file://' + fpath} ")
+                    print("failed to find file: file://" + fpath)
                     self.send_error(404, "Not found")
                 return
 
@@ -2429,19 +2711,25 @@ class Pinger(SimpleHTTPRequestHandler):
                 fpath = os.path.abspath(self.path[1:])
                 try:
                     self.send_response(200)
-                    self.send_header("Content-length", str(os.path.getsize(fpath)))
+                    self.send_header(
+                        "Content-length", str(os.path.getsize(fpath))
+                    )
                     self.end_headers()
                     self.copyfile(urlopen("file://" + fpath), self.wfile)
                 except IOError:
-                    print(f" failed to find chart file: {'file://' + fpath} ")
+                    print("failed to find chart file: file://" + fpath)
                     self.send_error(404, "Not found")
                 return
 
-            metaserver = ServerLocation(node=metaserverHost, port=metaserverPort)
+            metaserver = ServerLocation(
+                node=metaserverHost, port=metaserverPort
+            )
             txtStream = StringIO()
 
             if self.path.startswith("/query/"):
-                (ret, msg) = QFSQueryHandler.HandleQuery(self.path, metaserver, txtStream)
+                (ret, msg) = QFSQueryHandler.HandleQuery(
+                    self.path, metaserver, txtStream
+                )
                 if ret != 200:
                     self.send_error(ret, msg)
                     return
@@ -2453,7 +2741,7 @@ class Pinger(SimpleHTTPRequestHandler):
                 self.wfile.write(bytes_array)
                 return
 
-            if gChunkHandler.thread == None:
+            if gChunkHandler.thread is None:
                 gChunkHandler.startThread(metaserverHost, metaserverPort)
 
             status = None
@@ -2485,7 +2773,8 @@ class Pinger(SimpleHTTPRequestHandler):
                         <P> <A href="/">Back</A>
                         </P>
                         <div class="floatleft">
-                        <table class="sortable network-status-table" id="configtable">
+                        <table class="sortable network-status-table"
+                            id="configtable">
                         <caption> """,
                     title,
                     """ </caption>
@@ -2502,7 +2791,14 @@ class Pinger(SimpleHTTPRequestHandler):
                     file=txtStream,
                 )
                 for k in keyvals:
-                    print("<tr><td>", htmlEscape(k), "</td><td>", htmlEscape(keyvals[k]), "</td></tr>", file=txtStream)
+                    print(
+                        "<tr><td>",
+                        htmlEscape(k),
+                        "</td><td>",
+                        htmlEscape(keyvals[k]),
+                        "</td></tr>",
+                        file=txtStream,
+                    )
                 print(
                     """
                         </tbody>
@@ -2520,7 +2816,10 @@ class Pinger(SimpleHTTPRequestHandler):
                 status = Status()
                 ping(status, metaserver)
                 if gJsonSupported:
-                    print(json.dumps(status.config, sort_keys=True, indent=0), file=txtStream)
+                    print(
+                        json.dumps(status.config, sort_keys=True, indent=0),
+                        file=txtStream,
+                    )
                 else:
                     print(status.config, file=txtStream)
                 self.path = "/"
@@ -2529,7 +2828,10 @@ class Pinger(SimpleHTTPRequestHandler):
                 status = Status()
                 ping(status, metaserver)
                 if gJsonSupported:
-                    print(json.dumps(status.vrStatus, sort_keys=True, indent=0), file=txtStream)
+                    print(
+                        json.dumps(status.vrStatus, sort_keys=True, indent=0),
+                        file=txtStream,
+                    )
                 else:
                     print(status.vrStatus, file=txtStream)
                 self.path = "/"
@@ -2562,10 +2864,19 @@ class Pinger(SimpleHTTPRequestHandler):
                     self.send_error(404, "Not found")
                     return
             elif reqType == kBrowse and gQfsBrowser.browsable:
-                if gQfsBrowser.printToHTML(self.path, metaserverHost, metaserverPort, txtStream) == 0:
+                if (
+                    gQfsBrowser.printToHTML(
+                        self.path, metaserverHost, metaserverPort, txtStream
+                    )
+                    == 0
+                ):
                     self.send_error(404, "Not found")
                     return
-            elif reqType != cMeta and reqType != kConfig and reqType != kVrStatus:
+            elif (
+                reqType != cMeta
+                and reqType != kConfig
+                and reqType != kVrStatus
+            ):
                 status = Status()
                 ping(status, metaserver)
                 printStyle(txtStream, "QFS Status")
@@ -2575,14 +2886,19 @@ class Pinger(SimpleHTTPRequestHandler):
             if self.path.startswith("/cluster-view"):
                 rackView(txtStream, status)
             else:
-                if reqType == None:
+                if reqType is None:
                     status.systemStatus(txtStream)
                 reqHost = self.headers.get("Host")
                 if reqHost is not None and autoRefresh > 0:
-                    if reqType != None:
+                    if reqType is not None:
                         refresh = None
                     else:
-                        refresh = str(autoRefresh) + " ; URL=http://" + reqHost + self.path
+                        refresh = (
+                            str(autoRefresh)
+                            + " ; URL=http://"
+                            + reqHost
+                            + self.path
+                        )
 
             self.send_response(200)
             if reqType != cMeta:
@@ -2600,8 +2916,9 @@ class Pinger(SimpleHTTPRequestHandler):
             print("Unable to ping metaserver, IO error")
             self.send_error(504, "Unable to ping metaserver, IO error")
         except Exception as e:
-            print(f"Unable to ping metaserver, {e}")
-            self.send_error(504, f"Unable to ping metaserver, {e}")
+            msg = "Unable to ping metaserver, " + str(e)
+            print(msg)
+            self.send_error(504, msg)
 
 
 def parseChunkConfig(config):
@@ -2610,26 +2927,28 @@ def parseChunkConfig(config):
     predefinedChunkDirHeaders = ""
     try:
         refreshInterval = config.getint("chunk", "refreshInterval")
-    except:
+    except Exception:
         pass
     try:
         predefinedHeaders = config.get("chunk", "predefinedHeaders")
-    except:
+    except Exception:
         pass
     try:
-        predefinedChunkDirHeaders = config.get("chunk", "predefinedChunkDirHeaders")
-    except:
+        predefinedChunkDirHeaders = config.get(
+            "chunk", "predefinedChunkDirHeaders"
+        )
+    except Exception:
         pass
 
     theSize = 10
     timespan = 10
     try:
         theSize = config.getint("chunk", "currentSize")
-    except:
+    except Exception:
         pass
     try:
         timespan = config.getint("chunk", "currentSpan")
-    except:
+    except Exception:
         pass
     current = ChunkArrayData(timespan, theSize)
 
@@ -2637,11 +2956,11 @@ def parseChunkConfig(config):
     timespan = 120
     try:
         theSize = config.getint("chunk", "hourlySize")
-    except:
+    except Exception:
         pass
     try:
         timespan = config.getint("chunk", "hourlySpan")
-    except:
+    except Exception:
         pass
     hourly = ChunkArrayData(timespan, theSize)
 
@@ -2649,11 +2968,11 @@ def parseChunkConfig(config):
     timespan = 120
     try:
         theSize = config.getint("chunk", "daylySize")
-    except:
+    except Exception:
         pass
     try:
         timespan = config.getint("chunk", "daylySpan")
-    except:
+    except Exception:
         pass
     dayly = ChunkArrayData(timespan, theSize)
 
@@ -2661,16 +2980,22 @@ def parseChunkConfig(config):
     timespan = 120
     try:
         theSize = config.getint("chunk", "monthlySize")
-    except:
+    except Exception:
         pass
     try:
         timespan = config.getint("chunk", "monthlySpan")
-    except:
+    except Exception:
         pass
     monthly = ChunkArrayData(timespan, theSize)
 
     gChunkHandler.setIntervalData(
-        int(refreshInterval), predefinedHeaders, predefinedChunkDirHeaders, monthly, dayly, hourly, current
+        int(refreshInterval),
+        predefinedHeaders,
+        predefinedChunkDirHeaders,
+        monthly,
+        dayly,
+        hourly,
+        current,
     )
 
 
@@ -2689,40 +3014,44 @@ if __name__ == "__main__":
     gQfsBrowser = QFSBrowser()
 
     config = configparser.ConfigParser()
-    config.read_file(open(sys.argv[1]))
+    config.read(sys.argv[1])
     metaserverPort = config.getint("webserver", "webServer.metaserverPort")
     try:
         metaserverHost = config.get("webserver", "webServer.metaserverHost")
-    except:
+    except Exception:
         pass
     try:
         autoRefresh = config.getint("webserver", "webServer.autoRefresh")
-    except:
+    except Exception:
         pass
     try:
         displayPorts = config.getboolean("webserver", "webServer.displayPorts")
-    except:
+    except Exception:
         pass
     try:
         socketTimeout = config.getint("webserver", "webServer.socketTimeout")
-    except:
+    except Exception:
         socketTimeout = 90
         pass
     try:
-        displayChunkServerStorageTiers = config.getboolean("webserver", "webServer.displayChunkServerStorageTiers")
-    except:
+        displayChunkServerStorageTiers = config.getboolean(
+            "webserver", "webServer.displayChunkServerStorageTiers"
+        )
+    except Exception:
         displayChunkServerStorageTiers = True
         pass
     docRoot = config.get("webserver", "webServer.docRoot")
     try:
         HOST = config.get("webserver", "webServer.host")
-    except:
+    except Exception:
         HOST = "0.0.0.0"
         pass
     myWebserverPort = config.getint("webserver", "webServer.port")
     try:
-        objectStoreMode = config.getboolean("webserver", "webServer.objectStoreMode")
-    except:
+        objectStoreMode = config.getboolean(
+            "webserver", "webServer.objectStoreMode"
+        )
+    except Exception:
         objectStoreMode = False
         pass
     if metaserverHost != "127.0.0.1" and metaserverHost != "localhost":
@@ -2739,7 +3068,7 @@ if __name__ == "__main__":
     pidf = ""
     try:
         pidf = config.get("webserver", "webServer.pidFile")
-    except:
+    except Exception:
         pass
     if 0 < len(pidf):
         f = open(pidf, "w")

@@ -1,15 +1,47 @@
+# QFS release notes
+
+## QFS version 2.2.7
+
+## New features
+
+1. Support for python3. Native / platform independent python code is now
+compatible with python2 and python3, including QFS meta server web UI and meta
+server backup script. QFS python module / bindings now is only compatible with
+python3, and python2 is no longer supported.
+
+2. All required QFS shared libraries are now installed along with QFS python
+module, making QFS module installation self contained. On macOS and linux
+runtime relative linker paths are now used in order to make installed QFS shared
+libraries relocatable. With this explicitly specifying QFS libraries runtime
+linkers paths with python module is no longer required. Python QFS module wheel
+is now built and included into QFS tarball.
+
+## Minor improvements
+
+1. Benchmarks mstress build now uses maven instead of ant, and is now included
+in QFS build and tarball by default.
+
+2. QFS python module is now built, tested, and included into QFS tarball if
+python 3.6 or higher is available.
+
+3. ARM Neon support is now enabled for QFS Reed-Solomon and GF complete
+libraries on Mac OS with Apple silicon.
+
 ## QFS version 2.2.6
 
 ## New features
+
 1. Added go language bindings.
 
 ## Bug fixes
+
 1. Increase default watchdog poll interval by 0.15 to 1.15 seconds in order to
 avoid spurious timeouts during idle time due to 1 second default net manager
 sleep interval. Change poll interval dependent default parameters calculation
 accordingly.
 
-## Minor improvements.
+## Minor improvements
+
 1. Additional object store chunk server / AP assignment modes. One is choose AP
 with matching rack only (i.e. with no fall back to choosing from all available
 APs), and the other is to choose AP with with matching rack only if client rack
@@ -100,7 +132,8 @@ theory, connection might never get out of this state.
 15. Added support for org.apache.hadoop.fs.FileSystem.getScheme(). This method
 is used by Spark NLP, and possibly other packages.
 
-## Minor improvements.
+## Minor improvements
+
 1. Meta server: simplify log chunk in flight RPC handling given that now the RPC
 can no longer be en-queued after the first teardown attempt when meta chunk
 server bye RPC for a given chunk server is en-queued. Implement backward
@@ -123,6 +156,7 @@ to be used for debugging and recovery.
 ## QFS version 2.2.4
 
 ## Bug fixes
+
 1. Meta server: fix condition reversal in rename RPC WORM mode specific handling
    logic resulting treating files with .tmp suffix as files with no such suffix
    and the other way around.
@@ -269,7 +303,7 @@ making progress due to likely server and / or OS malfunction.
 ## New features
 
 1. Non blocking DNS resolver. Resolver implementation at
-   https://github.com/wahern/dns is used by default. It is possible to configure
+   <https://github.com/wahern/dns> is used by default. It is possible to configure
    QFS to use OS DNS resolver. DNS related configuration options are described
    in the annotated [configuration
    files](https://github.com/quantcast/qfs/tree/master/conf)
@@ -289,11 +323,11 @@ making progress due to likely server and / or OS malfunction.
 
 3. Fixed file system URL parsing in QFS tool.
 
-## Upgrade from 2.0. release.
+## Upgrade from 2.0. release
 
 The 2.0.1 release is backward and forward compatible with 2.0 release.
 
-## QFS version 2.0.
+## QFS version 2.0
 
 ## New features
 

@@ -903,9 +903,9 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_EOM;
         return false;
     }
-    const bool veifyAllLogSegmentsPresentFlag = mStartupProperties.getValue(
-        "metaServer.veifyAllLogSegmentsPresent", 0) != 0;
-    replayer.verifyAllLogSegmentsPreset(veifyAllLogSegmentsPresentFlag);
+    const bool verifyAllLogSegmentsPresentFlag = mStartupProperties.getValue(
+        "metaServer.verifyAllLogSegmentsPresent", 0) != 0;
+    replayer.verifyAllLogSegmentsPresent(verifyAllLogSegmentsPresentFlag);
     replayer.setLogDir(mLogDir.c_str());
     bool writeCheckpointFlag = false;
     if (! createEmptyFsFlag &&
@@ -920,7 +920,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 mLogDir.c_str(),
                 mStartupProperties.getValue(
                     "metaServer.cleanupTempFiles", 1) != 0,
-                ! veifyAllLogSegmentsPresentFlag,
+                ! verifyAllLogSegmentsPresentFlag,
                 mMetaMd.c_str()))) {
             if (-ENXIO == status) {
                 KFS_LOG_STREAM_FATAL <<
@@ -1067,7 +1067,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 mLogDir.c_str(),
                 mStartupProperties.getValue(
                     "metaServer.cleanupTempFiles", 1) != 0,
-                ! veifyAllLogSegmentsPresentFlag,
+                ! verifyAllLogSegmentsPresentFlag,
                 mMetaMd.c_str())) {
             return false;
         }

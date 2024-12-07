@@ -38,6 +38,7 @@
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcdebug.h"
 #include "qcdio/qcstutils.h"
+#include "qcdio/qcdefs.h"
 
 #include "kfsio/Base64.h"
 #include "kfsio/TransactionalClient.h"
@@ -2028,7 +2029,10 @@ private:
                 if (mReq.mClearBufferPtr) {
                     mReq.mClearBufferPtr->mBufferPtr = 0;
                 }
+QC_GCC_13_PRAGMA(GCC diagnostic push)
+QC_GCC_13_PRAGMA(GCC diagnostic ignored "-Wdangling-pointer")
                 mReq.mClearBufferPtr = this;
+QC_GCC_13_PRAGMA(GCC diagnostic pop)
             }
             ~StClearBuffer()
             {

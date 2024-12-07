@@ -28,6 +28,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/time.h>
 #include <iostream>
 #include <fstream>
@@ -36,6 +37,10 @@
 #include <vector>
 #include <queue>
 #include <algorithm>
+
+#if __cplusplus >= 201103L
+#include <random>
+#endif
 
 using namespace std;
 
@@ -197,7 +202,13 @@ void unique_random(vector<size_t>& result, size_t range)
     result[i] = i;
   }
 
-  random_shuffle(result.begin(), result.end() ) ;
+#if __cplusplus < 201103L
+  random_shuffle(result.begin(), result.end()) ;
+#else
+  random_device dev;
+  mt19937       gen(dev());
+  shuffle(result.begin(), result.end(), gen);
+#endif
 }
 
 void parse_options(int argc, char* argv[], Client* client)
@@ -330,7 +341,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
   bool isLeaf = (level + 1 >= client->levels_);
   bool isDir =isLeaf ? (client->type_ == "dir") : true;
   char name[512];
-  strncpy(name, client->prefix_.c_str(), 512);
+  strncpy(name, client->prefix_.c_str(), sizeof(name) / sizeof(name[0]) - 1);
   for (int i = 0; i < client->inodesPerLevel_; i++) {
     myitoa(i, name + client->prefixLen_);
     client->path_.Push(name);
@@ -414,8 +425,11 @@ int StatDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
   for (int count = 0; count < client->pathsToStat_; count++) {
     client->path_.Reset();
     client->path_.Push(os.str().c_str());
-    char name[4096];
-    strncpy(name, client->prefix_.c_str(), client->prefixLen_);
+    const size_t max_name_len=4096;
+    char name[max_name_len + 1];
+    strncpy(name, client->prefix_.c_str(),
+            client->prefixLen_ < max_name_len ?
+            client->prefixLen_ : max_name_len);
 
     for (int d = 0; d < client->levels_; d++) {
       int randIdx = rand() % client->inodesPerLevel_;

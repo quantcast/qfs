@@ -1,17 +1,17 @@
 # gf-complete autoconf template
 
 # FIXME - add project url as the last argument
-AC_INIT(gf-complete, 1.0)
+AC_INIT([gf-complete],[1.0])
 
 # Override default CFLAGS
 : ${CFLAGS="-Wall -Wpointer-arith -O3 -g"}
 
-AC_PREREQ([2.61])
+AC_PREREQ([2.71])
 
 AM_INIT_AUTOMAKE([no-dependencies foreign parallel-tests])
 LT_INIT # libtool
 
-AC_CONFIG_HEADER(include/config.h)
+AC_CONFIG_HEADERS([include/config.h])
 
 dnl Needed when reconfiguring with 'autoreconf -i -s'
 AC_CONFIG_MACRO_DIR([m4])

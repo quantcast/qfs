@@ -21,7 +21,7 @@
 // permissions and limitations under the License.
 //
 // Thread wrapper implementation.
-// 
+//
 //----------------------------------------------------------------------------
 
 #include "QCThread.h"

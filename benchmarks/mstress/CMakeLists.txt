@@ -19,27 +19,33 @@
 # Build the C++ mstress benchmark
 #
 
-add_executable (mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
+add_executable(mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
 
-IF (USE_STATIC_LIB_LINKAGE)
-    add_dependencies (mstress_client kfsClient)
-    target_link_libraries (mstress_client kfsClient)
-ELSE (USE_STATIC_LIB_LINKAGE)
-    add_dependencies (mstress_client kfsClient-shared)
-    target_link_libraries (mstress_client kfsClient-shared)
-ENDIF (USE_STATIC_LIB_LINKAGE)
+IF(USE_STATIC_LIB_LINKAGE)
+    add_dependencies(mstress_client kfsClient)
+    target_link_libraries(mstress_client kfsClient)
+ELSE(USE_STATIC_LIB_LINKAGE)
+    add_dependencies(mstress_client kfsClient-shared)
+    target_link_libraries(mstress_client kfsClient-shared)
+ENDIF(USE_STATIC_LIB_LINKAGE)
 
-add_custom_command (
+add_custom_command(
     OUTPUT mstress.jar
-    COMMAND ant -f ${CMAKE_CURRENT_SOURCE_DIR}/build.xml
-    DEPENDS MStress_Client.java
-    COMMENT The HDFS mstress client bundled as a jar.
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../../src/java/javabuild.sh
+    -d ${CMAKE_CURRENT_SOURCE_DIR}
+    -v ${CMAKE_CURRENT_SOURCE_DIR}/../../src/cc/common/buildversgit.sh
+    --
+    -DbuildDirectory=${CMAKE_CURRENT_BINARY_DIR}
+    -Dhadoop.release.version=2.10.1
+    package
+    DEPENDS src/main/java/com/quantcast/qfs/mstress/MStress_Client.java pom.xml
+    COMMENT "The HDFS mstress client bundled as a jar."
     VERBATIM
 )
 
-add_custom_target (mstress DEPENDS mstress_client mstress.jar)
+add_custom_target(mstress DEPENDS mstress_client mstress.jar)
 
-set (mstress_scripts
+set(mstress_scripts
     mstress_plan.py
     mstress_run.py
     mstress.py
@@ -47,66 +53,72 @@ set (mstress_scripts
     mstress_install.sh
 )
 
-foreach (script ${mstress_scripts})
-    add_custom_command (
+foreach(script ${mstress_scripts})
+    add_custom_command(
         OUTPUT ${script}
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${script} ${CMAKE_CURRENT_BINARY_DIR}/
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${script}
+        ${CMAKE_CURRENT_BINARY_DIR}/
     )
 endforeach(script)
 
-add_custom_target (
+add_custom_target(
     mstress-scripts
     DEPENDS ${mstress_scripts}
-    COMMENT Copy mstress scripts to build directory.
+    COMMENT "Copy mstress scripts to build directory."
 )
 
-add_custom_target (
+add_custom_target(
     mstress-tarball
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress.tgz
-                mstress/mstress_client
-                mstress/mstress.jar
-                mstress/*.py
-                mstress/*.sh
-    DEPENDS mstress_client mstress.jar
-    COMMENT Bundle mstress files in a tar archive.
+    mstress/mstress_client
+    mstress/mstress.jar
+    mstress/*.py
+    mstress/*.sh
+    DEPENDS mstress
+    COMMENT "Bundle mstress files in a tar archive."
 )
 add_dependencies(mstress-tarball mstress-scripts)
 
-if (${CMAKE_MAJOR_VERSION} LESS 2)
-elseif (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-elseif (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
-        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 12)
-    set (cmake_use_target_property ON)
-endif (${CMAKE_MAJOR_VERSION} LESS 2)
+if(${CMAKE_MAJOR_VERSION} LESS 2)
+elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+    ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 12)
+    set(cmake_use_target_property ON)
+endif(${CMAKE_MAJOR_VERSION} LESS 2)
 
-if (${cmake_use_target_property})
-    get_target_property (metaserver_location metaserver LOCATION)
-    get_target_property (chunkserver_location chunkserver LOCATION)
-else (${cmake_use_target_property})
-    set (metaserver_location $<TARGET_FILE:metaserver)
-    set (chunkserver_location $<TARGET_FILE:chunkserver)
-endif (${cmake_use_target_property})
+if(${cmake_use_target_property})
+    get_target_property(metaserver_location metaserver LOCATION)
+    get_target_property(chunkserver_location chunkserver LOCATION)
+else(${cmake_use_target_property})
+    set(metaserver_location "$<TARGET_FILE:metaserver>")
+    set(chunkserver_location "$<TARGET_FILE:chunkserver>")
+endif(${cmake_use_target_property})
 
-add_custom_target (
+add_custom_target(
     mstress-bootstrap
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location} ${CMAKE_CURRENT_BINARY_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui ${CMAKE_CURRENT_BINARY_DIR}/webui
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/examples/sampleservers/sample_setup.py ${CMAKE_CURRENT_BINARY_DIR}/setup.py
+    COMMAND ${CMAKE_COMMAND} -E copy ${metaserver_location}
+    ${CMAKE_CURRENT_BINARY_DIR}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy ${chunkserver_location}
+    ${CMAKE_CURRENT_BINARY_DIR}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${KFS_DIR_PREFIX}/webui
+    ${CMAKE_CURRENT_BINARY_DIR}/webui
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${KFS_DIR_PREFIX}/examples/sampleservers/sample_setup.py
+    ${CMAKE_CURRENT_BINARY_DIR}/setup.py
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
-                mstress/mstress_client
-                mstress/mstress.jar
-                mstress/*.py
-                mstress/*.sh
-                mstress/bin/metaserver
-                mstress/bin/chunkserver
-                mstress/webui
-    DEPENDS mstress_client mstress.jar metaserver chunkserver
-    COMMENT Bundle mstress files along with QFS binaries.
+    mstress/mstress_client
+    mstress/mstress.jar
+    mstress/*.py
+    mstress/*.sh
+    mstress/bin/metaserver
+    mstress/bin/chunkserver
+    mstress/webui
+    DEPENDS mstress metaserver chunkserver
+    COMMENT "Bundle mstress files along with QFS binaries."
 )
 add_dependencies(mstress-bootstrap mstress-scripts)
 
-set_directory_properties (PROPERTIES
+set_directory_properties(PROPERTIES
     ADDITIONAL_MAKE_CLEAN_FILES "../mstress.tgz;mstress.jar;${mstress_scripts}"
 )

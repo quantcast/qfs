@@ -1,3 +1,3 @@
 # Changes
 
-https://github.com/quantcast/qfs/wiki/Release-Notes
+<https://github.com/quantcast/qfs/wiki/Release-Notes>

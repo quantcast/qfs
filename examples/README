@@ -24,33 +24,33 @@
 
 This directory contains the following contents:
 
-1. cc/kfssample_main.cc
+1. cc/qfssample_main.cc
    cc/CMakeLists.txt
   The C++ client to access QFS. The binary gets compiled as part of QFS build
   (please refer to QFS Wiki Developer-Documentation), and the sample gets
   copied to the <build>/bin/examples directory where <build> is the selected
   build directory.
 
-2. java/KfsSample.java
+2. java/QfsSample.java
   The Java client to access QFS.
   To compile:
    $ cd examples/java/
-   $ javac -classpath ../../build/qfs-*.jar KfsSample.java
+   $ javac -classpath ../../build/qfs-*.jar QfsSample.java
   To run, assuming that make install was performed in ../../build/release,
   or top level make was invoked with no or default target:
    $ libdir="`cd ../../build/release/lib && pwd`"
    $ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}"
    $ qfsjar=`echo ../../build/qfs-*.jar`
-   $ java -Djava.library.path="$libdir" -classpath ".:$qfsjar" KfsSample 127.0.0.1 20000
+   $ java -Djava.library.path="$libdir" -classpath ".:$qfsjar" QfsSample 127.0.0.1 20000
   (Note: on OS X, use DYLD_LIBRARY_PATH instead of LD_LIBRARY_PATH)
 
-3. python/kfssample.py
-   python/kfssample.cfg
+3. python/qfssample.py
+   python/qfssample.cfg
   Python support is at experimental stage now. Nevertheless, one can run this
   example to access QFS via python. The QFS Wiki Developer-Documentation
   explains how to build and install the python QFS extension module.
-  To run the kfssample.py, please set your PYTHONPATH and LD_LIBRARY_PATH
-  accordingly and point it to a QFS metaserver via the kfssample.cfg.
+  To run the qfssample.py, please install qfs python module, and modify
+  qfssample.cfg to point to a QFS metaserver.
 
 4. sampleservers
   Directory with a python script to bring up a simple QFS server locally.

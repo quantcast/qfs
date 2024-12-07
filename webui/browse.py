@@ -22,6 +22,8 @@
 # File system lister / browser.
 #
 
+from __future__ import print_function
+
 import os
 import stat
 import sys
@@ -30,12 +32,24 @@ gBrowsable = True
 try:
     import qfs
 except ImportError:
-    sys.stderr.write("Warning: %s. Proceeding without file browser.\n" % str(sys.exc_info()[1]))
+    sys.stderr.write(
+        "Warning: %s. Proceeding without file browser.\n"
+        % str(sys.exc_info()[1])
+    )
     gBrowsable = False
 
 
 class QFSBrowser:
-    PERMISSIONS = {0: "---", 1: "--x", 2: "-w-", 3: "-wx", 4: "r--", 5: "r-x", 6: "rw-", 7: "rwx"}
+    PERMISSIONS = {
+        0: "---",
+        1: "--x",
+        2: "-w-",
+        3: "-wx",
+        4: "r--",
+        5: "r-x",
+        6: "rw-",
+        7: "rwx",
+    }
     browsable = True
 
     def __init__(self):
@@ -81,7 +95,8 @@ class QFSBrowser:
 
         print(
             """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"\
+ "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -94,18 +109,29 @@ class QFSBrowser:
         <P><A href="/"><U>Go back to QFS home</U></A></P>
         <table border="1" cellpadding="2" cellspacing="2">
           <tbody>
-            <tr><td style="vertical-align: top;background-color:LightGrey;"><B>Name</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Type</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Size</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Replication</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Data Stripes</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Recovery Stripes</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Modification Time</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Permission</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Owner</B><br></td>
-                <td style="vertical-align: top;background-color:LightGrey;"><B>Group</B><br></td>
+            <tr><td style="vertical-align: top;background-color:LightGrey;">
+            <B>Name</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Type</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Size</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Replication</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Data Stripes</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Recovery Stripes</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Modification Time</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Permission</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Owner</B><br></td>
+                <td style="vertical-align: top;background-color:LightGrey;">
+                <B>Group</B><br></td>
             </tr>
-            <tr><td style="vertical-align: top;background-color:LightBlue;"><B><a href="/browse-it%s">..</a></B><br></td>
+            <tr><td style="vertical-align: top;background-color:LightBlue;">
+                <B><a href="/browse-it%s">..</a></B><br></td>
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
                 <td style="background-color:LightBlue;"><br></td>
@@ -143,7 +169,9 @@ class QFSBrowser:
             target = "/browse-it%s" % path
             print(
                 """
-                <tr><td style="vertical-align: top;background-color:LightBlue;"><B><a href="%s">%s</a></B><br></td>
+                <tr><td style="vertical-align: top;
+                    background-color:LightBlue;">
+                <B><a href="%s">%s</a></B><br></td>
                 """
                 % (target, info[0]),
                 file=buffer,
@@ -151,7 +179,8 @@ class QFSBrowser:
         else:
             print(
                 """
-                <tr><td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
+                <tr><td style="vertical-align:
+                    top;background-color:LightBlue;"><B>%s</B><br></td>
                 """
                 % info[0],
                 file=buffer,
@@ -159,15 +188,24 @@ class QFSBrowser:
 
         print(
             """
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
-                <td style="vertical-align: top;background-color:LightBlue;"><B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
+                <td style="vertical-align: top;background-color:LightBlue;">
+                <B>%s</B><br></td>
             </tr>"""
             % (
                 info[5],
@@ -187,10 +225,20 @@ class QFSBrowser:
         client = qfs.client((host, port))
         self.startHTML(directory, buffer)
         dirPath = os.path.join("/", directory)
-        for info in client.readdirplus(dirPath):
-            if info[0] in (".", ".."):
-                continue
-            pathEntry = os.path.join(dirPath, info[0])
-            fullStat = client.fullstat(pathEntry)
-            self.contentHTML(pathEntry, info, fullStat, buffer)
+        try:
+            for info in client.readdirplus(dirPath):
+                if info[0] in (".", ".."):
+                    continue
+                pathEntry = os.path.join(dirPath, info[0])
+                fullStat = client.fullstat(pathEntry)
+                self.contentHTML(pathEntry, info, fullStat, buffer)
+        except Exception as ex:
+            print(
+                """
+                <tr><td style="vertical-align: top;
+                    background-color:LightBlue;"><B>%s: %s</B><br></td><tr>
+                """
+                % (dirPath, str(ex)),
+                file=buffer,
+            )
         self.endHTML(buffer)
