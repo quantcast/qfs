@@ -36,7 +36,7 @@ add_custom_command(
     -v ${CMAKE_CURRENT_SOURCE_DIR}/../../src/cc/common/buildversgit.sh
     --
     -DbuildDirectory=${CMAKE_CURRENT_BINARY_DIR}
-    -Dhadoop.release.version=2.10.1
+    -Dhadoop.release.version=2.10.2
     package
     DEPENDS src/main/java/com/quantcast/qfs/mstress/MStress_Client.java pom.xml
     COMMENT "The HDFS mstress client bundled as a jar."
