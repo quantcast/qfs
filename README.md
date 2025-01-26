@@ -77,21 +77,25 @@ QFS used in Quantcast production cluster.
 QFS servers have been tested on 64-bit CentOS 6 extensively and run on Linux
 variants. The QFS client tools work on OS X and Cygwin as well.
 
-| Platform      | Build Status                                                                                                                                                          |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mac OS X      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 14.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 18.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 20.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 22.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Ubuntu 24.04  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 6      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 7      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| CentOS 8      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Rocky Linux 9 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 10     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 11     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 12     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Platform             | Build Status                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mac OS X x86_64      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Mac OS X arm64       | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 14.04         | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 18.04         | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 20.04         | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 22.04         | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 24.04 x86_64  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Ubuntu 24.04 arm64   | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 6             | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 7             | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| CentOS 8             | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Rocky Linux 9 x86_64 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Rocky Linux 9 arm64  | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 10            | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 11            | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 12 x86_64     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
+| Debian 12 arm64      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 
 The implementation details and features of QFS are discussed in detail in the
 project [wiki](https://github.com/quantcast/qfs/wiki/Introduction-To-QFS).
