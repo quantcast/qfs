@@ -15,11 +15,12 @@ jobs:
   linux-build-docker:
     strategy:
       matrix:
-        distro: [ubuntu, centos, rockylinux, debian, i386/ubuntu]
+        distro: [ubuntu, centos, rockylinux, amazonlinux, debian, i386/ubuntu]
         exclude:
           - distro: ubuntu
           - distro: centos
           - distro: rockylinux
+          - distro: amazonlinux
           - distro: debian
           - distro: i386/ubuntu
         include:
@@ -28,87 +29,134 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
+          - distro: ubuntu
+            ver: 24.04
+            codecov: no
+            btype: release
+            buser: qfsbuild
+            runs_on: ubuntu-24.04-arm
           - distro: ubuntu
             ver: 22.04
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 20.04
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 18.04
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 18.04
             codecov: yes
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 18.04
             codecov: no
             btype: debug
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 18.04
             codecov: no
             btype: release
             buser: root
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 16.04
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 14.04
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: debian
             ver: 12
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
+          - distro: debian
+            ver: 12
+            codecov: no
+            btype: release
+            buser: qfsbuild
+            runs_on: ubuntu-24.04-arm
           - distro: debian
             ver: 11
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: debian
             ver: 10
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: centos
             ver: 6
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: centos
             ver: 7
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: centos
             ver: 8
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
           - distro: rockylinux
             ver: 9
             codecov: no
             btype: release
             buser: qfsbuild
+            runs_on: ubuntu-latest
+          - distro: rockylinux
+            ver: 9
+            codecov: no
+            btype: release
+            buser: qfsbuild
+            runs_on: ubuntu-24.04-arm
+          - distro: amazonlinux
+            ver: 2023
+            codecov: no
+            btype: release
+            buser: qfsbuild
+            runs_on: ubuntu-latest
+          - distro: amazonlinux
+            ver: 2023
+            codecov: no
+            btype: release
+            buser: qfsbuild
+            runs_on: ubuntu-24.04-arm
           - distro: i386/ubuntu
             ver: 18.04
             codecov: no
             btype: release
             buser: qfsbuild
-    runs-on: ubuntu-latest
+            runs_on: ubuntu-latest
+    runs-on: "${{ matrix.runs_on }}"
     env:
       BUILD_OS_NAME: linux
       BUILD_RUN_DOCKER: "yes"

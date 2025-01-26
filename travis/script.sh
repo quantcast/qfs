@@ -32,7 +32,6 @@ DEPS_UBUNTU=$DEPS_UBUNTU' python3-dev python3-venv'
 DEPS_UBUNTU22=$DEPS_UBUNTU' golang-go'
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
-DEPS_CENTOS=$DEPS_CENTOS' java-openjdk java-devel'
 DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel unzip sudo which openssl fuse gdb'
 
 DEPS_CENTOS_PRIOR_TO_9=' curl fuse-devel'
@@ -40,6 +39,12 @@ DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'$DEPS_CENTOS_PR
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake chrpath python3-devel'
 DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
 DEPS_CENTOS9=$DEPS_CENTOS8' zlib-devel fuse3-devel'
+# amazonlinux 2023 is based on centos 9
+DEPS_CENTOS2023=$DEPS_CENTOS9' tar java-17-amazon-corretto java-17-amazon-corretto-devel'
+DEPS_CENTOS2023=$DEPS_CENTOS2023' maven-amazon-corretto17 golang-go'
+for ver in '' 5 8 9; do
+    eval DEPS_CENTOS"$ver"='$DEPS_CENTOS'"$ver' java-openjdk java-devel'"
+done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
@@ -63,6 +68,7 @@ MYCMAKE_OPTIONS_CENTOS5=$MYCMAKE_OPTIONS_CENTOS5' -D _OPENSSL_LIBDIR=/usr/lib64/
 
 MYQFSHADOOP_VERSIONS_UBUNTU1404_CENTOS6='0.23.4 0.23.11  1.0.4  1.1.2  2.5.1  2.7.2'
 MYQFSHADOOP_VERSIONS_UBUNTU1804='1.0.4  1.1.2  2.7.2  2.7.7  2.8.5  2.9.2  2.10.1  3.1.4  3.2.2  3.3.1'
+MYQFSHADOOP_VERSIONS_CENTOS2023=$MYQFSHADOOP_VERSIONS_UBUNTU1804
 MYQFSHADOOP_VERSIONS_CENTOS5='0.23.4  0.23.11  1.0.4  1.1.2  2.5.1'
 
 MYBUILD_TYPE='release'
@@ -274,7 +280,7 @@ build_centos() {
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
-    if [ x"$1" = x'9' ]; then
+    if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
         YUM_OPTS=--nobest
     else
         YUM_OPTS=
@@ -302,6 +308,8 @@ build_centos() {
         QFS_MSTRESS_ON=false
     elif [ x"$1" = x'6' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1404_CENTOS6
+    elif [ x"$1" = x'2023' ]; then
+        QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_CENTOS2023
     fi
     if [ x"$1" = x'6' ]; then
         # Remove jre 1.8 as jdk is only 1.7
@@ -322,6 +330,10 @@ build_rockylinux() {
     build_centos ${1+"$@"}
 }
 
+build_amazonlinux() {
+    build_centos ${1+"$@"}
+}
+
 set_build_type() {
     if [ x"$1" != x ]; then
         MYBUILD_TYPE=$1
@@ -329,6 +341,10 @@ set_build_type() {
 }
 
 if [ $# -eq 5 -a x"$1" = x'build' ]; then
+    if [ x"$2" == x'amazonlinux' ]; then
+        # Install useradd, find, xargs
+        yum install -y shadow-utils findutils
+    fi
     set_build_type "$4"
     set_sudo "$5"
     rm -rf build
