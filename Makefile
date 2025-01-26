@@ -27,7 +27,7 @@ CMAKE=cmake
 MAKE_OPTIONS=
 QFSTEST_OPTIONS=
 JAVA_BUILD_OPTIONS=
-QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.10.1  3.1.4  3.2.2  3.3.1
+QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.10.2  3.3.6  3.4.1
 
 QFS_PYTHON_DIR=python-qfs
 QFS_PYTHON_WHEEL_DIR=${QFS_PYTHON_DIR}/dist
@@ -49,7 +49,7 @@ run-cmake: dir
 build: run-cmake
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install \
 	`${QFS_MSTRESS_ON} && \
-		echo ${QFSHADOOP_VERSIONS} | grep 2.10.1 >/dev/null 2>&1 && \
+		echo ${QFSHADOOP_VERSIONS} | grep 2.10.2 >/dev/null 2>&1 && \
 		mvn --version >/dev/null 2>&1 && echo mstress-tarball`
 
 .PHONY: java

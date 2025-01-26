@@ -33,7 +33,7 @@ permissions and limitations under the License.
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <buildDirectory>${project.basedir}/../../build/java/mstress</buildDirectory>
-    <hadoop.release.version>2.10.1</hadoop.release.version>
+    <hadoop.release.version>2.10.2</hadoop.release.version>
     <qfs.release.version>00000000</qfs.release.version>
     <qfs.source.revision>0</qfs.source.revision>
   </properties>
