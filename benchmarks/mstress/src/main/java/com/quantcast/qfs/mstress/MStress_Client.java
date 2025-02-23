@@ -389,7 +389,7 @@ public class MStress_Client {
 
         final int countLeaf
                 = (int) Math.round(Math.pow(inodesPerLevel_, levels_));
-        final List<Integer> leafIdxRangeForDel = new ArrayList<>(countLeaf);
+        final List<Integer> leafIdxRangeForDel = new ArrayList(countLeaf);
         for (int i = 0; i < countLeaf; i++) {
             leafIdxRangeForDel.add(i);
         }
