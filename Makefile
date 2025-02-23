@@ -49,8 +49,8 @@ run-cmake: dir
 build: run-cmake
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install \
 	`${QFS_MSTRESS_ON} && \
-		echo ${QFSHADOOP_VERSIONS} | grep 2.10.2 >/dev/null 2>&1 && \
-		mvn --version >/dev/null 2>&1 && echo mstress-tarball`
+		echo ${QFSHADOOP_VERSIONS} | grep '3\.4\.1' >/dev/null 2>&1 && \
+		mvn --version >/dev/null 2>&1 && echo mstress-bootstrap mstress-tarball`
 
 .PHONY: java
 java: build

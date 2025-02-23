@@ -21,29 +21,38 @@
 
 add_executable(mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
 
-IF(USE_STATIC_LIB_LINKAGE)
+if(USE_STATIC_LIB_LINKAGE)
     add_dependencies(mstress_client kfsClient)
     target_link_libraries(mstress_client kfsClient)
-ELSE(USE_STATIC_LIB_LINKAGE)
+else(USE_STATIC_LIB_LINKAGE)
     add_dependencies(mstress_client kfsClient-shared)
     target_link_libraries(mstress_client kfsClient-shared)
-ENDIF(USE_STATIC_LIB_LINKAGE)
+endif()
+
+if(NOT DEFINED MSTRESS_HADOOP_VERSION)
+    if(DEFINED ENV{MSTRESS_HADOOP_VERSION})
+        set(MSTRESS_HADOOP_VERSION $ENV{MSTRESS_HADOOP_VERSION})
+    else()
+        set(MSTRESS_HADOOP_VERSION 3.4.1)
+    endif()
+endif()
 
 add_custom_command(
-    OUTPUT mstress.jar
+    OUTPUT mstress.jar mstress-jar-with-dependencies.jar
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/../../src/java/javabuild.sh
     -d ${CMAKE_CURRENT_SOURCE_DIR}
     -v ${CMAKE_CURRENT_SOURCE_DIR}/../../src/cc/common/buildversgit.sh
     --
     -DbuildDirectory=${CMAKE_CURRENT_BINARY_DIR}
-    -Dhadoop.release.version=2.10.2
+    -Dhadoop.release.version=${MSTRESS_HADOOP_VERSION}
     package
     DEPENDS src/main/java/com/quantcast/qfs/mstress/MStress_Client.java pom.xml
     COMMENT "The HDFS mstress client bundled as a jar."
     VERBATIM
 )
 
-add_custom_target(mstress DEPENDS mstress_client mstress.jar)
+add_custom_target(mstress DEPENDS
+    mstress_client mstress.jar mstress-jar-with-dependencies.jar)
 
 set(mstress_scripts
     mstress_plan.py
@@ -72,6 +81,7 @@ add_custom_target(
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress.tgz
     mstress/mstress_client
     mstress/mstress.jar
+    mstress/mstress-jar-with-dependencies.jar
     mstress/*.py
     mstress/*.sh
     DEPENDS mstress
@@ -109,6 +119,7 @@ add_custom_target(
     COMMAND cd .. && ${CMAKE_COMMAND} -E tar czvf mstress-bootstrap.tgz
     mstress/mstress_client
     mstress/mstress.jar
+    mstress/mstress-jar-with-dependencies.jar
     mstress/*.py
     mstress/*.sh
     mstress/bin/metaserver
@@ -119,6 +130,17 @@ add_custom_target(
 )
 add_dependencies(mstress-bootstrap mstress-scripts)
 
+set(additional_files_to_clean
+    ../mstress.tgz
+    ../mstress-bootstrap.tgz
+    mstress.jar
+    mstress-jar-with-dependencies.jar
+    classes
+    bin
+    webui
+    setup.py
+    ${mstress_scripts}
+)
 set_directory_properties(PROPERTIES
-    ADDITIONAL_MAKE_CLEAN_FILES "../mstress.tgz;mstress.jar;${mstress_scripts}"
+    ADDITIONAL_MAKE_CLEAN_FILES "${additional_files_to_clean}"
 )
