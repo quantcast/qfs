@@ -1,5 +1,3 @@
-package com.quantcast.qfs.mstress;
-
 /**
  * $Id$
  *
@@ -22,6 +20,8 @@ package com.quantcast.qfs.mstress;
  * This Java client performs filesystem meta operations on the Hadoop namenode
  * using HDFS DFSClient.
  */
+package com.quantcast.qfs.mstress;
+
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
