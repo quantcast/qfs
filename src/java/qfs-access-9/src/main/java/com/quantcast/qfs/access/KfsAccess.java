@@ -27,27 +27,35 @@
 package com.quantcast.qfs.access;
 
 import java.io.IOException;
+import java.lang.ref.Cleaner;
 
-final public class KfsAccess extends KfsAccessBase
-{
-    public KfsAccess(String configFn) throws IOException
-    {
+final public class KfsAccess extends KfsAccessBase {
+
+    private static Cleaner cleaner = Cleaner.create();
+
+    static void registerCleanup(Object obj, Runnable action) {
+        cleaner.register(obj, action);
+    }
+
+    private void register() {
+        // Ensure that the native resource is cleaned up when this object is
+        // garbage collected.
+        // Make sure that this is not referenced by the cleaner closure
+        // otherwise it will never be cleaned up.
+        final long ptr = getCPtr();
+        registerCleanup(this, () -> {
+            destroy(ptr);
+        });
+    }
+
+    public KfsAccess(String configFn) throws IOException {
         super(configFn);
+        register();
     }
 
     public KfsAccess(String metaServerHost,
-            int metaServerPort) throws IOException
-    {
+            int metaServerPort) throws IOException {
         super(metaServerHost, metaServerPort);
-    }
-
-    @Override
-    protected void finalize() throws Throwable
-    {
-        try {
-            kfs_destroy();
-        } finally {
-            super.finalize();
-        }
+        register();
     }
 }

@@ -39,20 +39,20 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
     // for reading/writing.
     private ByteBuffer writeBuffer;
     private int kfsFd = -1;
-    private KfsAccess kfsAccess;
+    private KfsAccessBase kfsAccess;
     private final boolean append;
     private boolean returnBufferToPool;
 
-    private final static native
+    private static native
     int write(long ptr, int fd, ByteBuffer buf, int begin, int end);
 
-    private final static native
+    private static native
     int atomicRecordAppend(long ptr, int fd, ByteBuffer buf, int begin, int end);
 
-    private final static native
+    private static native
     int sync(long ptr, int fd);
 
-    KfsOutputChannel(KfsAccess kfsAccess, int fd, boolean append) 
+    KfsOutputChannel(KfsAccessBase kfsAccess, int fd, boolean append) 
     {
         this.writeBuffer = BufferPool.getInstance().getBuffer();
         this.returnBufferToPool = true;
@@ -211,7 +211,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         } finally {
             final int fd = kfsFd;
             kfsFd = -1;
-            KfsAccess ka = kfsAccess;
+            KfsAccessBase ka = kfsAccess;
             kfsAccess = null;
             try {
                 ka.kfs_close(fd);
@@ -239,7 +239,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
-                KfsAccess ka = kfsAccess;
+                KfsAccessBase ka = kfsAccess;
                 kfsAccess = null;
                 ka.kfs_close(fd);
             }
@@ -247,7 +247,7 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
             super.finalize();
         }
     }
-    
+
     public void setIoBufferSize(long bufferSize) {
         if(bufferSize >= 0) {
             kfsAccess.kfs_setIoBufferSize(kfsFd, bufferSize);

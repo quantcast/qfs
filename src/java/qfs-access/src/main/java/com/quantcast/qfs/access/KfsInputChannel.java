@@ -40,13 +40,13 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     // for reading/writing.
     private ByteBuffer readBuffer;
     private int kfsFd = -1;
-    private KfsAccess kfsAccess;
+    private KfsAccessBase kfsAccess;
     private boolean isReadAheadOff = false;
 
-    private final static native
+    private static native
     int read(long cPtr, int fd, ByteBuffer buf, int begin, int end);
 
-    KfsInputChannel(KfsAccess ka, int fd) 
+    KfsInputChannel(KfsAccessBase ka, int fd) 
     {
         readBuffer = BufferPool.getInstance().getBuffer();
         readBuffer.flip();
@@ -172,7 +172,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
         }
         final int fd = kfsFd;
         kfsFd = -1;
-        final KfsAccess ka = kfsAccess;
+        final KfsAccessBase ka = kfsAccess;
         kfsAccess = null;
         try {
             ka.kfs_close(fd);
@@ -188,7 +188,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
-                final KfsAccess ka = kfsAccess;
+                final KfsAccessBase ka = kfsAccess;
                 kfsAccess = null;
                 ka.kfs_close(fd);
             }
@@ -196,7 +196,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
             super.finalize();
         }
     }
-    
+
     public void setReadAheadSize(long readAheadSize) {
         if(readAheadSize >= 0) {
             kfsAccess.kfs_setReadAheadSize(kfsFd, readAheadSize);
