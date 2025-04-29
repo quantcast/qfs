@@ -26,16 +26,17 @@
 
 package com.quantcast.qfs.access;
 
-import java.io.*;
-import java.net.*;
-import java.util.Random;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
-import java.nio.ByteBuffer;
+import java.util.Random;
 
 public class KfsTest
 {
+    @SuppressWarnings("UseSpecificCatch")
     public static void main(String args[]) {
         if (args.length < 1) {
             System.out.println("Usage: KfsTest <meta server> <port>");
@@ -45,7 +46,7 @@ public class KfsTest
             int port = Integer.parseInt(args[1].trim());
             KfsAccess kfsAccess = new KfsAccess(args[0], port);
 
-            String basedir = new String("jtest");
+            String basedir = "jtest";
             final String euidp = System.getProperty("kfs.euid");
             final String egidp = System.getProperty("kfs.egid");
             final long   euid  = (euidp != null && euidp.length() > 0) ?
@@ -135,8 +136,8 @@ public class KfsTest
                 throw new IOException("QFS doesn't think " + basedir + " is a dir!");
 
             }
-            final String fname = new String("foo.1");
-            final String path = new String(basedir + "/" + fname);
+            final String fname = "foo.1";
+            final String path = basedir + "/" + fname;
             final KfsOutputChannel outputChannel = kfsAccess.kfs_create(path);
 
             long mTime = kfsAccess.kfs_getModificationTime(path);
@@ -150,8 +151,8 @@ public class KfsTest
             }
 
             System.out.println("Readdir returned: ");
-            for (int i = 0; i < entries.length; i++) {
-                System.out.println(entries[i]);
+            for (String entrie : entries) {
+                System.out.println(entrie);
             }
 
             final String absent = basedir + "/must not exist";
@@ -179,8 +180,8 @@ public class KfsTest
             outputChannel.sync();
             outputChannel.close();
 
-            final String symName = new String("foo.1.sym");
-            final String slPath = new String(basedir + "/" + symName);
+            final String symName = "foo.1.sym";
+            final String slPath = basedir + "/" + symName;
             boolean overwrite = false;
             kfsAccess.kfs_retToIOException(
                 kfsAccess.kfs_symlink(path + ".1", slPath, 0777, overwrite),
@@ -229,12 +230,12 @@ public class KfsTest
                 throw new IOException(basedir + ": kfs_readdirplus failed");
             }
             System.out.println("kfs_readdirplus returned: ");
-            for (int i = 0; i < fattr.length; i++) {
-                System.out.println(attrToString(fattr[i], "\n"));
+            for (KfsFileAttr fattr1 : fattr) {
+                System.out.println(attrToString(fattr1, "\n"));
             }
 
             if ((fattr = kfsAccess.kfs_readdirplus(absent)) != null) {
-                throw new IOException("kfs_readdirplus: " + fattr +
+                throw new IOException("kfs_readdirplus: " + (Object)fattr +
                     ": non null, size: " + fattr.length);
             }
 
@@ -248,8 +249,8 @@ public class KfsTest
             System.out.println("Block Locations:");
             for (int i = 0; i < locs.length; i++) {
                 System.out.print("chunk " + i + " : ");
-                for (int j = 0; j < locs[i].length; j++) {
-                    System.out.print(locs[i][j] + " ");
+                for (String loc : locs[i]) {
+                    System.out.print(loc + " ");
                 }
                 System.out.println();
             }
@@ -268,8 +269,8 @@ public class KfsTest
             System.out.println("block size: " + blockSize);
             for (int i = 1; i < locs.length; i++) {
                 System.out.print("chunk " + (i-1) + " : ");
-                for (int j = 0; j < locs[i].length; j++) {
-                    System.out.print(locs[i][j] + " ");
+                for (String loc : locs[i]) {
+                    System.out.print(loc + " ");
                 }
                 System.out.println();
             }
@@ -288,7 +289,7 @@ public class KfsTest
             System.out.println("stat: \n" + attrToString(attr, "\n"));
 
             // rename the file
-            String npath = new String(basedir + "/foo.2");
+            String npath = basedir + "/foo.2";
             kfsAccess.kfs_rename(path, npath);
 
             if (kfsAccess.kfs_exists(path)) {
@@ -332,6 +333,10 @@ public class KfsTest
             // read some bytes
             buf = new byte[128];
             res = inputChannel.read(ByteBuffer.wrap(buf, 0, 128));
+            if (res != 128) {
+                throw new IOException(
+                    npath + ": was able to read only: " + res);
+            }
 
             s = new String(buf);
             for (int i = 0; i < 128; i++) {
@@ -392,14 +397,14 @@ public class KfsTest
             kfsAccess.kfs_retToIOException(kfsAccess.kfs_rmdir(basedir));
             System.out.println("All done...Test passed!");
         } catch (Exception e) {
-            e.printStackTrace();
+            e.printStackTrace(System.out);
             System.out.println(e.getMessage());
             System.out.println("Test failed");
             System.exit(1);
         }
     }
 
-    private static Random randGen = new Random(100);
+    private static final Random randGen = new Random(100);
 
     private static void generateData(char buf[], int numBytes)
     {
@@ -554,6 +559,10 @@ public class KfsTest
         inputChannel.setReadAheadSize(0);
         final byte[] dstBuf = new byte[128];
         res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        if (res != 128) {
+            throw new IOException(
+                filePath + ": was able to read only: " + res);
+        }
         s = new String(dstBuf);
         for (int i = 0; i < 128; i++) {
             if (dataBuf[i] != s.charAt(i)) {
@@ -568,6 +577,10 @@ public class KfsTest
                 filePath + "failed to seek to byte 512. Pos: " + pos);
         }
         res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        if (res != 128) {
+            throw new IOException(
+                filePath + ": was able to read only: " + res);
+        }
         s = new String(dstBuf);
         for (int i = 0; i < 128; i++) {
             if (dataBuf[512+i] != s.charAt(i)) {
@@ -584,6 +597,10 @@ public class KfsTest
         }
         inputChannel.setReadAheadSize(1048576);
         res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        if (res != 128) {
+            throw new IOException(
+                filePath + ": was able to read only: " + res);
+        }
         s = new String(dstBuf);
         for (int i = 0; i < 128; i++) {
             if (dataBuf[i] != s.charAt(i)) {
