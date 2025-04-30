@@ -379,7 +379,7 @@ public:
             {}
         KeyValT* Next()
         {
-            return mHashTable.template NextEntryT(
+            return mHashTable.template NextEntryT<>(
                 mNextBucketIdx, mNextEntryPtr, static_cast<KeyValT*>(0));
         }
     private:
