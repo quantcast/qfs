@@ -22,7 +22,7 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  *
- * \brief Java wrappers to get to the KFS client.
+ * \brief QFS access java 9 style cleanup.
  */
 package com.quantcast.qfs.access;
 
@@ -37,25 +37,29 @@ final public class KfsAccess extends KfsAccessBase {
         cleaner.register(obj, action);
     }
 
-    private void register() {
+    private static void registerCleanupSelf(KfsAccess ka) {
         // Ensure that the native resource is cleaned up when this object is
         // garbage collected.
-        // Make sure that this is not referenced by the cleaner closure
+        // Make sure that this and ka are not referenced by the cleaner closure
         // otherwise it will never be cleaned up.
-        final long ptr = getCPtr();
-        registerCleanup(this, () -> {
+        final long ptr = ka.getCPtr();
+        registerCleanup(ka, () -> {
             destroy(ptr);
         });
     }
 
+    private void registerCleanupConstructed() {
+        registerCleanupSelf(this);
+    }
+
     public KfsAccess(String configFn) throws IOException {
         super(configFn);
-        register();
+        registerCleanupConstructed();
     }
 
     public KfsAccess(String metaServerHost,
             int metaServerPort) throws IOException {
         super(metaServerHost, metaServerPort);
-        register();
+        registerCleanupConstructed();
     }
 }

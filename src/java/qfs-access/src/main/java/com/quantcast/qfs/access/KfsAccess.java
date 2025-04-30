@@ -28,22 +28,19 @@ package com.quantcast.qfs.access;
 
 import java.io.IOException;
 
-final public class KfsAccess extends KfsAccessBase
-{
-    public KfsAccess(String configFn) throws IOException
-    {
+final public class KfsAccess extends KfsAccessBase {
+
+    public KfsAccess(String configFn) throws IOException {
         super(configFn);
     }
 
     public KfsAccess(String metaServerHost,
-            int metaServerPort) throws IOException
-    {
+            int metaServerPort) throws IOException {
         super(metaServerHost, metaServerPort);
     }
 
     @Override
-    protected void finalize() throws Throwable
-    {
+    protected void finalize() throws Throwable {
         try {
             kfs_destroy();
         } finally {
