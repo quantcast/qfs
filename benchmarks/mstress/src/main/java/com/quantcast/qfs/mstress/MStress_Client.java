@@ -101,9 +101,8 @@ public class MStress_Client {
         System.exit(0);
     }
 
-    @SuppressWarnings("CallToPrintStackTrace")
     private static void printStackTrace(Throwable e) {
-        e.printStackTrace();
+        e.printStackTrace(System.err);
     }
 
     private static void parseOptions(String args[]) {
