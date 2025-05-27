@@ -59,8 +59,7 @@ class KfsOutputChannelBase implements WritableByteChannel, Positionable {
             returnBufferToPool = false;
         }
 
-        IOException release() {
-            IOException ret = null;
+        void release() throws IOException {
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
@@ -68,19 +67,18 @@ class KfsOutputChannelBase implements WritableByteChannel, Positionable {
                 kfsAccess = null;
                 try {
                     ka.kfs_close(fd);
-                } catch (IOException ex) {
-                    ret = ex;
                 } finally {
                     releaseBuffer();
                 }
             }
-            return ret;
         }
 
         @Override
         public void run() {
-            if (release() != null) {
-                // Ignore the exception.
+            try {
+                release();
+            } catch (IOException ignored) {
+                // Ignore
             }
         }
     }
@@ -234,9 +232,9 @@ class KfsOutputChannelBase implements WritableByteChannel, Positionable {
                 state.kfsFd) + state.writeBuffer.remaining();
     }
 
-    final public synchronized void close() throws IOException {
+    public synchronized void close() throws IOException {
         if (state.kfsFd < 0) {
-            throw new IOException("File closed");
+            return;
         }
         IOException origEx = null;
         try {
@@ -244,9 +242,12 @@ class KfsOutputChannelBase implements WritableByteChannel, Positionable {
         } catch (IOException ex) {
             origEx = ex;
         } finally {
-            final IOException ex = state.release();
-            if (origEx == null) {
-                origEx = ex;
+            try {
+                state.release();
+            } catch (IOException ex) {
+                if (origEx == null) {
+                    origEx = ex;
+                }
             }
         }
         if (origEx != null) {

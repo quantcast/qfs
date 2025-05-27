@@ -33,8 +33,8 @@ final public class KfsAccess extends KfsAccessBase {
 
     private static Cleaner cleaner = Cleaner.create();
 
-    static void registerCleanup(Object obj, Runnable action) {
-        cleaner.register(obj, action);
+    static Cleaner.Cleanable registerCleanup(Object obj, Runnable action) {
+        return cleaner.register(obj, action);
     }
 
     private static void registerCleanupSelf(KfsAccess ka) {

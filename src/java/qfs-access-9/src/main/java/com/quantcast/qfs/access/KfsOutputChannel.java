@@ -26,14 +26,26 @@
  */
 package com.quantcast.qfs.access;
 
+import java.lang.ref.Cleaner;
+
 final public class KfsOutputChannel extends KfsOutputChannelBase {
+
+    final private Cleaner.Cleanable cleanable;
 
     KfsOutputChannel(KfsAccessBase ka, int fd) {
         super(ka, fd);
-        registerCleanup();
+        cleanable = registerCleanup();
     }
 
-    private void registerCleanup() {
-        KfsAccess.registerCleanup(this, state);
+    private Cleaner.Cleanable registerCleanup() {
+        return KfsAccess.registerCleanup(this, state);
+    }
+
+    public synchronized void close() throws IOException {
+        try {
+            super.close();
+        } finally {
+            cleanable.clean();
+        }
     }
 }

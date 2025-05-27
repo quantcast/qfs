@@ -57,7 +57,7 @@ class KfsInputChannelBase implements ReadableByteChannel, Positionable {
             }
         }
 
-        void release() {
+        void release() throws IOException {
             if (kfsFd >= 0 && kfsAccess != null) {
                 final int fd = kfsFd;
                 kfsFd = -1;
@@ -65,8 +65,6 @@ class KfsInputChannelBase implements ReadableByteChannel, Positionable {
                 kfsAccess = null;
                 try {
                     ka.kfs_close(fd);
-                } catch (IOException ignored) {
-                    // Ignore
                 } finally {
                     releaseBuffer();
                 }
@@ -75,7 +73,11 @@ class KfsInputChannelBase implements ReadableByteChannel, Positionable {
 
         @Override
         public void run() {
-            release();
+            try {
+                release();
+            } catch (IOException ignored) {
+                // Ignore
+            }
         }
     }
     protected final State state;
@@ -190,19 +192,8 @@ class KfsInputChannelBase implements ReadableByteChannel, Positionable {
         return ret - rem;
     }
 
-    final public synchronized void close() throws IOException {
-        if (state.kfsFd < 0) {
-            return;
-        }
-        final int fd = state.kfsFd;
-        state.kfsFd = -1;
-        final KfsAccessBase ka = state.kfsAccess;
-        state.kfsAccess = null;
-        try {
-            ka.kfs_close(fd);
-        } finally {
-            state.releaseBuffer();
-        }
+    public synchronized void close() throws IOException {
+        state.release();
     }
 
     final public void setReadAheadSize(long readAheadSize) {
