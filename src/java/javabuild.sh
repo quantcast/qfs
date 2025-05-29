@@ -100,12 +100,25 @@ until javac --release $min_supported_release -version >/dev/null 2>&1; do
     fi
     min_supported_release=$(expr $min_supported_release + 1)
 done
+if [ x"${qfs_access_profile-}" = x ]; then
+    if [ $min_supported_release -lt 9 ]; then
+        qfs_access_profile="qfs_access_java_pre_9"
+    else
+        qfs_access_profile="qfs_access_java_9"
+    fi
+fi
 min_supported_release=1.$min_supported_release
 
 echo "qfs_release_version = $qfs_release_version"
 echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 echo "test_build_data     = $test_build_data"
+echo "qfs_access_profile  = $qfs_access_profile"
+if [ x"$qfs_access_profile" = x'qfs_access_java_9' ]; then
+    qfs_access_project='qfs-access'
+else
+    qfs_access_project='qfs-access-pre-9'
+fi
 
 run_maven_exit_if_success() {
     set -x
@@ -125,11 +138,13 @@ mytry=0
 while true; do
     if [ x"$1" = x'--' ]; then
         shift
-        run_maven_exit_if_success ${1+"$@"}
+        run_maven_exit_if_success -P "$qfs_access_profile" ${1+"$@"}
     elif [ x"$hadoop_qfs_profile" = x'none' ]; then
-        run_maven_exit_if_success --projects qfs-access package
+        run_maven_exit_if_success -P "$qfs_access_profile" \
+            --projects "$qfs_access_project" package
     else
-        run_maven_exit_if_success -P "$hadoop_qfs_profile" \
+        run_maven_exit_if_success \
+            -P "$hadoop_qfs_profile","$qfs_access_profile" \
             -Dhadoop.release.version="$1" package
     fi
     mytry=$(expr $mytry + 1)

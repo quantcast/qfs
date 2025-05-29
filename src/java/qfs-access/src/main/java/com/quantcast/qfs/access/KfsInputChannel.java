@@ -1,11 +1,11 @@
 /**
  * $Id$
  *
- * Created 2007/09/11
+ * Created 2025/04/20
  *
- * @author: Sriram Rao (Kosmix Corp.)
+ * @author: Mike Ovsiannikov (Quantcast Corporation)
  *
- * Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
+ * Copyright 2025 Quantcast Corporation. All rights reserved.
  * Copyright 2007 Kosmix Corp.
  *
  * This file is part of Kosmos File System (KFS).
@@ -22,24 +22,31 @@
  * implied. See the License for the specific language governing
  * permissions and limitations under the License.
  *
- * \brief An input channel that does buffered I/O.  This is to reduce
- * the overhead of JNI calls.
+ * \brief Input channel java 9 style cleanup.
  */
 package com.quantcast.qfs.access;
 
-/* A byte channel interface with seek support */
+import java.io.IOException;
+import java.lang.ref.Cleaner;
+
 final public class KfsInputChannel extends KfsInputChannelBase {
+
+    final private Cleaner.Cleanable cleanable;
 
     KfsInputChannel(KfsAccessBase ka, int fd) {
         super(ka, fd);
+        cleanable = registerCleanup();
     }
 
-    @Override
-    protected void finalize() throws Throwable {
+    private Cleaner.Cleanable registerCleanup() {
+        return KfsAccess.registerCleanup(this, state);
+    }
+
+    final public synchronized void close() throws IOException {
         try {
-            state.release();
+            super.close();
         } finally {
-            super.finalize();
+            cleanable.clean();
         }
     }
 }

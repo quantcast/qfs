@@ -1,11 +1,11 @@
 /**
  * $Id$
  *
- * Created 2025/04/20
+ * Created 2007/09/11
  *
- * @author: Mike Ovsiannikov (Quantcast Corporation)
+ * @author: Sriram Rao (Kosmix Corp.)
  *
- * Copyright 2025 Quantcast Corporation. All rights reserved.
+ * Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
  * Copyright 2007 Kosmix Corp.
  *
  * This file is part of Kosmos File System (KFS).
@@ -22,30 +22,22 @@
  * implied. See the License for the specific language governing
  * permissions and limitations under the License.
  *
- * \brief Input channel java 9 style cleanup.
+ * \brief An output channel pre java 9 style cleanup.
  */
 package com.quantcast.qfs.access;
 
-import java.lang.ref.Cleaner;
+public class KfsOutputChannel extends KfsOutputChannelBase {
 
-final public class KfsInputChannel extends KfsInputChannelBase {
-
-    final private Cleaner.Cleanable cleanable;
-
-    KfsInputChannel(KfsAccessBase ka, int fd) {
-        super(ka, fd);
-        cleanable = registerCleanup();
+    KfsOutputChannel(KfsAccessBase kfsAccess, int fd, boolean append) {
+        super(kfsAccess, fd, append);
     }
 
-    private Cleaner.Cleanup registerCleanup() {
-        return KfsAccess.registerCleanup(this, state);
-    }
-
-    final public synchronized void close() throws IOException {
+    @Override
+    protected void finalize() throws Throwable {
         try {
-            super.close();
+            state.run();
         } finally {
-            cleanable.clean();
+            super.finalize();
         }
     }
 }
