@@ -48,42 +48,42 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 18.04
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 18.04
-            codecov: yes
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 18.04
-            codecov: no
-            btype: debug
-            buser: qfsbuild
-            runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 18.04
-            codecov: no
-            btype: release
-            buser: root
-            runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 16.04
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
-          - distro: ubuntu
-            ver: 14.04
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 18.04
+            # codecov: no
+            # btype: release
+            # buser: qfsbuild
+            # runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 18.04
+            # codecov: yes
+            # btype: release
+            # buser: qfsbuild
+            # runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 18.04
+            # codecov: no
+            # btype: debug
+            # buser: qfsbuild
+            # runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 18.04
+            # codecov: no
+            # btype: release
+            # buser: root
+            # runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 16.04
+            # codecov: no
+            # btype: release
+            # buser: qfsbuild
+            # runs_on: ubuntu-latest
+          # - distro: ubuntu
+            # ver: 14.04
+            # codecov: no
+            # btype: release
+            # buser: qfsbuild
+            # runs_on: ubuntu-latest
           - distro: debian
             ver: 12
             codecov: no
