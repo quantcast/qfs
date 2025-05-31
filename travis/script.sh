@@ -404,8 +404,8 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
             fi
         fi
         docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
-            "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
             ${UBUNTU_APT_OPTIONS:+-e UBUNTU_APT_OPTIONS="$UBUNTU_APT_OPTIONS"} \
+            "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
             /bin/bash ./travis/script.sh \
             build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     fi
