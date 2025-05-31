@@ -55,19 +55,19 @@ jobs:
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: yes
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: no
             btype: debug
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: no
             btype: release
             buser: root
