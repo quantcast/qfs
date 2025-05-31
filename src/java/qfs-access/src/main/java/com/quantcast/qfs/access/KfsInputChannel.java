@@ -42,7 +42,8 @@ final public class KfsInputChannel extends KfsInputChannelBase {
         return KfsAccess.registerCleanup(this, state);
     }
 
-    final public synchronized void close() throws IOException {
+    @Override
+    public void close() throws IOException {
         try {
             super.close();
         } finally {

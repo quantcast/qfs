@@ -26,7 +26,7 @@
  */
 package com.quantcast.qfs.access;
 
-public class KfsOutputChannel extends KfsOutputChannelBase {
+final public class KfsOutputChannel extends KfsOutputChannelBase {
 
     KfsOutputChannel(KfsAccessBase kfsAccess, int fd, boolean append) {
         super(kfsAccess, fd, append);
