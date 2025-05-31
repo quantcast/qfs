@@ -208,7 +208,7 @@ build_ubuntu() {
     else
         MYDEPS=$DEPS_UBUNTU
     fi
-    APT_GET_CMD="apt-get${UBUNTU_APT_OPTIONS:+" ${UBUNTU_APT_OPTIONS}}"
+    APT_GET_CMD="apt-get${UBUNTU_APT_OPTIONS:+ ${UBUNTU_APT_OPTIONS}}"
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y gnupg"
