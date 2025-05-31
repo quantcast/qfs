@@ -208,13 +208,14 @@ build_ubuntu() {
     else
         MYDEPS=$DEPS_UBUNTU
     fi
+    APT_GET_CMD="apt-get${UBUNTU_APT_OPTIONS:+" ${UBUNTU_APT_OPTIONS}}"
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
-        "DEBIAN_FRONTEND='noninteractive' apt-get install -y gnupg"
+        "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y gnupg"
     $MYSUDO apt-key update
-    $MYSUDO apt-get update
+    $MYSUDO $APT_GET_CMD update
     $MYSUDO /bin/bash -c \
-        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"
+        "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' -o x"$1" = x'22.04' \
         -o x"$1" = x'24.04' \
         -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
@@ -238,6 +239,7 @@ build_ubuntu32() {
 }
 
 build_debian() {
+    unset UBUNTU_APT_OPTIONS
     build_ubuntu "d$1"
 }
 
@@ -403,7 +405,9 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
         fi
         docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
             "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
-            /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+            ${UBUNTU_APT_OPTIONS:+-e UBUNTU_APT_OPTIONS="$UBUNTU_APT_OPTIONS"} \
+            /bin/bash ./travis/script.sh \
+            build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     fi
 elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"

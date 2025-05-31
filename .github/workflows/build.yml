@@ -14,7 +14,6 @@ jobs:
 
   linux-build-docker:
     strategy:
-      max-parallel: 4
       matrix:
         distro: [ubuntu, centos, rockylinux, amazonlinux, debian, i386/ubuntu]
         exclude:
@@ -166,6 +165,7 @@ jobs:
       CODECOV: ${{ matrix.codecov }}
       BTYPE: ${{ matrix.btype }}
       BUSER: ${{ matrix.buser }}
+      UBUNTU_APT_OPTIONS: "-o Acquire:Queue-mode=host"
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
