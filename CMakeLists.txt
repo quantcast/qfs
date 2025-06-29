@@ -88,6 +88,12 @@ find_package(OpenSSL REQUIRED)
 find_package(FUSE)
 
 add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS)
+# BOOST_SP_USE_QUICK_ALLOCATOR and BOOST_SP_USE_STD_ALLOCATOR are deprecated in
+# Boost 1.87 and later.
+if (Boost_VERSION_MAJOR LESS_EQUAL 1 AND Boost_VERSION_MINOR LESS 87)
+    add_definitions(-DBOOST_SP_USE_QUICK_ALLOCATOR) 
+endif()
+
 # Define various options based on the library configuration we use
 if(KRB5_FLAVOR)
     add_definitions(-DKFS_KRB_USE_${KRB5_FLAVOR})
@@ -169,7 +175,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
 endif()
 
-set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall")
 string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
