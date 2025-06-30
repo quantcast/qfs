@@ -1,6 +1,6 @@
 # $Id$
 #
-# Copyright 2012,2016 Quantcast Corporation. All rights reserved.
+# Copyright 2012-2025 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Quantcast File System (QFS).
 #
