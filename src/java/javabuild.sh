@@ -138,7 +138,7 @@ my_try=0
 while true; do
     if [ x"$1" = x'--' ]; then
         shift
-        run_maven_exit_if_success -P "$qfs_access_profile" ${1+"$@"}
+        run_maven_exit_if_success ${1+"$@"}
     elif [ x"$hadoop_qfs_profile" = x'none' ]; then
         run_maven_exit_if_success -P "$qfs_access_profile" \
             --projects "$qfs_access_project" package
