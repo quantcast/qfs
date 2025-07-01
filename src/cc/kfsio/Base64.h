@@ -4,7 +4,7 @@
 // Created 2013/9/9
 // Author: Mike Ovsiannikov
 //
-// Copyright 2013,2016 Quantcast Corporation. All rights reserved.
+// Copyright 2013-2025 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //
@@ -26,19 +26,21 @@
 #ifndef KFSIO_BASE64_H
 #define KFSIO_BASE64_H
 
+#include "common/kfstypes.h"
+
 namespace KFS
 {
 
 class Base64
 {
 public:
-    static int EncodedLength(
+    KFS_CONSTEXPR static int EncodedLength(
         int inLength)
         { return ((inLength + 2) / 3 * 4); }
-    static int GetEncodedMaxBufSize(
+    KFS_CONSTEXPR static int GetEncodedMaxBufSize(
         int inLength)
         { return EncodedLength(inLength) + 1; }
-    static int GetMaxDecodedLength(
+    KFS_CONSTEXPR static int GetMaxDecodedLength(
         int inLength)
         { return ((inLength + 3) / 4 * 3); }
     static int Encode(
