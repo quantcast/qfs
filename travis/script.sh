@@ -244,6 +244,7 @@ build_debian() {
 }
 
 build_centos() {
+    YUM_OPTS=
     if [ x"$1" = x'5' ]; then
         # Centos 5 EOL, use vault for now.
         $MYSUDO sed -i 's/enabled=1/enabled=0/' \
@@ -277,15 +278,13 @@ build_centos() {
             /etc/yum.repos.d/*.repo
         $MYSUDO yum update -y
     else
-        $MYSUDO yum update -y
+        if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
+            YUM_OPTS=--nobest
+        fi
+        $MYSUDO yum update -y $YUM_OPTS
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
-    fi
-    if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
-        YUM_OPTS=--nobest
-    else
-        YUM_OPTS=
     fi
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $YUM_OPTS $MYDEPS
