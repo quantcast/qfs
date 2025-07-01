@@ -94,7 +94,7 @@ add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS)
 
 # BOOST_SP_USE_QUICK_ALLOCATOR and BOOST_SP_USE_STD_ALLOCATOR are deprecated in
 # Boost 1.87 and later.
-if(NOT DEFINED Boost_MAJOR_VERSION)
+if(NOT DEFINED Boost_MAJOR_VERSION OR NOT DEFINED Boost_MINOR_VERSION)
     # Older FindBoost if not defined -- assume older Boost version.
     add_definitions(-DBOOST_SP_USE_QUICK_ALLOCATOR)
 else()
