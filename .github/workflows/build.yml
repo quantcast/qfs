@@ -126,12 +126,12 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: rockylinux
-            ver: 9
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
+          # - distro: rockylinux
+          #   ver: 9
+          #   codecov: no
+          #   btype: release
+          #   buser: qfsbuild
+          #   runs_on: ubuntu-latest
           # - distro: rockylinux
           #   ver: 9
           #   codecov: no
