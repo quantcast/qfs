@@ -132,12 +132,12 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: rockylinux
-            ver: 9
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-24.04-arm
+          # - distro: rockylinux
+          #   ver: 9
+          #   codecov: no
+          #   btype: release
+          #   buser: qfsbuild
+          #   runs_on: ubuntu-24.04-arm
           - distro: amazonlinux
             ver: 2023
             codecov: no
