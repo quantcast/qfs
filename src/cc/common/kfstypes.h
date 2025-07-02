@@ -209,7 +209,7 @@ const int KFS_SYMLOOP_MAX = 32;
     // C++11 or later.
 #   define KFS_CONSTEXPR constexpr
 #else
-#   define KFS_CONSTEXPR constexpr
+#   define KFS_CONSTEXPR
 #endif
 } // namespace KFS
 
