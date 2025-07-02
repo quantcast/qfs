@@ -285,6 +285,7 @@ build_centos() {
         YUM_UPDATE_FLAG=1
     fi
     if [ $YUM_UPDATE_FLAG -eq 1 ]; then
+        $MYSUDO yum clean all
         $MYSUDO yum makecache
         $MYSUDO yum update -y $YUM_OPTS
     fi
