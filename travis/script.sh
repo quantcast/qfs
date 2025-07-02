@@ -245,6 +245,7 @@ build_debian() {
 
 build_centos() {
     YUM_OPTS=
+    YUM_UPDATE_FLAG=0
     if [ x"$1" = x'5' ]; then
         # Centos 5 EOL, use vault for now.
         $MYSUDO sed -i 's/enabled=1/enabled=0/' \
@@ -269,23 +270,28 @@ build_centos() {
             /etc/yum.repos.d/*.repo
         $MYSUDO sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/7.9.2009\//' \
             /etc/yum.repos.d/*.repo
-        $MYSUDO yum update -y
+        YUM_UPDATE_FLAG=1
     elif [ x"$1" = x'8' ]; then
         # Centos 8 EOL, use vault for now.
         $MYSUDO sed -i 's/mirrorlist/#mirrorlist/' \
             /etc/yum.repos.d/*.repo
         $MYSUDO sed -i 's/#\(baseurl.*\)mirror.centos.org\/\$contentdir\//\1vault.centos.org\//' \
             /etc/yum.repos.d/*.repo
-        $MYSUDO yum update -y
+        YUM_UPDATE_FLAG=1
     else
         if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
             YUM_OPTS=--nobest
         fi
+        YUM_UPDATE_FLAG=1
+    fi
+    if [ $YUM_UPDATE_FLAG -eq 1 ]; then
+        $MYSUDO yum makecache
         $MYSUDO yum update -y $YUM_OPTS
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
+    $MYSUDO yum makecache
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $YUM_OPTS $MYDEPS
     MYPATH=$PATH
