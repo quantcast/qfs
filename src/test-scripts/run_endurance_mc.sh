@@ -502,9 +502,12 @@ if [ x"`ulimit -Hn`" = x'unlimited' ]; then
     ulimit -Hn 65535 2>/dev/null
 fi
 ulimit -n `ulimit -Hn` || exit
-if [ `ulimit -n` -le 1024 ]; then
-    echo "Insufficient open file descriptor limit: `ulimit -n`"
-    exit 1
+mycurlimit=`ulimit -n` || exit
+if [ x"$mycurlimit" != x'unlimited' ]; then
+    if [ `ulimit -n` -le 1024 ]; then
+        echo "Insufficient open file descriptor limit: `ulimit -n`"
+        exit 1
+    fi
 fi
 exec 0</dev/null
 
