@@ -7386,6 +7386,8 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
             panic("failed to get write lease for a chunk");
             req.status = -EFAULT;
         }
+        req.allChunkServersShortRpcFlag = ! req.servers.empty() &&
+            req.servers.front()->IsShortRpcFormat();
         return;
     }
     if (GetInFlightChunkModificationOpCount(req.chunkId) > 0) {
