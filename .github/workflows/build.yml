@@ -102,12 +102,6 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: debian
-            ver: 10
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
           - distro: centos
             ver: 6
             codecov: no
