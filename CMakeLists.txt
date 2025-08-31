@@ -53,8 +53,7 @@ endif()
 set(Boost_USE_MULTITHREADED ON)
 
 # Require the packages we need to build
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
-    CYGWIN OR
+if(CYGWIN OR
     CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     find_package(Boost COMPONENTS regex system REQUIRED)
 else()
