@@ -2,7 +2,7 @@
 
 ## [QFS version 2.2.8](Release-Notes-2.2.8.md)
 
-### Release Highlights
+### Release Highlights (2.2.8)
 
 1. **Java 9+ Compatibility:** Refactoring of Java access classes with dual support
    for modern and legacy Java versions
@@ -13,7 +13,7 @@
 4. **Build System Improvements:** Better Boost compatibility, CMake fixes, and CI/CD
    enhancements
 
-### Key Components Updated
+### Key Components Updated (2.2.8)
 
 1. **QFS Client Library**: Bug fixes for object store operations and error
    handling
@@ -23,7 +23,7 @@
 5. **Common/IO Libraries**: Compiler compatibility fixes and constexpr
    enhancements
 
-### Platform Changes
+### Platform Changes (2.2.8)
 
 1. **Added**: Amazon Linux 2023, ARM64 builds
 2. **Removed**: Debian 10, Ubuntu 18.04 (EOL)
@@ -31,7 +31,7 @@
 
 ## QFS version 2.2.7
 
-### New features
+### New features (2.2.7)
 
 1. Support for python3. Native / platform independent python code is now
    compatible with python2 and python3, including QFS meta server web UI and meta
@@ -44,7 +44,7 @@
    linkers paths with python module is no longer required. Python QFS module wheel
    is now built and included into QFS tarball.
 
-### Minor improvements
+### Minor improvements (2.2.7)
 
 1. Benchmarks mstress build now uses maven instead of ant, and is now included
    in QFS build and tarball by default.
@@ -55,18 +55,18 @@
 
 ## QFS version 2.2.6
 
-### New features
+### New features (2.2.6)
 
 1. Added go language bindings.
 
-### Bug fixes
+### Bug fixes (2.2.6)
 
 1. Increase default watchdog poll interval by 0.15 to 1.15 seconds in order to
    avoid spurious timeouts during idle time due to 1 second default net manager
    sleep interval. Change poll interval dependent default parameters calculation
    accordingly.
 
-### Minor improvements
+### Minor improvements (2.2.6)
 
 1. Additional object store chunk server / AP assignment modes. One is choose AP
    with matching rack only (i.e. with no fall back to choosing from all available
@@ -83,7 +83,7 @@
 
 ## QFS version 2.2.5
 
-### Bug fixes
+### Bug fixes (2.2.5)
 
 1. Meta server: keep up to 8K of the most recently received from synchronous
    replication channel(s) "future" log blocks while inactive node is in the process
@@ -144,7 +144,7 @@
 15. Added support for org.apache.hadoop.fs.FileSystem.getScheme(). This method
     is used by Spark NLP, and possibly other packages.
 
-## Minor improvements
+### Minor improvements (2.2.5)
 
 1. Meta server: simplify log chunk in flight RPC handling given that now the RPC
    can no longer be en-queued after the first teardown attempt when meta chunk
@@ -162,7 +162,7 @@
 
 ## QFS version 2.2.4
 
-### Bug fixes
+### Bug fixes (2.2.4)
 
 1. Meta server: fix condition reversal in rename RPC WORM mode specific handling
    logic resulting treating files with .tmp suffix as files with no such suffix
@@ -172,7 +172,7 @@
 
 ## QFS version 2.2.3
 
-### New features
+### New features (2.2.3)
 
 1. Chunk server node ID support. Node ID can be configured on [chunk
    server](https://github.com/quantcast/qfs/blob/7644e583e40ae69851067f53637e1f1381892690/conf/ChunkServer.prp#L84)
@@ -182,7 +182,7 @@
    server QFS are co-located on the same network node and use chunk server to
    serve client requests.
 
-### Bug fixes
+### Bug fixes (2.2.3)
 
 1. Meta server: Change view stamped replication state machine to ignore start
    view change if node's current state is primary, but no log replication
@@ -200,7 +200,7 @@
 
 ## QFS version 2.2.2
 
-### Bug fixes
+### Bug fixes (2.2.2)
 
 1. Meta server: fix rare intermittent incorrect extra replicas removal that
    could be triggered by re-replication and re-balancing.
@@ -213,7 +213,7 @@
 
 ## QFS version 2.2.1
 
-### Bug fixes
+### Bug fixes (2.2.1)
 
 1. Fix open socket double accounting in TCP socket accept. The bug manifests
    itself as chunk server IO failures because the counter is used to limit
@@ -221,13 +221,13 @@
 
 ## QFS version 2.2.0
 
-### New features
+### New features (2.2.0)
 
 1. Symbolic links support.
    In this release QFS client library and Hadoop shim do not support cross file
    systems symbolic links.
 
-### Bug fixes
+### Bug fixes (2.2.0)
 
 1. QFS-350 bug fix.
    Ensure that Hadoop configuration parameter fs.qfs.createParams value if
@@ -237,7 +237,7 @@
 
 ## QFS version 2.1.3
 
-### Bug fixes
+### Bug fixes (2.1.3)
 
 1. Fix DNS resolver's number of open socket accounting bug. This bug might
    manifest itself in at least one non obvious way: chunk server might
@@ -246,13 +246,13 @@
 
 ## QFS version 2.1.2
 
-### New features
+### New features (2.1.2)
 
 Watchdog thread polls meta and / or chunk server threads and aborts the process,
 when configured to do so, in the case if one or more threads appear not to be
 making progress due to likely server and / or OS malfunction.
 
-### Bug fixes
+### Bug fixes (2.1.2)
 
 1. Fix hex integer parser return code in the case when input length is 0.
 2. Chunk server: fix theoretically possible null pointer de-reference, and
@@ -283,7 +283,7 @@ making progress due to likely server and / or OS malfunction.
 
 ## QFS version 2.1.1
 
-### Bug fixes
+### Bug fixes (2.1.1)
 
 1. Fix backward compatibility with chunk server 1.x releases by correctly
    handling the case where 1.x chunk server is a replication data source for 2.x
@@ -295,7 +295,7 @@ making progress due to likely server and / or OS malfunction.
 
 ## QFS version 2.1.0
 
-### New features
+### New features (2.1.0)
 
 1. Non blocking DNS resolver. Resolver implementation at
    [https://github.com/wahern/dns](https://github.com/wahern/dns) is used by default. It is possible to configure
@@ -308,20 +308,20 @@ making progress due to likely server and / or OS malfunction.
    store. The default cache timeout is 1 second. The cache is intended to improve
    S3 object store IO performance and reduce DNS servers load.
 
-### Bug fixes
+### Bug fixes (2.1.0)
 
 1. Fixed homebrew osxfuse build.
 2. Fixed client authentication in the case when meta server configured
    with no "client" threads.
 3. Fixed file system URL parsing in QFS tool.
 
-## Upgrade from 2.0. release
+### Upgrade from 2.0. release
 
 The 2.0.1 release is backward and forward compatible with 2.0 release.
 
 ## QFS version 2.0
 
-### New features
+### New features (2.0)
 
 1. Meta server replication (VR) is the major new feature in this release. Meta
    server replication provides automatic meta server fail over. With meta server
