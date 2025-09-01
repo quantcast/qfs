@@ -1,6 +1,8 @@
 # QFS version 2
 
-QFS version 2.2.7
+Release 2.2.8
+
+- Release 2.2.8 contains updated Java module, Java 9+ support, Hadoop 3 benchmark support, and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
 Release 2.2.7
 
@@ -64,7 +66,7 @@ Meta server replication is the major new feature in release 2.0.0. Meta server
 replication provides automatic meta server fail over. With meta server replication
 configured QFS does not have single point of failure.
 
-Release notes are available [here](https://github.com/quantcast/qfs/wiki/Release-Notes).
+[Release notes are available](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
 ## Quantcast File System
 
@@ -122,54 +124,78 @@ yourself with QFS is very easy.
 
 1. Extract the distribution tarball.
 
-        $ tar -xzf qfs.tgz && cd qfs
-        
-1. Set up a single node QFS instance. This will create a workspace in
-    `~/qfsbase`, start two chunk servers and one metaserver.
+    ```sh
+    tar -xzf qfs.tgz && cd qfs
+    ```
 
-        $ ./examples/sampleservers/sample_setup.py -a install
-        Binaries presence checking - OK.
-        Setup directories - OK.
-        Setup config files - OK.
-        Started servers - OK.
+2. Set up a single node QFS instance. This will create a workspace in
+   `~/qfsbase`, start two chunk servers and one metaserver.
 
-1. Add tools binary path to`PATH`
+    ```sh
+    examples/sampleservers/sample_setup.py -a install
+    ```
 
-        $ PATH=${PWD}/bin/tools:${PATH}
-        
-1. Make a temporary directory on the file system
+    ```console
+    Binaries presence checking - OK.
+    Setup directories - OK.
+    Setup config files - OK.
+    Started servers - OK.
+    ```
 
-        $ qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
-        
-1. Create a file containing "Hello World", Reed-Solomon encoded, with
-    replication 1.
+3. Add tools binary path to `PATH`
 
-        $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -k /qfs/tmp/helloworld -d -
-        
-1. Cat the file content.
+    ```sh
+    PATH=${PWD}/bin/tools:${PATH}
+    ```
 
-        $ qfscat -s localhost -p 20000 /qfs/tmp/helloworld
-        
-1. Stat the file to see encoding (RS or not), replication level, and mtime.
+4. Make a temporary directory on the file system
 
-        $ qfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
-        
-1. Copy the file locally to the current directory.
+    ```sh
+    qfsshell -s localhost -p 20000 -q -- mkdir /qfs/tmp
+    ```
 
-        $ cpfromqfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
-        
-1. Remove the file from QFS.
+5. Create a file containing "Hello World", Reed-Solomon encoded, with
+   replication 1.
 
-        $ qfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
-        
-1. Stop the servers.
+    ```sh
+    echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -k /qfs/tmp/helloworld -d -
+    ```
 
-        $ ./examples/sampleservers/sample_setup.py -a stop
-        
-1. Uninstall the single node instance.
+6. Cat the file content.
 
-        $ ./examples/sampleservers/sample_setup.py -a uninstall
-        
+    ```sh
+    qfscat -s localhost -p 20000 /qfs/tmp/helloworld
+    ```
+
+7. Stat the file to see encoding (RS or not), replication level, and mtime.
+
+    ```sh
+    qfsshell -s localhost -p 20000 -q -- stat /qfs/tmp/helloworld
+    ```
+
+8. Copy the file locally to the current directory.
+
+    ```sh
+    cpfromqfs -s localhost -p 20000 -k /qfs/tmp/helloworld -d ./helloworld
+    ```
+
+9. Remove the file from QFS.
+
+    ```sh
+    qfsshell -s localhost -p 20000 -q -- rm /qfs/tmp/helloworld
+    ```
+
+10. Stop the servers.
+
+    ```sh
+    examples/sampleservers/sample_setup.py -a stop
+    ```
+
+11. Uninstall the single node instance.
+
+    ```sh
+    examples/sampleservers/sample_setup.py -a uninstall
+    ```
 
 ## Benchmarking QFS
 
