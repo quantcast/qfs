@@ -1,32 +1,34 @@
-Prerequisites
-=============
+# Developer Documentation
+
+## Prerequisites
+
 To compile and run QFS you need to have the following software packages
 installed in your development system.
 
-| RHEL/CentOS      | Debian/Ubuntu        | OS X    | Cygwin             | Notes                                                                                                                                         |
-|------------------|----------------------|---------|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `gcc-g++`        | `gcc`                |         | `gcc-g++`          |                                                                                                                                               |
-| `make`           | `make`               |         | `make`             |                                                                                                                                               |
-| `git`            | `git`                |         | `git`              | version 1.7.10 or higher                                                                                                                      |
-| `cmake`          | `cmake`              | `cmake` | `cmake`            | version 2.8.4 or higher                                                                                                                       |
-| `maven`          | `maven2`             | `maven` |                    | version 3.0.3 or higher                                                                                                                       |
-| `boost-devel`    | `libboost-regex-dev` | `boost` | `libboost-devel`   | version 1.3.4 or higher (for mac, may need to install boost with `'-no_single'` option if only the `/opt/local/lib/*-mt.dylib` are installed) |
-| `krb5-devel`     | `libkrb5-dev`        |         | `libkrb5-devel`    |                                                                                                                                               |
-| `openssl-devel`  | `libssl-dev`         |         | `openssl-devel`    |                                                                                                                                               |
-| `python-devel`   | `python-dev`         |         |                    | for python bindings                                                                                                                           |
-| `fuse-devel`     | `libfuse-dev`        |         |                    | for FUSE bindings                                                                                                                             |
-| `java-openjdk`   | `default-jdk`        |         |                    | for java access                                                                                                                               |
-| `java-devel`     |                      |         |                    | for java access                                                                                                                               |
-| `libuuid-devel`  |                      |         |                    |                                                                                                                                               |
-|                  |                      | `Xcode` |                    |                                                                                                                                               |
-|                  |                      |         | `bzip2`            |                                                                                                                                               |
-|                  |                      |         | `autoconf`         |                                                                                                                                               |
-|                  |                      |         | `automake`         |                                                                                                                                               |
-|                  |                      |         | `libstdc++6-devel` |                                                                                                                                               |
+| RHEL/CentOS     | Debian/Ubuntu        | OS X    | Cygwin             | Notes                                                                                                                                         |
+| --------------- | -------------------- | ------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gcc-g++`       | `gcc`                |         | `gcc-g++`          |                                                                                                                                               |
+| `make`          | `make`               |         | `make`             |                                                                                                                                               |
+| `git`           | `git`                |         | `git`              | version 1.7.10 or higher                                                                                                                      |
+| `cmake`         | `cmake`              | `cmake` | `cmake`            | version 2.8.4 or higher                                                                                                                       |
+| `maven`         | `maven2`             | `maven` |                    | version 3.0.3 or higher                                                                                                                       |
+| `boost-devel`   | `libboost-regex-dev` | `boost` | `libboost-devel`   | version 1.3.4 or higher (for mac, may need to install boost with `'-no_single'` option if only the `/opt/local/lib/*-mt.dylib` are installed) |
+| `krb5-devel`    | `libkrb5-dev`        |         | `libkrb5-devel`    |                                                                                                                                               |
+| `openssl-devel` | `libssl-dev`         |         | `openssl-devel`    |                                                                                                                                               |
+| `python-devel`  | `python-dev`         |         |                    | for python bindings                                                                                                                           |
+| `fuse-devel`    | `libfuse-dev`        |         |                    | for FUSE bindings                                                                                                                             |
+| `java-openjdk`  | `default-jdk`        |         |                    | for java access                                                                                                                               |
+| `java-devel`    |                      |         |                    | for java access                                                                                                                               |
+| `libuuid-devel` |                      |         |                    |                                                                                                                                               |
+|                 |                      | `Xcode` |                    |                                                                                                                                               |
+|                 |                      |         | `bzip2`            |                                                                                                                                               |
+|                 |                      |         | `autoconf`         |                                                                                                                                               |
+|                 |                      |         | `automake`         |                                                                                                                                               |
+|                 |                      |         | `libstdc++6-devel` |                                                                                                                                               |
 
-Repository Organization
-=======================
-```
+## Repository Organization
+
+```text
     QFS top-level directory
     │
     ├──── benchmarks
@@ -73,8 +75,8 @@ Repository Organization
           └──── test-scripts           (Scripts to test QFS servers and components)
 ```
 
-Compiling The Source
-====================
+## Compiling The Source
+
 The top-level Makefile automatically compiles QFS and generates the server
 binaries, client tools and client libraries. This section has information that
 gives you greater control over the compile process. This section also provides
@@ -90,8 +92,8 @@ files in QFS. The mode of execution of a QFS client application is as follows:
    client library will fail-over to another chunk server that has the data; this
    fail-over is transparent to the application.
 
-Compiling the C++ Code
-------------------
+## Compiling the C++ Code
+
 Compiling the C++ code produces the metaserver, chunkserver, client, and admin
 tool binaries. It also produces the C++ client library. We use **`cmake`** to
 build the C++ code. You can use the top-level Makefile as a wrapper around cmake
@@ -101,6 +103,7 @@ Once the build is complete, you will find the build artifacts in the
 `build/debug` directory.
 
 ### Types of Builds
+
 The default build type is a release build. You can execute a debug build by
 running `make BUILD_TYPE=debug CMAKE_OPTIONS=`. The build artifacts for this
 build will be available in the `build/debug` directory.
@@ -112,18 +115,20 @@ compile flags of "-O2 -g"). Having binaries with debugging info in production
 simplifies debugging should a problem arise in a production environment.
 
 ### Verbose Build Output
+
 To build with verbose output, use the environment variable `VERBOSE=true` to
 build. For example, use `VERBOSE=true make`.
 
 ### `make test` Targets
+
 To run qfs tests, use `make test`. This will ensure that all core functionality
 is intact. Note that this test invokes the metaserver and chunk servers locally
 and performs various checks, it may take a couple of minutes to complete. If you
 are running this from a partition that is nearly full, the test may fail. Please
 refer to `maxSpaceUtilizationThreshold` in [[Configuration Reference]].
 
-
 ### Developing a C++ client
+
 To develop a c++ client, see the sample code in the
 `examples/cc/qfssample_main.cc` file. The QFS client library API is
 defined in `src/cc/libclient/KfsClient.h`.
@@ -134,8 +139,8 @@ dependencies. Note that default build will contain libraries built with the
 recommended that you use the libraries built with "Release" option with your
 applications.
 
-Compiling Java Side
--------------------
+## Compiling Java Side
+
 Compile the Java code to get the QFS access jar (which contains the wrapper
 calls to native C++ via JNI; this allows Java apps to access files stored in
 QFS) and the Apache Hadoop QFS plugin jar. The Apache Hadoop QFS plugin includes
@@ -146,6 +151,7 @@ Apache Maven is used to build Java jars. Use the top-level makefile (`make
 java`) to build the java jars.
 
 ### Developing a Java Client
+
 For Java applications, we use the JNI interface to get at the C++ QFS client
 library code from Java applications. One should refer to the Java client example
 at `examples/java/QfsSample.java`. The QFS Java client library API is
@@ -158,28 +164,33 @@ addition, to execute the client, `build/release/lib` should be in
 the `LD_LIBRARY_PATH` (or `DYLD_LIBRARY_PATH`, if it is Mac OS X).
 To build,
 
-    $ cd ~/code/qfs/examples/java
-    $ qfsjar=`echo ../../build/qfs-access/qfs-access*.jar`
-    $ javac -classpath "$qfsjar" QfsSample.java
+```sh
+cd ~/code/qfs/examples/java &&
+qfsjar=`echo ../../build/qfs-access/qfs-access*.jar` &&
+javac -classpath "$qfsjar" QfsSample.java
+```
 
 To execute,
 
-    $ libdir="`cd ../../build/release/lib && pwd`"
-    $ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}"
-    $ qfsjar=`echo ../../build/qfs-access/qfs-access*.jar`
-    $ java -Djava.library.path="$libdir" -classpath ".:$qfsjar" QfsSample 127.0.0.1 20000
+```sh
+libdir="`cd ../../build/release/lib && pwd`" &&
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${libdir}" &&
+qfsjar=`echo ../../build/qfs-access/qfs-access*.jar` &&
+java -Djava.library.path="$libdir" -classpath ".:$qfsjar" QfsSample 127.0.0.1 20000
+```
 
-### Compiling Python Side
-------------------------------------
+## Compiling Python Side
+
 Python applications can access QFS by using the python extension module. This
 section describes how to build and install the python extension module. To build
 the python module, use the command `make python`. If build succeeds, then python
 wheel `build/release/python-qfs/dist/qfs*.whl` will be created at the end.
 
 ### Developing a Python Client
-Python applications use the python QFS extension module `qfs`. The example program
-`examples/python/qfssample.py` illustrates how to write a Python client for QFS.
-The module requires python 3.6 or later version.
+
+Python applications use the python QFS extension module `qfs`. The example
+program `examples/python/qfssample.py` illustrates how to write a Python client
+for QFS. The module requires python 3.6 or later version.
 
 All required QFS libraries are included with QFS python module. Relative run
 linker paths are used in QFS shared libraries, therefore additional run time
@@ -193,5 +204,3 @@ then run the example:
 `python examples/python/qfssample.py examples/python/qfssample.cfg`
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
-
-[gt]: https://github.com/google/googletest

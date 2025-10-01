@@ -1,3 +1,5 @@
+# QFS Deployment Guide
+
 The Quantcast File System (QFS) is designed to run on a cluster of nodes built
 with commodity hardware, which includes desktop grade disk drives and 1- to
 10-gigabit ethernet interconnects. The design is focused on fault tolerance,
@@ -12,8 +14,8 @@ encoding must be specified; QFS does not impose a default method. The
 deployments discussed in this document maximize fault tolerance for when
 either method is most commonly used.
 
-Components
-----------
+## Components
+
 QFS consists of several software components:
 
 - **metaserver**: The brains of the operation, the *metaserver* hosts the file
@@ -25,8 +27,8 @@ QFS consists of several software components:
 
 ![Communication Flows](images/Deployment-Guide/qfs-communication-flows.png)
 
-Metaserver
----------
+## Metaserver
+
 The metaserver stores the file system image in memory. This includes:
 
 - All file metadata including directory structure, file names, mtime, etc ...
@@ -51,8 +53,8 @@ file system status including (but not limited to):
 - Capacity information.
 - General file system health information.
 
-Chunk Server
-------------
+## Chunk Server
+
 The chunk server is the workhorse of QFS. All QFS client I/O operations go
 through the chunk servers, which store data chunks of up to 64 megabytes in size
 on their host file systems. The chunk servers also replicate and recover chunks
@@ -69,8 +71,8 @@ servers use XFS direct I/O which bypasses the OS buffer cache to improve
 performance. The XFS file space reservation feature is used to minimize
 fragmentation.
 
-Clients
--------
+## Clients
+
 QFS ships with several client tools:
 
 - A Java interface for Hadoop
@@ -81,9 +83,10 @@ The client communicates with the metaserver to create files, modify file
 attributes, and to retrieve file-to-chunk mapping information, which it then
 uses to access file chunks via the chunk servers.
 
-Simple Cluster
---------------
+## Simple Cluster
+
 ### Using Chunk Replication
+
 The simplest cluster configuration is replication mode. When a file is created
 with replication *k*, chunks will be replicated *k* times. The downside to this
 is that you also will need *k* times as much storage. In the example below, a
@@ -106,50 +109,55 @@ chunk replica. The *metaServer.rackPrefixes*
 [[configuration parameter|Configuration-Reference]] is used to organize
 placement groups.
 
-#### Configuration
+#### Simple Cluster Configuration
 
-##### MetaServer.prp
+##### Simple Cluster MetaServer.prp
 
-    # port used by clients to connect to the metaserver
-    metaServer.clientPort = 20000
+```properties
+# port used by clients to connect to the metaserver
+metaServer.clientPort = 20000
 
-    # port used by chunk servers to connect to the metaserver
-    metaServer.chunkServerPort = 30000
+# port used by chunk servers to connect to the metaserver
+metaServer.chunkServerPort = 30000
 
-    # chunk placement groups by IP address or first three octets
-    metaServer.rackPrefixes = 192.168.1.1 1   192.168.1.2 2 192.168.1.3 3
+# chunk placement groups by IP address or first three octets
+metaServer.rackPrefixes = 192.168.1.1 1   192.168.1.2 2 192.168.1.3 3
 
-    # create new file system if no transaction logs or checkpoints are found
-    metaServer.createEmptyFs = 1
+# create new file system if no transaction logs or checkpoints are found
+metaServer.createEmptyFs = 1
 
-    # location to write transaction logs
-    metaServer.logDir = /home/qfsm/transaction_logs
+# location to write transaction logs
+metaServer.logDir = /home/qfsm/transaction_logs
 
-    # location to write checkpoints, this needs be pruned periodically
-    metaServer.cpDir = /home/qfsm/checkpoint
+# location to write checkpoints, this needs be pruned periodically
+metaServer.cpDir = /home/qfsm/checkpoint
 
-    # unique cluster id
-    metaServer.clusterKey = my-fs-unique-identifier
+# unique cluster id
+metaServer.clusterKey = my-fs-unique-identifier
+```
 
-##### ChunkServer.prp
+##### Simple Cluster ChunkServer.prp
 
-    # address of the metaserver, host names should not be used
-    chunkServer.metaServer.hostname 192.168.0.1
+```properties
+# address of the metaserver, host names should not be used
+chunkServer.metaServer.hostname 192.168.0.1
 
-    # metaserver port for chunk server to use
-    chunkServer.metaServer.port = 30000
+# metaserver port for chunk server to use
+chunkServer.metaServer.port = 30000
 
-    # chunk server client listener port
-    chunkServer.clientPort = 22000
+# chunk server client listener port
+chunkServer.clientPort = 22000
 
-    # locations to store chunk data, independent spindles should be
-    used
-    chunkServer.chunkDir = /mnt/data0 /mnt/data1
+# locations to store chunk data, independent spindles should be
+# used
+chunkServer.chunkDir = /mnt/data0 /mnt/data1
 
-    # unique cluster id
-    chunkServer.clusterKey = my-fs-unique-identifier
+# unique cluster id
+chunkServer.clusterKey = my-fs-unique-identifier
+```
 
-##### Notes
+##### Simple Cluster Notes
+
 - DNS based host names are not supported; instead, IPv4 addresses should be
   used.
 - The metaserver checkpoint directory (*metaServer.cpDir*) needs to be
@@ -161,6 +169,7 @@ placement groups.
   and *clusterKey*.
 
 ### Using Reed-Solomon Encoding
+
 Using Reed-Solomon encoding for fault tolerance is far more space efficient than
 replication. Rather than writing multiple copies of each chunk, the client
 library generates parity information that allows the chunk to be reconstructed
@@ -178,11 +187,12 @@ the client sets the fault tolerance of each file individually when it is
 created.
 
 #### Reed-Solomon \<rs k,m+n\>
-| Value | Description |
-| ----- | ----------- |
-| k | replication factor, normally 1 with n 3, and more than 1 with n == 0 |
-| m | data stripe count, valid range is 1 to 64 with n == 3, and 255 with n == 0 |
-| n | recovery stripe count, only 0 and 3 are presently valid, with n == 0 pure striping -- no recovery |
+
+| Value | Description                                                                                       |
+| ----- | ------------------------------------------------------------------------------------------------- |
+| k     | replication factor, normally 1 with n 3, and more than 1 with n == 0                              |
+| m     | data stripe count, valid range is 1 to 64 with n == 3, and 255 with n == 0                        |
+| n     | recovery stripe count, only 0 and 3 are presently valid, with n == 0 pure striping -- no recovery |
 
 Currently the only extensively tested encodings are *\<rs 1,6+3\>* and
 replication 3 (expressed as *\<rs 3,6+0\>*). QFS supports increasing the number
@@ -193,23 +203,27 @@ This means that the same number of recovery stripes are responsible for a larger
 number of data stripes.
 
 #### Replication vs Reed-Solomon
+
 The currently supported RS encoding is *\<rs 1,6+3\>*; this uses only 50% more
 space than the chunk data, but allows for the loss of three chunks. By
 comparison, chunk replication with a factor of three (*\<rs 3,6+0\>*), uses 200%
 more space than the chunk data and only allows for the loss of 2 chunks.
 
-| encoding | file size | space used | fault tolerance |
-| -------- | --------- | ---------- | --------------- |
-| replication 3 \<rs 3,6+0  | 6 MB | 18 MB | up to 2 chunks |
-| replication 4 \<rs 4,6+0\> | 6 MB | 24 MB | up to 3 chunks |
-| \<rs 1,6+3\> | 6 MB | 9 MB | up to 3 chunks |
+| encoding                   | file size | space used | fault tolerance |
+| -------------------------- | --------- | ---------- | --------------- |
+| replication 3 \<rs 3,6+0   | 6 MB      | 18 MB      | up to 2 chunks  |
+| replication 4 \<rs 4,6+0\> | 6 MB      | 24 MB      | up to 3 chunks  |
+| \<rs 1,6+3\>               | 6 MB      | 9 MB       | up to 3 chunks  |
 
 **Some useful formulas:**
 
-    disk usage = file size x ((data stripes + recovery stripes) / data stripes) x replication)
-    effective capacity = raw capacity x (data stripes / ((data stripes + recovery stripes) x replication))
+```text
+disk usage = file size x ((data stripes + recovery stripes) / data stripes) x replication)
+effective capacity = raw capacity x (data stripes / ((data stripes + recovery stripes) x replication))
+```
 
-#### Layout
+#### Reed-Solomon Cluster Layout
+
 A minimum of 9 chunk servers is required for ideal fault tolerant chunk
 placement. This is because the supported Reed-Solomon encoding, *\<rs 1,6+3\>*,
 has a block size of 9 (data stripe count 6 + recovery stripe count 3). As in
@@ -240,48 +254,54 @@ encoding, some files may suffer data loss with even a single machine failure.
 
 ![Reed Solomon encoding](images/Deployment-Guide/qfs-cluster-in-a-rack-rs.png)
 
-#### Configuration
-##### MetaServer.prp
+#### Reed-Solomon Cluster Configuration
 
-    # port used by clients to connect to the metaserver
-    metaServer.clientPort 20000
+##### Reed-Solomon Cluster MetaServer.prp
 
-    # port used by chunk servers to connect to metaserver
-    metaServer.chunkServerPort = 30000
+```properties
+# port used by clients to connect to the metaserver
+metaServer.clientPort 20000
 
-    # chunk placement groups by IP address or first three octets
-    metaServer.rackPrefixes = 192.168.1.1 1   192.168.1.2 2   192.168.1.3 3   192.168.1.4 4   192.168.1.5 5   192.168.1.6 6   192.168.1.7 7   192.168.1.8 8    192.168.1.9 9
+# port used by chunk servers to connect to metaserver
+metaServer.chunkServerPort = 30000
 
-    # create new file system if no transaction logs or checkpoints are found
-    metaServer.createEmptyFs = 1
+# chunk placement groups by IP address or first three octets
+metaServer.rackPrefixes = 192.168.1.1 1   192.168.1.2 2   192.168.1.3 3   192.168.1.4 4   192.168.1.5 5   192.168.1.6 6   192.168.1.7 7   192.168.1.8 8    192.168.1.9 9
 
-    # location to write transaction logs
-    metaServer.logDir = /home/qfsm/transaction_logs
+# create new file system if no transaction logs or checkpoints are found
+metaServer.createEmptyFs = 1
 
-    # location to write checkpoints, this needs be pruned periodically
-    metaServer.cpDir = /home/qfsm/checkpoint
+# location to write transaction logs
+metaServer.logDir = /home/qfsm/transaction_logs
 
-    # unique cluster id
-    metaServer.clusterKey = my-fs-unique-identifier
+# location to write checkpoints, this needs be pruned periodically
+metaServer.cpDir = /home/qfsm/checkpoint
 
-##### ChunkServer.prp
+# unique cluster id
+metaServer.clusterKey = my-fs-unique-identifier
+```
 
-    # IP address of the metaserver, host names should not be used
-    chunkServer.metaServer.hostname 192.168.0.1
+##### Reed-Solomon Cluster ChunkServer.prp
 
-    # metaserver port for chunk server to use
-    chunkServer.metaServer.port = 30000
+```properties
+# IP address of the metaserver, host names should not be used
+chunkServer.metaServer.hostname 192.168.0.1
 
-    # chunk server client listener port
-    chunkServer.clientPort = 22000
+# metaserver port for chunk server to use
+chunkServer.metaServer.port = 30000
 
-    # locations to store chunk data, independent spindles should be used
-    chunkServer.chunkDir = /mnt/data0 /mnt/data1
+# chunk server client listener port
+chunkServer.clientPort = 22000
 
-    # unique cluster id
-    chunkServer.clusterKey = my-fs-unique-identifier
+# locations to store chunk data, independent spindles should be used
+chunkServer.chunkDir = /mnt/data0 /mnt/data1
 
-#### Notes
+# unique cluster id
+chunkServer.clusterKey = my-fs-unique-identifier
+```
+
+#### Reed-Solomon Cluster Notes
+
 - DNS based host names are not supported, instead IPv4 addresses should be used.
 - The metaserver checkpoint directory (*metaServer.cpDir*) needs to be
   periodically pruned. Each checkpoint file will be approximately the size of
@@ -290,6 +310,8 @@ encoding, some files may suffer data loss with even a single machine failure.
   metaserver they communicate with. This allows a given node to host chunk
   servers for multiple QFS file systems, as long as each has its own metaserver
   and *clusterKey*. Advanced Cluster
+
+## Large Scale Cluster
 
 Here we discuss a larger scale QFS deployment, organized into racks with
 dedicated networking and power. Each rack hosts 22 chunk server nodes:
@@ -300,7 +322,8 @@ There is also a head node rack to host the metaserver:
 
 ![Metaserver rack](images/Deployment-Guide/qfs-meta-server-rack.png)
 
-### Layout
+### Large Scale Cluster Layout
+
 Racks are natural failure groups, as at any given time they could have isolated
 network or power failures. As such, racks make perfect chunk placement groups.
 As discussed earlier, the supported encoding is *\<rs 1,6+3\>*, with 6 data and
@@ -321,63 +344,84 @@ without a single file being lost. The thing to remember, however, is that
 drives are failing all the time; in all probability the system would only
 tolerate one or two racks out of service. Configuration
 
-##### MetaServer.prp
+### Large Cluster Configuration
 
-    # port used by clients to connect to the metaserver
-    metaServer.clientPort 20000
+#### MetaServer.prp
 
-    # port used by chunk servers to connect to the metaserver
-    metaServer.chunkServerPort = 30000
+```properties
+# port used by clients to connect to the metaserver
+metaServer.clientPort 20000
 
-    # chunk placement groups by IP address or first three octets
-    metaServer.rackPrefixes = 192.168.1 1   192.168.2 2   192.168.3 3   192.168.4 4   192.168.5 5   192.168.6 6   192.168.7 7   192.168.8 8    192.168.9 9
+# port used by chunk servers to connect to the metaserver
+metaServer.chunkServerPort = 30000
 
-    # create new file system if no transaction logs or checkpoints are found
-    metaServer.createEmptyFs = 1
+# chunk placement groups by IP address or first three octets
+metaServer.rackPrefixes = 192.168.1 1   192.168.2 2   192.168.3 3   192.168.4 4   192.168.5 5   192.168.6 6   192.168.7 7   192.168.8 8    192.168.9 9
 
-    # location to write transaction logs
-    metaServer.logDir = /home/qfsm/transaction_logs
+# create new file system if no transaction logs or checkpoints are found
+metaServer.createEmptyFs = 1
 
-    # location to write checkpoints, this needs be pruned periodically
-    metaServer.cpDir = /home/qfsm/checkpoint
+# location to write transaction logs
+metaServer.logDir = /home/qfsm/transaction_logs
 
-    # unique cluster id
-    metaServer.clusterKey = my-fs-unique-identifier
+# location to write checkpoints, this needs be pruned periodically
+metaServer.cpDir = /home/qfsm/checkpoint
+
+# unique cluster id
+metaServer.clusterKey = my-fs-unique-identifier
+```
 
 ##### ChunkServer.prp
 
-    # address of the metaserver, host names should not be used
-    chunkServer.metaServer.hostname 192.168.0.1
+```properties
+# address of the metaserver, host names should not be used
+chunkServer.metaServer.hostname 192.168.0.1
 
-    # metaserver port for chunk server to use
-    chunkServer.metaServer.port = 30000
+# metaserver port for chunk server to use
+chunkServer.metaServer.port = 30000
 
-    # chunk server client listener port
-    chunkServer.clientPort = 22000
+# chunk server client listener port
+chunkServer.clientPort = 22000
 
-    # locations to store chunk data, independent spindles should be used
-    chunkServer.chunkDir = /mnt/data0 /mnt/data1
+# locations to store chunk data, independent spindles should be used
+chunkServer.chunkDir = /mnt/data0 /mnt/data1
 
-    # unique cluster id
-    chunkServer.clusterKey = my-fs-unique-identifier
+# unique cluster id
+chunkServer.clusterKey = my-fs-unique-identifier
+```
 
-FUSE
-----
+## FUSE
+
 You can use the `qfs_fuse` binary directly or via /etc/fstab.
 
 1. Direct usage:
-    - Mount using `$ sudo ./qfs_fuse <metaserver>:20000 /mnt/qfs -o allow_other,ro`
-    - Unmount using `$ sudo umount /mnt/qfs`
-1. Editing /etc/fstab to mount automatically at startup:
-    - Create a symlink to qfs\_fuse `$ ln -s <path-to-qfs_fuse> /sbin/mount.qfs`
-    - Add the following line to /etc/fstab:`<metaserver>:20000 /mnt/qfs qfs ro,allow_other 0 0`
+   - Mount using
+
+     ```sh
+     sudo ./qfs_fuse <metaserver>:20000 /mnt/qfs -o allow_other,ro
+     ```
+
+   - Unmount using
+
+     ```sh
+     sudo umount /mnt/qfs
+     ```
+
+2. Editing /etc/fstab to mount automatically at startup:
+   - Create a symlink to qfs_fuse
+
+     ```sh
+     ln -s <path-to-qfs_fuse> /sbin/mount.qfs
+     ```
+
+   - Add the following line to /etc/fstab:
+     `<metaserver>:20000 /mnt/qfs qfs ro,allow_other 0 0`
 
 Due to licensing issues, you can include FUSE only if it is licensed under LGPL
 or any other license that is compatible with Apache 2.0 license.
 
+## Best Practices
 
-Best Practices
---------------
 - Use a reliable service manager for both the meta and chunk servers such as
   [daemontools](http://cr.yp.to/daemontools.html). daemontools has the added
   benefit of log service management.
@@ -396,8 +440,8 @@ Best Practices
 - Do not locate your metaserver head node in the same rack as your chunk
   servers.
 
-Related Documents
------------------
+## Related Documents
+
 - [[Administrator's Guide]]
 - [[Configuration Reference]]
 

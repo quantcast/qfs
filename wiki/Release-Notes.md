@@ -4,14 +4,14 @@
 
 ### Release Highlights (2.2.8)
 
-1. **Java 9+ Compatibility:** Refactoring of Java access classes with dual support
-   for modern and legacy Java versions
-2. **MStress Hadoop 3.x Support:** Updated benchmark tool to work with Hadoop 3.x
-   APIs
+1. **Java 9+ Compatibility:** Refactoring of Java access classes with dual
+   support for modern and legacy Java versions
+2. **MStress Hadoop 3.x Support:** Updated benchmark tool to work with Hadoop
+   3.x APIs
 3. **Enhanced Platform Support:** Added Amazon Linux 2023 and ARM64 architecture
    support
-4. **Build System Improvements:** Better Boost compatibility, CMake fixes, and CI/CD
-   enhancements
+4. **Build System Improvements:** Better Boost compatibility, CMake fixes, and
+   CI/CD enhancements
 
 ### Key Components Updated (2.2.8)
 
@@ -34,15 +34,15 @@
 ### New features (2.2.7)
 
 1. Support for python3. Native / platform independent python code is now
-   compatible with python2 and python3, including QFS meta server web UI and meta
-   server backup script. QFS python module / bindings now is only compatible with
-   python3, and python2 is no longer supported.
+   compatible with python2 and python3, including QFS meta server web UI and
+   meta server backup script. QFS python module / bindings now is only
+   compatible with python3, and python2 is no longer supported.
 2. All required QFS shared libraries are now installed along with QFS python
    module, making QFS module installation self contained. On macOS and linux
-   runtime relative linker paths are now used in order to make installed QFS shared
-   libraries relocatable. With this explicitly specifying QFS libraries runtime
-   linkers paths with python module is no longer required. Python QFS module wheel
-   is now built and included into QFS tarball.
+   runtime relative linker paths are now used in order to make installed QFS
+   shared libraries relocatable. With this explicitly specifying QFS libraries
+   runtime linkers paths with python module is no longer required. Python QFS
+   module wheel is now built and included into QFS tarball.
 
 ### Minor improvements (2.2.7)
 
@@ -69,12 +69,12 @@
 ### Minor improvements (2.2.6)
 
 1. Additional object store chunk server / AP assignment modes. One is choose AP
-   with matching rack only (i.e. with no fall back to choosing from all available
-   APs), and the other is to choose AP with with matching rack only if client rack
-   is set / known, otherwise falling back to choosing any available AP. For details
-   please consult metaServer.readUseProxyOnDifferentHostMode and
-   metaServer.writeUseProxyOnDifferentHostMode parameters descriptions in annotated
-   meta server configuration file.
+   with matching rack only (i.e. with no fall back to choosing from all
+   available APs), and the other is to choose AP with with matching rack only if
+   client rack is set / known, otherwise falling back to choosing any available
+   AP. For details please consult metaServer.readUseProxyOnDifferentHostMode and
+   metaServer.writeUseProxyOnDifferentHostMode parameters descriptions in
+   annotated meta server configuration file.
 2. Use TLS 1.2 with openssl versions prior to 1.1.
 3. Implement script to calculate object store space utilization and count number
    of files as function of file access time by scanning meta server checkpoint.
@@ -86,45 +86,45 @@
 ### Bug fixes (2.2.5)
 
 1. Meta server: keep up to 8K of the most recently received from synchronous
-   replication channel(s) "future" log blocks while inactive node is in the process
-   of actively fetching / syncing log and retry merging these log blocks if / when
-   log fetch "catches up" to the received log blocks sequence numbers. This
-   mechanism is intended to handle the case when log sync finishes / exits prior to
-   reaching the most recently received log block due to high RPC rate / meta server
-   load.
+   replication channel(s) "future" log blocks while inactive node is in the
+   process of actively fetching / syncing log and retry merging these log blocks
+   if / when log fetch "catches up" to the received log blocks sequence numbers.
+   This mechanism is intended to handle the case when log sync finishes / exits
+   prior to reaching the most recently received log block due to high RPC rate /
+   meta server load.
 2. Meta server: re-schedule log sync on inactive node when log block sequence
-   exceeds last log sequence in order to handle the case when log sync stops before
-   the synchronous replication catches up in order to make inactive node state
-   synchronization more robust under high meta server load.
+   exceeds last log sequence in order to handle the case when log sync stops
+   before the synchronous replication catches up in order to make inactive node
+   state synchronization more robust under high meta server load.
 3. Meta server: fix object store delete queue cleanup with VR enabled on backups
-   by removing delayed queue processing logic that could prevent queue emptying on
-   the primary therefore never issuing queue reset RPC, instead use dumpster
+   by removing delayed queue processing logic that could prevent queue emptying
+   on the primary therefore never issuing queue reset RPC, instead use dumpster
    cleanup timer to delay blocks removal. Parse object store tiers parameter and
-   create a bitmap with tiers in use bits set, then use the bitmap to validate file
-   create RPC, failing RPCs with tiers not no use. Discard object store block
-   deletes if tier is not in use instead of re-queueing block delete in order to
-   prevent invalid / stale blocks from staying in the delete queue indefinitely
-   therefore preventing emptying the delete queue on the backups potentially
-   resulting in unbounded queue growth.
+   create a bitmap with tiers in use bits set, then use the bitmap to validate
+   file create RPC, failing RPCs with tiers not no use. Discard object store
+   block deletes if tier is not in use instead of re-queueing block delete in
+   order to prevent invalid / stale blocks from staying in the delete queue
+   indefinitely therefore preventing emptying the delete queue on the backups
+   potentially resulting in unbounded queue growth.
 4. Meta server: fix extremely rare primary and backup state diversion with chunk
    log in flight RPCs in the case where such RPCs are created while processing
-   chunk server "bye" (teardown) RPC for a different chunk server, for example, and
-   with chunk server bye RPC for such server pending in replay or transaction log
-   queue.
+   chunk server "bye" (teardown) RPC for a different chunk server, for example,
+   and with chunk server bye RPC for such server pending in replay or
+   transaction log queue.
 5. Meta server: do not create / log extraneous chunk op in flight and chunk op
    completion with object store blocks allocation.
 6. Meta server: fix view stamped replication reconfiguration swap nodes
-   sub-command. The bug manifests it self as panic (fail stop) on all active nodes
-   at the time of the corresponding VR reconfiguration RPC commit, effectively
-   rendering file system non operational.
+   sub-command. The bug manifests it self as panic (fail stop) on all active
+   nodes at the time of the corresponding VR reconfiguration RPC commit,
+   effectively rendering file system non operational.
 7. Meta server: fix VR view change failure that results in panic in the case
-   when the node that started view change and was about to become primary preempted
-   (due to timing out or connectivity failure) by another node that has already
-   transitioned into primary state.
+   when the node that started view change and was about to become primary
+   preempted (due to timing out or connectivity failure) by another node that
+   has already transitioned into primary state.
 8. Meta server: do not attempt to fetch data from other meta server nodes when
-   VR ID is not configured, and remove fetch state file, if exists, in such a case.
-   This change is intended to simplify initial VR configuration setup attempts by
-   handling operator errors more intuitively / gracefully.
+   VR ID is not configured, and remove fetch state file, if exists, in such a
+   case. This change is intended to simplify initial VR configuration setup
+   attempts by handling operator errors more intuitively / gracefully.
 9. Meta server: fix log writer instrumentation by not attempting to save the
    instrumentation data into a file if file name set to an empty string.
 10. Meta server: fix VR status propagation from logger to main thread by
@@ -138,9 +138,9 @@
 13. Client library: retry replicated file get size if / when chunk server or
     replica disappears.
 14. IO library: fix SSL / TLS "filter" error handling with end of file / stream
-    close. The problem manifests itself with authentication enabled by excessive CPU
-    utilization due to continuous retries and socket / connection "leak" as, in
-    theory, connection might never get out of this state.
+    close. The problem manifests itself with authentication enabled by excessive
+    CPU utilization due to continuous retries and socket / connection "leak" as,
+    in theory, connection might never get out of this state.
 15. Added support for org.apache.hadoop.fs.FileSystem.getScheme(). This method
     is used by Spark NLP, and possibly other packages.
 
@@ -152,8 +152,8 @@
    compatibility handling in replay code path only by adding a boolean to
    distinguish chunk in flight RPC created with the new logic.
 2. Common library: change watchdog default poll interval to 1 second when max.
-   timeouts set to negative value in order to sample and report watchdog and poll
-   entries time overruns.
+   timeouts set to negative value in order to sample and report watchdog and
+   poll entries time overruns.
 3. Tools: implement stricter `qfsadmin` command line parameters validation.
 4. Implement meta server transaction log truncation / roll back script intended
    to be used for debugging and recovery.
@@ -174,10 +174,8 @@
 
 ### New features (2.2.3)
 
-1. Chunk server node ID support. Node ID can be configured on [chunk
-   server](https://github.com/quantcast/qfs/blob/7644e583e40ae69851067f53637e1f1381892690/conf/ChunkServer.prp#L84)
-   and [QFS
-   client](https://github.com/quantcast/qfs/blob/7644e583e40ae69851067f53637e1f1381892690/conf/QfsClient.prp#L169).
+1. Chunk server node ID support. Node ID can be configured on [chunk server](https://github.com/quantcast/qfs/blob/7644e583e40ae69851067f53637e1f1381892690/conf/ChunkServer.prp#L84)
+   and [QFS client](https://github.com/quantcast/qfs/blob/7644e583e40ae69851067f53637e1f1381892690/conf/QfsClient.prp#L169).
    Node ID is intended to be used instead of IP/port for determining if chunk
    server QFS are co-located on the same network node and use chunk server to
    serve client requests.
@@ -298,15 +296,14 @@ making progress due to likely server and / or OS malfunction.
 ### New features (2.1.0)
 
 1. Non blocking DNS resolver. Resolver implementation at
-   [https://github.com/wahern/dns](https://github.com/wahern/dns) is used by default. It is possible to configure
-   QFS to use OS DNS resolver. DNS related configuration options are described
-   in the annotated [configuration
-   files](https://github.com/quantcast/qfs/tree/master/conf)
-   Non blocking DNS resolver allows higher IO concurrency with S3 \[compatible\]
-   object store.
+   [https://github.com/wahern/dns](https://github.com/wahern/dns) is used by
+   default. It is possible to configure QFS to use OS DNS resolver. DNS related
+   configuration options are described in the annotated [configuration
+   files](https://github.com/quantcast/qfs/tree/master/conf) Non blocking DNS
+   resolver allows higher IO concurrency with S3 \[compatible\] object store.
 2. Basic DNS query result cache. The cache is on by default only for S3 object
-   store. The default cache timeout is 1 second. The cache is intended to improve
-   S3 object store IO performance and reduce DNS servers load.
+   store. The default cache timeout is 1 second. The cache is intended to
+   improve S3 object store IO performance and reduce DNS servers load.
 
 ### Bug fixes (2.1.0)
 
@@ -397,4 +394,4 @@ The 2.0.1 release is backward and forward compatible with 2.0 release.
 
 Meta server checkpoint and transaction log segments must be converted to new
 format. `logcompactor` can be used to convert file system meta data. Please
-consult [[Administrator's-Guide]] for details.
+consult [[Administrator's Guide]] for details.

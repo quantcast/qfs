@@ -51,7 +51,7 @@ files.
 
 Given the following configuration:
 
-```console
+```properties
 metaServer.cpDir = /home/qfs0/state/checkpoint
 metaServer.logDir = /home/qfs0/state/transactions
 ```
@@ -180,8 +180,8 @@ Add node 0 to VR configuration:
 
 ```sh
 qfsadmin -f qfsadmin.cfg \
-    -s <meta server host> \
-    -p <meta server port> \
+    -s meta-server-host \
+    -p meta-server-port \
     -F op-type=add-node \
     -F arg-count=1 \
     -F node-id=0 \
@@ -193,8 +193,8 @@ Add node 1 to VR configuration:
 
 ```sh
 qfsadmin -f qfsadmin.cfg \
-    -s <meta server host> \
-    -p <meta server port> \
+    -s meta-server-host \
+    -p meta-server-port \
     -F op-type=add-node \
     -F arg-count=1 \
     -F node-id=1 \
@@ -206,8 +206,8 @@ Add node 2 to VR configuration:
 
 ```sh
 qfsadmin -f qfsadmin.cfg \
-    -s <meta server host> \
-    -p <meta server port> \
+    -s meta-server-host \
+    -p meta-server-port \
     -F op-type=add-node \
     -F arg-count=1 \
     -F node-id=2 \
@@ -219,8 +219,8 @@ Activate nodes:
 
 ```sh
 qfsadmin -f qfsadmin.cfg \
-    -s <meta server host> \
-    -p <meta server port> \
+    -s meta-server-host \
+    -p meta-server-port \
     -F op-type=activate-nodes \
     -F arg-count=3 \
     -F args='0 1 2' \
@@ -249,7 +249,7 @@ status of specific meta server node.(with -n parameter)
 For example:
 
 ```sh
-qfsadmin -s sfsb0.sea1.qc -p 30000 vr_get_status
+qfsadmin -s meta-server-host -p meta-server-port vr_get_status
 ```
 
 The output will look like the following. The node state will be primary (status
@@ -625,11 +625,15 @@ turn WORM mode on and off.
 
 To turn WORM mode on do the following:
 
-`qfstoggleworm -s metaServer.host -p metaServer.port -t 1`
+```sh
+qfstoggleworm -s metaServer.host -p metaServer.port -t 1
+```
 
 Likewise, to turn WORM mode off do the following:
 
-`qfstoggleworm -s metaServer.host -p metaServer.port -t 0`
+```sh
+qfstoggleworm -s metaServer.host -p metaServer.port -t 0
+```
 
 When a QFS instance is running in WORM mode, a file can only be created if it
 ends with a `.tmp` suffix. Once stored in the file system, it can then be
@@ -650,7 +654,9 @@ See the [[Configuration Reference]] for a complete set of web UI configuration
 parameters. Also the sample servers used in the examples include a typical web
 UI configuration. Running
 
-`qfsstatus.py /path/to/webUI.cfg`
+```sh
+qfsstatus.py /path/to/webUI.cfg
+```
 
 ### Interface
 
@@ -685,11 +691,15 @@ This makes it fairly easy to build automation around a QFS file system.
 
 You can use `qfsping` to ping a metaserver:
 
-`qfsping -m -s metaServer.hostname -p metaServer.portg`
+```sh
+qfsping -m -s metaServer.hostname -p metaServer.portg
+```
 
 The command is similar for a chunk server ping:
 
-`qfsping -c -s chunkServer.hostname -p chunkServer.port`
+```sh
+qfsping -c -s chunkServer.hostname -p chunkServer.port
+```
 
 Parsing the output of a ping is beyond the scope of this document but the Python
 web interface `qfsstatus.py` provides an example of this and more.
@@ -700,7 +710,10 @@ The recommended procedure is to use logcompactor from previous release to create
 checkpoint and possibly single log segment, then use logcompactor from the new
 release to convert file system meta data into new format.
 
-`logcomactor -l state/transactions -c state/checkpoint -T state/transactions_new -C state/checkpoint_new`
+```sh
+logcomactor -l state/transactions -c state/checkpoint \
+   -T state/transactions_new -C state/checkpoint_new
+```
 
 ## Chunk Server
 
@@ -717,7 +730,9 @@ configurations. For the complete set of configuration parameters see the
 
 ### Running Chunk Server
 
-`chunkserver /path/to/ChunkServer.prp`
+```sh
+chunkserver /path/to/ChunkServer.prp
+```
 
 ### Hibernation
 
@@ -734,15 +749,19 @@ node or rack level maintenance.
 
 The `qfshibernate` tool is used to hibernate a chunk server:
 
-`qfshibernate -m chunkServer.metaServer.hostname -p chunkServer.metaServer.port -c chunkServer.hostname -d chunkServer.clientPort -s delay (in seconds)`
+```sh
+qfshibernate -m chunkServer.metaServer.hostname -p chunkServer.metaServer.port \
+   -c chunkServer.hostname -d chunkServer.clientPort -s delay # (in seconds)
+```
 
 ### Chunk Server Hibernate Example
 
 Given the following metaserver configuration:
 
->
+```properties
 chunkServer.metaServer.hostname = 192.168.1.1
 chunkServer.metaServer.port = 10000
+```
 
 To hibernate a chunk server at 192.168.10.20 (*chunkServer.hostname*) running on
 a client port of 1635 (*chunkServer.clientPort*) for 30 minutes one would
@@ -801,7 +820,9 @@ directory is evacuated, the chunk server will rename its *evacuate* file to
 
 To check the status of the evacuation:
 
-`cd /mnt && find -name evacuate.done | wc -l`
+```sh
+cd /mnt && find -name evacuate.done | wc -l
+```
 
 Once the count returned equals 3, all chunk directories have been evacuated and
 it's safe to stop the chunk server.

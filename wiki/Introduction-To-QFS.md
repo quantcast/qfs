@@ -1,5 +1,7 @@
-Background
-----------
+# Introduction to QFS
+
+## Background
+
 Hadoop and other batch processing frameworks run best against a file system
 designed for their data access pattern: sequential reads and sequential writes
 of large files of at least tens of megabytes, and often gigabytes.
@@ -16,6 +18,7 @@ experimental as well as commercial projects.
 ![QFS Architecture](images/Architecture/qfs_architecture.png)
 
 QFS consists of 3 components:
+
 - **Metaserver:** A central metadata server that manages the file system's
   directory structure and mappings of files to physical storage.
 - **Chunk Server:** The distributed component of the distributed file system.
@@ -31,8 +34,8 @@ STL, and Boost libraries. The server components have been used in production on
 64-bit x86 architectures running Linux CentOS 5 and 6, and the client library
 has been tested on CentOS 5 and 6, OSX 10.X, Cygwin, and Debian/Ubuntu.
 
-QFS Features
-------------
+## QFS Features
+
 - **Incremental Scalability:** Chunk Servers can be added to the system in an
   incremental fashion. When a chunk server is added, it establishes a connection
   to the metaserver and becomes part of the system. No metaserver restarts are
@@ -122,8 +125,8 @@ QFS Features
   node and communication failures by automatically determining set of connected
   and usable meta server nodes, and switching over to it.
 
-Key Known Issues And Limitations
---------------------------------
+## Key Known Issues And Limitations
+
 - The maximum value for a file's degree of replication is 64 (assuming resources
   exist).
 - The metaserver currently does not replicate chunks whenever files become "hot"
@@ -141,8 +144,8 @@ Key Known Issues And Limitations
   does not attempt to buffer the data to allow simultaneous read/write access to
   the same chunk.
 
-References
-----------
+## References
+
 QFS builds upon some of the ideas outlined in the Google File System (GFS) paper
 [(SOSP 2003)](http://static.googleusercontent.com/external_content/untrusted_dlcp/research.google.com/en/us/archive/gfs-sosp2003.pdf).
 
