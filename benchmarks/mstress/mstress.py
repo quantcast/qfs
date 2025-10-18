@@ -467,17 +467,17 @@ def ReadPlanFile(opts):
         if line.startswith("#"):
             continue
         if line.startswith("hostslist="):
-            hostsList = line[len("hostslist=") :].strip().split(",")
+            hostsList = line[len("hostslist="):].strip().split(",")
         elif line.startswith("clientsperhost="):
-            clientsPerHost = int(line[len("clientsperhost=") :].strip())
+            clientsPerHost = int(line[len("clientsperhost="):].strip())
         elif line.startswith("type="):
-            leafType = line[len("type=") :].strip()
+            leafType = line[len("type="):].strip()
         elif line.startswith("levels="):
-            numLevels = int(line[len("levels=") :].strip())
+            numLevels = int(line[len("levels="):].strip())
         elif line.startswith("nstat="):
-            numToStat = int(line[len("nstat=") :].strip())
+            numToStat = int(line[len("nstat="):].strip())
         elif line.startswith("inodes="):
-            nodesPerLevel = int(line[len("inodes=") :].strip())
+            nodesPerLevel = int(line[len("inodes="):].strip())
     planfile.close()
     if None in (
         hostsList,
@@ -546,7 +546,9 @@ def SetGlobalPaths(opts):
         Globals.SERVER_CMD = Globals.KFS_SERVER_CMD
         Globals.SERVER_KEYWORD = Globals.KFS_SERVER_KEYWORD
     elif opts.filesystem == "hdfs":
-        Globals.CLIENT_PATH = "java -Xmx256m -jar %s/mstress.jar" % mydir
+        Globals.CLIENT_PATH = (
+            "java -Xmx256m -jar %s/mstress-jar-with-dependencies.jar" % mydir
+        )
         Globals.SERVER_CMD = Globals.HDFS_SERVER_CMD
         Globals.SERVER_KEYWORD = Globals.HDFS_SERVER_KEYWORD
     else:

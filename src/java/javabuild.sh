@@ -2,7 +2,7 @@
 
 # Author: Thilee Subramaniam
 #
-# Copyright 2012,2016 Quantcast Corporation. All rights reserved.
+# Copyright 2012-2025 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Quantcast File System (QFS).
 #
@@ -21,14 +21,14 @@
 # Helper script to build Java components of QFS.
 #
 
-mymaxtry=1
+my_max_try=1
 work_dir=''
 build_vers_git_path=../cc/common/buildversgit.sh
 
 while [ $# -gt 0 ]; do
     if [ x"$1" = x'-r' -a $# -gt 1 ]; then
         shift
-        mymaxtry=${1-1}
+        my_max_try=${1-1}
     elif [ x"$1" = x'-d' -a $# -gt 1 ]; then
         shift
         work_dir=$1
@@ -69,13 +69,13 @@ if [ $# -eq 1 ]; then
         exit
     fi
     if [ x"$1" != x'--' ]; then
-        myversion="$(echo "$1" | cut -d. -f 1-2)"
-        myversionmaj="$(echo "$1" | cut -d. -f 1)"
-        if [ x"$myversion" = x"1.0" -o x"$myversion" = x"1.1" ]; then
+        my_version="$(echo "$1" | cut -d. -f 1-2)"
+        my_version_maj="$(echo "$1" | cut -d. -f 1)"
+        if [ x"$my_version" = x"1.0" -o x"$my_version" = x"1.1" ]; then
             hadoop_qfs_profile="hadoop_branch1_profile"
-        elif [ x"$myversion" = x"0.23" ]; then
+        elif [ x"$my_version" = x"0.23" ]; then
             hadoop_qfs_profile="hadoop_trunk_profile"
-        elif [ x"$myversionmaj" = x"2" -o x"$myversionmaj" = x"3" ]; then
+        elif [ x"$my_version_maj" = x"2" -o x"$my_version_maj" = x"3" ]; then
             hadoop_qfs_profile="hadoop_trunk_profile,hadoop_trunk_profile_2"
         else
             echo "Unsupported Hadoop release version."
@@ -100,12 +100,25 @@ until javac --release $min_supported_release -version >/dev/null 2>&1; do
     fi
     min_supported_release=$(expr $min_supported_release + 1)
 done
+if [ x"${qfs_access_profile-}" = x ]; then
+    if [ $min_supported_release -lt 9 ]; then
+        qfs_access_profile="qfs_access_java_pre_9"
+    else
+        qfs_access_profile="qfs_access_java_9"
+    fi
+fi
 min_supported_release=1.$min_supported_release
 
 echo "qfs_release_version = $qfs_release_version"
 echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 echo "test_build_data     = $test_build_data"
+echo "qfs_access_profile  = $qfs_access_profile"
+if [ x"$qfs_access_profile" = x'qfs_access_java_9' ]; then
+    qfs_access_project='qfs-access'
+else
+    qfs_access_project='qfs-access-pre-9'
+fi
 
 run_maven_exit_if_success() {
     set -x
@@ -121,21 +134,23 @@ run_maven_exit_if_success() {
     set +x
 }
 
-mytry=0
+my_try=0
 while true; do
     if [ x"$1" = x'--' ]; then
         shift
         run_maven_exit_if_success ${1+"$@"}
     elif [ x"$hadoop_qfs_profile" = x'none' ]; then
-        run_maven_exit_if_success --projects qfs-access package
+        run_maven_exit_if_success -P "$qfs_access_profile" \
+            --projects "$qfs_access_project" package
     else
-        run_maven_exit_if_success -P "$hadoop_qfs_profile" \
+        run_maven_exit_if_success \
+            -P "$hadoop_qfs_profile","$qfs_access_profile" \
             -Dhadoop.release.version="$1" package
     fi
-    mytry=$(expr $mytry + 1)
-    [ $mytry -lt $mymaxtry ] || break
-    echo "Retry: $mytry in 20 * $mytry seconds"
-    sleep $(expr 20 \* $mytry)
+    my_try=$(expr $my_try + 1)
+    [ $my_try -lt $my_max_try ] || break
+    echo "Retry: $my_try in 20 * $my_try seconds"
+    sleep $(expr 20 \* $my_try)
 done
 
 exit 1

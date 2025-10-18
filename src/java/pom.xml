@@ -60,7 +60,6 @@ permissions and limitations under the License.
     </dependency>
   </dependencies>
   <modules>
-    <module>qfs-access</module>
     <module>hadoop-qfs</module>
   </modules>
   <profiles>
@@ -68,6 +67,18 @@ permissions and limitations under the License.
       <id>hadoop_trunk_profile_2</id>
         <modules>
           <module>hadoop-qfs-2</module>
+        </modules>
+    </profile>
+    <profile>
+      <id>qfs_access_java_pre_9</id>
+        <modules>
+          <module>qfs-access-pre-9</module>
+        </modules>
+    </profile>
+    <profile>
+      <id>qfs_access_java_9</id>
+        <modules>
+          <module>qfs-access</module>
         </modules>
     </profile>
   </profiles>

@@ -55,19 +55,19 @@ jobs:
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: yes
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: no
             btype: debug
             buser: qfsbuild
             runs_on: ubuntu-latest
           - distro: ubuntu
-            ver: 18.04
+            ver: 20.04
             codecov: no
             btype: release
             buser: root
@@ -98,12 +98,6 @@ jobs:
             runs_on: ubuntu-24.04-arm
           - distro: debian
             ver: 11
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
-          - distro: debian
-            ver: 10
             codecov: no
             btype: release
             buser: qfsbuild
@@ -165,6 +159,7 @@ jobs:
       CODECOV: ${{ matrix.codecov }}
       BTYPE: ${{ matrix.btype }}
       BUSER: ${{ matrix.buser }}
+      UBUNTU_APT_OPTIONS: "-o Acquire:Queue-mode=host"
     steps:
       - name: Checkout code
         uses: actions/checkout@v2

@@ -45,7 +45,6 @@
 #include "qcdio/QCDLList.h"
 #include "RSStriper.h"
 #include "KfsOps.h"
-#include "utils.h"
 #include "KfsClient.h"
 #include "Monitor.h"
 
@@ -704,7 +703,7 @@ private:
                 ReportCompletion();
                 return;
             }
-            if (! CanWrite() && ! SheduleLeaseUpdate()) {
+            if (! CanWrite() && ! ScheduleLeaseUpdate()) {
                 return;
             }
             if (0 < mAllocOp.chunkId && min(mLeaseEndTime - 1,
@@ -720,7 +719,7 @@ private:
                         " empty" <<
                 KFS_LOG_EOM;
                 Reset();
-                if (! CanWrite() && ! SheduleLeaseUpdate()) {
+                if (! CanWrite() && ! ScheduleLeaseUpdate()) {
                     // Do not try to preallocate chunk after inactivity timeout
                     // or error, if no data pending.
                     return;
@@ -921,7 +920,7 @@ private:
             mKeepLeaseFlag = mAllocOp.chunkVersion < 0;
             AllocateWriteId();
         }
-        bool SheduleLeaseUpdate()
+        bool ScheduleLeaseUpdate()
         {
             if (! mKeepLeaseFlag) {
                 return false;
@@ -1166,6 +1165,14 @@ private:
             }
             UpdateAccess(inOp);
             UpdateLeaseExpirationTime();
+            if (mKeepLeaseFlag && ! mClosingFlag && ! CanWrite()) {
+                // Reset retry count, as this is purely lease update
+                // operation, and with no outstanding writes completion /
+                // progress update that resets retry count will not be
+                // invoked. In the case of failure retry will start from the
+                // chunk allocation.
+                mRetryCount = 0;
+            }
             StartWrite();
         }
         void Write()
@@ -1529,6 +1536,7 @@ private:
                 " chunkserver: "          << (mChunkServer.IsDataSent() ?
                     (mChunkServer.IsAllDataSent() ? "all" : "partial") :
                     "no") << " data sent" <<
+                " retry: "                << mRetryCount <<
                 "\nRequest:\n"            << theOStream.str() <<
             KFS_LOG_EOM;
             int       theStatus    = inOp.status;

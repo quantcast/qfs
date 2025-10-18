@@ -188,7 +188,7 @@ public:
                 }
             }
         }
-        swap(mCapacity, inBuf.capacity);
+        swap(mCapacity, inBuf.mCapacity);
         swap(mSize,     inBuf.mSize);
     }
     void Clear()

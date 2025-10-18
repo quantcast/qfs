@@ -6,7 +6,7 @@
 // Created 2006/10/20
 // Author: Sriram Rao
 //
-// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
+// Copyright 2008-2025 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -205,6 +205,12 @@ typedef uint16_t FileAttrExtTypes; // Extended attributes type.
 
 const int KFS_SYMLOOP_MAX = 32;
 
-}
+#if defined(__cplusplus) && __cplusplus >= 201103L
+    // C++11 or later.
+#   define KFS_CONSTEXPR constexpr
+#else
+#   define KFS_CONSTEXPR
+#endif
+} // namespace KFS
 
 #endif // COMMON_KFSTYPES_H

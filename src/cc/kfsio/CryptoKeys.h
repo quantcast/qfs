@@ -4,7 +4,7 @@
 // Created 2013/09/25
 // Author: Mike Ovsiannikov
 //
-// Copyright 2013,2016 Quantcast Corporation. All rights reserved.
+// Copyright 2013-2025 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //
@@ -108,7 +108,7 @@ public:
         ostream& Display(
             ostream& inStream,
             bool     inUrlSafeFmtFlag = false) const;
-        static int GetSize()
+        KFS_CONSTEXPR static int GetSize()
             { return kLength; }
         const char* GetPtr() const
             { return mKey; }

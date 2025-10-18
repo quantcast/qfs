@@ -48,7 +48,7 @@ done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
-MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz'
+MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
@@ -208,13 +208,14 @@ build_ubuntu() {
     else
         MYDEPS=$DEPS_UBUNTU
     fi
+    APT_GET_CMD="apt-get${UBUNTU_APT_OPTIONS:+ ${UBUNTU_APT_OPTIONS}}"
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
-        "DEBIAN_FRONTEND='noninteractive' apt-get install -y gnupg"
+        "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y gnupg"
     $MYSUDO apt-key update
-    $MYSUDO apt-get update
+    $MYSUDO $APT_GET_CMD update
     $MYSUDO /bin/bash -c \
-        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $MYDEPS"
+        "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' -o x"$1" = x'22.04' \
         -o x"$1" = x'24.04' \
         -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
@@ -238,10 +239,13 @@ build_ubuntu32() {
 }
 
 build_debian() {
+    unset UBUNTU_APT_OPTIONS
     build_ubuntu "d$1"
 }
 
 build_centos() {
+    YUM_OPTS=
+    YUM_UPDATE_FLAG=0
     if [ x"$1" = x'5' ]; then
         # Centos 5 EOL, use vault for now.
         $MYSUDO sed -i 's/enabled=1/enabled=0/' \
@@ -266,25 +270,29 @@ build_centos() {
             /etc/yum.repos.d/*.repo
         $MYSUDO sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/7.9.2009\//' \
             /etc/yum.repos.d/*.repo
-        $MYSUDO yum update -y
+        YUM_UPDATE_FLAG=1
     elif [ x"$1" = x'8' ]; then
         # Centos 8 EOL, use vault for now.
         $MYSUDO sed -i 's/mirrorlist/#mirrorlist/' \
             /etc/yum.repos.d/*.repo
         $MYSUDO sed -i 's/#\(baseurl.*\)mirror.centos.org\/\$contentdir\//\1vault.centos.org\//' \
             /etc/yum.repos.d/*.repo
-        $MYSUDO yum update -y
+        YUM_UPDATE_FLAG=1
     else
-        $MYSUDO yum update -y
+        if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
+            YUM_OPTS=--nobest
+        fi
+        YUM_UPDATE_FLAG=1
+    fi
+    if [ $YUM_UPDATE_FLAG -eq 1 ]; then
+        $MYSUDO yum clean all
+        $MYSUDO yum makecache
+        $MYSUDO yum update -y $YUM_OPTS
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
-    if [ x"$1" = x'9' -o x"$1" = x'2023' ]; then
-        YUM_OPTS=--nobest
-    else
-        YUM_OPTS=
-    fi
+    $MYSUDO yum makecache
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $YUM_OPTS $MYDEPS
     MYPATH=$PATH
@@ -402,8 +410,10 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
             fi
         fi
         docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
+            ${UBUNTU_APT_OPTIONS:+-e UBUNTU_APT_OPTIONS="$UBUNTU_APT_OPTIONS"} \
             "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
-            /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+            /bin/bash ./travis/script.sh \
+            build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
     fi
 elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
