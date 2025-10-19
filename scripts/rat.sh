@@ -23,13 +23,13 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-SRC="`cd "$1" > /dev/null && pwd`"
+SRC="$(cd "$1" >/dev/null && pwd)"
 
-MYRAT_VERS=0.16.1
+MYRAT_VERS=0.17
 MYURL="https://downloads.apache.org/creadur/apache-rat-${MYRAT_VERS}/apache-rat-${MYRAT_VERS}-bin.tar.gz"
 MYSHAURL="https://dlcdn.apache.org/creadur/apache-rat-${MYRAT_VERS}/apache-rat-${MYRAT_VERS}-bin.tar.gz.sha512"
-MYTAR="`basename "$MYURL"`"
-MYNAME="`basename "$MYTAR" -bin.tar.gz`"
+MYTAR=$(basename "$MYURL")
+MYNAME=$(basename "$MYTAR" -bin.tar.gz)
 MYJAR="$MYNAME/$MYNAME.jar"
 
 if [ -f "$MYJAR" ]; then
@@ -37,9 +37,9 @@ if [ -f "$MYJAR" ]; then
 else
     rm -f "$MYTAR"
     if curl --retry 3 -Ss -o "$MYTAR" "$MYURL"; then
-        MYTARSHA="`curl --retry 3 -Ss "$MYSHAURL" \
-            | sed -e 's/^.*://' | tr -d ' \n' | tr ABCDEF abcdef`"
-        MYACTSHA="`openssl sha512 < "$MYTAR" | sed -e 's/^.*)= *//'`"
+        MYTARSHA=$(curl --retry 3 -Ss "$MYSHAURL" |
+            sed -e 's/^.*://' | tr -d ' \n' | tr ABCDEF abcdef)
+        MYACTSHA=$(openssl sha512 <"$MYTAR" | sed -e 's/^.*)= *//')
         if [ x"$MYACTSHA" = x"$MYTARSHA" ]; then
             true
         else
@@ -60,15 +60,5 @@ else
     fi
 fi
 
-java -jar "$MYJAR" --dir "$SRC" -E "$SRC/.ratignore" \
-| awk '
-    BEGIN { ret = 1; }
-    /Unknown Licenses/ {
-        if (0 == $1) {
-            ret = 0
-        }
-        print;
-    }
-    /^==/{ print; }
-    END { exit ret; }
-'
+java -jar "$MYJAR" --output-style unapproved-licenses \
+    --input-exclude-file "$SRC/.ratignore" -- "$SRC"

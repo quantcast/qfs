@@ -4,11 +4,17 @@
 README.md
 CHANGELOG.md
 tags
-Version.cc
 sorttable.js
-
 # Directories
 ext
 wiki
 build
-go.sum
+
+# Generated/auto-generated files
+src/cc/common/Version.cc
+src/go/go.sum
+src/go/README.md
+
+# Specific gitignore files
+src/cc/common/.gitignore
+webui/.gitignore
