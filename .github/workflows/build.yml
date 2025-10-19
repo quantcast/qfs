@@ -176,6 +176,7 @@ jobs:
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser
           && 'yes' != matrix.codecov
+          && false
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -204,6 +205,7 @@ jobs:
         if: |
           'refs/heads/master' == github.ref
           || startsWith(github.ref, 'refs/tags/')
+          && false
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -232,6 +234,7 @@ jobs:
         if: |
           'refs/heads/master' == github.ref
           || startsWith(github.ref, 'refs/tags/')
+          && false
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
