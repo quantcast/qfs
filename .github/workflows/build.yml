@@ -2,6 +2,9 @@ name: Build
 
 on: [push, pull_request, workflow_dispatch]
 
+env:
+  ENABLE_UPLOADS: false
+
 jobs:
   rat:
     runs-on: ubuntu-latest
@@ -176,7 +179,7 @@ jobs:
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser
           && 'yes' != matrix.codecov
-          && false
+          && env.ENABLE_UPLOADS == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -203,9 +206,9 @@ jobs:
 
       - name: Upload tarball
         if: |
-          'refs/heads/master' == github.ref
-          || startsWith(github.ref, 'refs/tags/')
-          && false
+          ('refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/'))
+          && env.ENABLE_UPLOADS == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -232,9 +235,9 @@ jobs:
 
       - name: Upload tarball
         if: |
-          'refs/heads/master' == github.ref
-          || startsWith(github.ref, 'refs/tags/')
-          && false
+          ('refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/'))
+          && env.ENABLE_UPLOADS == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -324,8 +327,9 @@ jobs:
 
       - name: Upload tarball
         if: |
-          'refs/heads/master' == github.ref
-          || startsWith(github.ref, 'refs/tags/')
+          ('refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/'))
+          && env.ENABLE_UPLOADS == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
