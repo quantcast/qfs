@@ -107,14 +107,22 @@ public:
         // implementation.
         CRYPTO_THREADID_get_callback();
 #endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         CRYPTO_set_locking_callback(&LockingCB);
         OpenSSL_add_all_algorithms();
         SSL_load_error_strings();
         ERR_load_crypto_strings();
+#else
+        if (OPENSSL_init_ssl(0, NULL) == 0) {
+            return GetAndClearErr();
+        }
+#endif
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
         ENGINE_load_builtin_engines();
 #endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         SSL_library_init();
+#endif
         sOpenSslInitPtr->mAES256CbcCypherDebugPtr = EVP_aes_256_cbc();
         sOpenSslInitPtr->mExDataIdx =
             SSL_get_ex_new_index(0, (void*)"SslFilter::Impl", 0, 0, 0);
@@ -159,6 +167,7 @@ public:
         if (! sOpenSslInitPtr) {
             return 0;
         }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         ENGINE_cleanup();
         EVP_cleanup();
         CRYPTO_cleanup_all_ex_data();
@@ -167,6 +176,9 @@ public:
 #endif
         ERR_free_strings();
         CRYPTO_set_locking_callback(0);
+#else
+        OPENSSL_cleanup();
+#endif
         sOpenSslInitPtr = 0;
         return 0;
     }
