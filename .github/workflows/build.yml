@@ -135,13 +135,13 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: rockylinux
+          - distro: rockylinux/rockylinux
             ver: 10
             codecov: no
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-latest
-          - distro: rockylinux
+          - distro: rockylinux/rockylinux
             ver: 10
             codecov: no
             btype: release
