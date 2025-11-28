@@ -39,10 +39,11 @@ DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'$DEPS_CENTOS_PR
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake chrpath python3-devel'
 DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
 DEPS_CENTOS9=$DEPS_CENTOS8' zlib-devel fuse3-devel'
+DEPS_CENTOS10=$DEPS_CENTOS9
 # amazonlinux 2023 is based on centos 9
 DEPS_CENTOS2023=$DEPS_CENTOS9' tar java-17-amazon-corretto java-17-amazon-corretto-devel'
 DEPS_CENTOS2023=$DEPS_CENTOS2023' maven-amazon-corretto17 golang-go'
-for ver in '' 5 8 9; do
+for ver in '' 5 8 9 10; do
     eval DEPS_CENTOS"$ver"='$DEPS_CENTOS'"$ver' java-openjdk java-devel'"
 done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
