@@ -202,7 +202,8 @@ install_maven() {
 }
 
 build_ubuntu() {
-    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' -o x"$1" = x'd12' ]; then
+    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' -o x"$1" = x'd12' \
+        -o x"$1" = x'd13' ]; then
         MYDEPS=$DEPS_UBUNTU22
     elif [ x"$1" = x'14.04' -o x"$1" = x'16.04' ]; then
         MYDEPS=$DEPS_UBUNTU14_16
@@ -213,13 +214,16 @@ build_ubuntu() {
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y gnupg"
-    $MYSUDO apt-key update
+    if which apt-key >/dev/null 2>&1; then
+        $MYSUDO apt-key update
+    fi
     $MYSUDO $APT_GET_CMD update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' -o x"$1" = x'22.04' \
         -o x"$1" = x'24.04' \
-        -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
+        -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' \
+        -o x"$1" = x'd13' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
     if [ x"$1" = x'14.04' ]; then
