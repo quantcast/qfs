@@ -126,7 +126,7 @@
 
 ### Supported Platforms
 
-- **Added**: Amazon Linux 2023, ARM64 architecture
+- **Added**: Amazon Linux 2023, Debian 13, Rocky Linux 10, ARM64 architecture
 - **Removed**: Debian 10 (end-of-life), Ubuntu 18.04 (CI only)
 - **Improved**: Rocky Linux 9, CentOS 9 build stability
 
