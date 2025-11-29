@@ -39,10 +39,11 @@ DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'$DEPS_CENTOS_PR
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake chrpath python3-devel'
 DEPS_CENTOS8=$DEPS_CENTOS' diffutils hostname'
 DEPS_CENTOS9=$DEPS_CENTOS8' zlib-devel fuse3-devel'
+DEPS_CENTOS10=$DEPS_CENTOS9
 # amazonlinux 2023 is based on centos 9
 DEPS_CENTOS2023=$DEPS_CENTOS9' tar java-17-amazon-corretto java-17-amazon-corretto-devel'
 DEPS_CENTOS2023=$DEPS_CENTOS2023' maven-amazon-corretto17 golang-go'
-for ver in '' 5 8 9; do
+for ver in '' 5 8 9 10; do
     eval DEPS_CENTOS"$ver"='$DEPS_CENTOS'"$ver' java-openjdk java-devel'"
 done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
@@ -201,7 +202,8 @@ install_maven() {
 }
 
 build_ubuntu() {
-    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' -o x"$1" = x'd12' ]; then
+    if [ x"$1" = x'22.04' -o x"$1" = x'24.04' -o x"$1" = x'd12' \
+        -o x"$1" = x'd13' ]; then
         MYDEPS=$DEPS_UBUNTU22
     elif [ x"$1" = x'14.04' -o x"$1" = x'16.04' ]; then
         MYDEPS=$DEPS_UBUNTU14_16
@@ -212,13 +214,16 @@ build_ubuntu() {
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y gnupg"
-    $MYSUDO apt-key update
+    if which apt-key >/dev/null 2>&1; then
+        $MYSUDO apt-key update
+    fi
     $MYSUDO $APT_GET_CMD update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' $APT_GET_CMD install -y $MYDEPS"
     if [ x"$1" = x'18.04' -o x"$1" = x'20.04' -o x"$1" = x'22.04' \
         -o x"$1" = x'24.04' \
-        -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
+        -o x"$1" = x'd10' -o x"$1" = x'd11' -o x"$1" = x'd12' \
+        -o x"$1" = x'd13' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
     if [ x"$1" = x'14.04' ]; then
