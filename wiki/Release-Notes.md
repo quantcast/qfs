@@ -1,6 +1,6 @@
 # QFS release notes
 
-## [QFS version 2.2.8](Release-Notes-2.2.8.md)
+## [[QFS version 2.2.8|Release-Notes-2.2.8]]
 
 ### Release Highlights (2.2.8)
 
