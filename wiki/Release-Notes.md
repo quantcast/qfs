@@ -8,8 +8,8 @@
    support for modern and legacy Java versions
 2. **MStress Hadoop 3.x Support:** Updated benchmark tool to work with Hadoop
    3.x APIs
-3. **Enhanced Platform Support:** Added Amazon Linux 2023 and ARM64 architecture
-   support
+3. **Enhanced Platform Support:** Added Amazon Linux 2023, Debian 13, Rocky
+   Linux 10, and ARM64 architecture support
 4. **Build System Improvements:** Better Boost compatibility, CMake fixes, and
    CI/CD enhancements
 
@@ -25,7 +25,7 @@
 
 ### Platform Changes (2.2.8)
 
-1. **Added**: Amazon Linux 2023, ARM64 builds
+1. **Added**: Amazon Linux 2023, Debian 13, Rocky Linux 10, and ARM64 builds
 2. **Removed**: Debian 10, Ubuntu 18.04 (EOL)
 3. **Improved**: Rocky Linux 9 build stability
 
