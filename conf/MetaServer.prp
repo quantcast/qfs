@@ -1383,7 +1383,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Certificate authorities directory can be used in addition to CAFile.
 # For more detailed information please see SSL_CTX_load_verify_locations manual
 # page. CAFile/CADir corresponds to CAfile/CApath in the man page.
-# chunkServer.diskQueue.<object-store-directory-prefix>CADir =
+# chunkServer.diskQueue.<object-store-directory-prefix>ssl.CADir =
 
 # OpenSSL cipher configuration.
 # Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
