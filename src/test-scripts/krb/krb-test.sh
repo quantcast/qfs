@@ -57,6 +57,9 @@ For example:
 $0 --build -- -D KRB5_PREFIX=/usr/local/opt/heimdal/bin
 or to build with Krb5 Kerberos support on Mac OS set the
 $0 --build -- -D KRB5_PREFIX=/usr/local/opt/krb5/bin
+or put the Kerberos binary directory in the PATH environment variable.
+For example:
+PATH=/usr/local/opt/heimdal/bin:\$PATH $0 --build
 EOF
             return 0
             ;;
