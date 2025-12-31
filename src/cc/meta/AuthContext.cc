@@ -520,8 +520,8 @@ public:
                 // No replay detection is needed, as either AP_REP or TLS-PSK
                 // are used. Both these mechanisms are sufficient to protect
                 // against replay attack as both provide mutual authentication.
-                // With no TLS once assume that party other than QFS protects
-                // against replay, man-in-the-middle attacks etc.
+                // With no TLS one assumes that the party other than QFS
+                // protects against replay, man-in-the-middle attacks etc.
                 theKrbServicePtr.reset(new KrbService());
                 const char* theErrMsgPtr = theKrbServicePtr->Init(
                     inParameters.getValue(

@@ -161,17 +161,31 @@ public:
         if (theCredsPtr) {
             mLastCredEndTime = theCredsPtr->times.endtime;
         }
+        if (0 == mErrCode) {
+            mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr);
+        }
+#ifdef KRB5_HAS_krb5_creds_keyblock
+        if (0 == mErrCode && ! mKeyBlockPtr) {
+            mErrCode = krb5_copy_keyblock(
+                mCtx, &theCredsPtr->keyblock, &mKeyBlockPtr);
+        }
+#endif
         krb5_free_creds(mCtx, theCredsPtr);
-        if (mErrCode != 0) {
+        if (0 != mErrCode) {
             return ErrStr();
         }
-        if ((mErrCode = krb5_auth_con_getkey(mCtx, mAuthCtx, &mKeyBlockPtr))) {
-            return ErrStr();
+        if (0 == mErrCode && ! mKeyBlockPtr) {
+            mErrCode = EINVAL;
+            return "no session key";
         }
-        outDataPtr       = (const char*)mOutBuf.data;
-        outDataLen       = (int)mOutBuf.length;
         outSessionKeyPtr = KfsKrb5::get_key_block_contents(mKeyBlockPtr);
         outSessionKeyLen = KfsKrb5::get_key_block_length(mKeyBlockPtr);
+        if (! outSessionKeyPtr || outSessionKeyLen <= 0) {
+            mErrCode = EINVAL;
+            return "invalid empty session key";
+        }
+        outDataPtr = (const char*)mOutBuf.data;
+        outDataLen = (int)mOutBuf.length;
         return 0;
     }
     const char* Reply(

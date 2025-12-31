@@ -110,11 +110,11 @@ public:
             return EINVAL;
         }
         krb5_data theData = {0};
-        krb5_error_code theRet = krb5_data_alloc(&theData, strlen(theStr));
+        krb5_error_code theRet = krb5_data_copy(
+            &theData, theStr, strlen(theStr) + 1);
         if (theRet) {
             return theRet;
         }
-        memcpy(theData.data, theStr, theData.length);
         theRet = krb5_get_server_rcache(inCtx, &theData, inRCache);
         krb5_data_free(&theData);
         return theRet;
