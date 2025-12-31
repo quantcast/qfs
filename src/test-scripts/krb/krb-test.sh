@@ -33,6 +33,7 @@ krb5_test() {
     local start_file=$test_dir/start
     local log_file=$test_dir/log
     local krb5_realm=QFS.TEST
+    local ker5_port= # random port
     local my_dir=$(dirname -- "$0") || return 1
 
     while [ $# -gt 0 ]; do
@@ -92,6 +93,21 @@ EOF
     # Create test directory and files:
     mkdir -p "$test_dir"
     rm -f "$stop_file" "$log_file" "$start_file"
+
+    # Run the test container:
+    docker run -d --rm --name "$container_name" \
+        -e "REALM=$krb5_realm" \
+        -v "$test_dir:/test" \
+        -p "127.0.0.1:$ker5_port:88/tcp" \
+        -p "127.0.0.1:$ker5_port:88/udp" \
+        "$container_name"
+
+    local krb5_kdc_tcp="kdc = $(docker port "$container_name" 88/tcp)"
+    local krb5_kdc_udp="kdc = $(docker port "$container_name" 88/udp)"
+    if [ x"$krb5_kdc_tcp" = x"$krb5_kdc_udp" ]; then
+        krb5_kdc_udp=
+    fi
+
     cat >"$krb5_config" <<EOF
 [libdefaults]
     default_realm = $krb5_realm
@@ -106,7 +122,8 @@ EOF
 
 [realms]
     $krb5_realm = {
-        kdc = 127.0.0.1:8888
+        $krb5_kdc_udp
+        $krb5_kdc_tcp
     }
 
 [domain_realm]
@@ -138,11 +155,6 @@ activate = 1
 [legacy_sect]
 activate = 1
 EOF
-    # Run the test container:
-    docker run -d --rm --name "$container_name" \
-        -e "REALM=$krb5_realm" \
-        -v "$test_dir:/test" \
-        -p 8888:88/tcp -p 8888:88/udp "$container_name"
 
     echo "Waiting for QFS Kerberos Test container to start..."
     local rem_retries=60 # 60 seconds
