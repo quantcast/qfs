@@ -24,34 +24,34 @@
 # Kerberos setup and test script for QFS Kerberos authentication test.
 
 krb5_test() {
-	local build=0
-	local test_dir=$PWD/test
-	local test_program=$PWD/src/cc/krb/qfskrbtest
-	local krb5_config=$test_dir/krb5.conf
-	local openssl_config=$test_dir/openssl.conf
-	local stop_file=$test_dir/stop
-	local start_file=$test_dir/start
-	local container_name=qfs-krb-test-$RANDOM-$RANDOM-$RANDOM-$RANDOM
-	local log_file=$test_dir/log
-	local krb5_realm=QFS.TEST
-	local my_dir=$(dirname -- "$0") || return 1
+    local build=0
+    local test_dir=$PWD/test
+    local test_program=$PWD/src/cc/krb/qfskrbtest
+    local krb5_config=$test_dir/krb5.conf
+    local openssl_config=$test_dir/openssl.conf
+    local stop_file=$test_dir/stop
+    local start_file=$test_dir/start
+    local container_name=qfs-krb-test-$RANDOM-$RANDOM-$RANDOM-$RANDOM
+    local log_file=$test_dir/log
+    local krb5_realm=QFS.TEST
+    local my_dir=$(dirname -- "$0") || return 1
 
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--build | -b)
-			build=1
-			shift
-			;;
-		--)
-			shift
-			break
-			;;
-		-h | --help)
-			cat <<EOF
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --build | -b)
+            build=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -h | --help)
+            cat <<EOF
 Usage: $0 [--build| -b] [--] <cmake arguments>
-		--build| -b: build QFS Kerberos test program
-		--: pass remaining arguments to cmake
-		-h|--help: show this help message
+        --build| -b: build QFS Kerberos test program
+        --: pass remaining arguments to cmake
+        -h|--help: show this help message
 To build QFS with Heimdal Kerberos support on Mac OS set the KRB5_PREFIX
 cmake argument to the path to the Heimdal Kerberos installation.
 For example:
@@ -59,56 +59,56 @@ $0 --build -- -D KRB5_PREFIX=/usr/local/opt/heimdal/bin
 or to build with Krb5 Kerberos support on Mac OS set the
 $0 --build -- -D KRB5_PREFIX=/usr/local/opt/krb5/bin
 EOF
-			return 0
-			;;
-		*)
-			echo "unsupported option: $1"
-			return 1
-			;;
-		esac
-	done
+            return 0
+            ;;
+        *)
+            echo "unsupported option: $1"
+            return 1
+            ;;
+        esac
+    done
 
-	set -e
+    set -e
 
-	if [ $build -ne 0 -o ! -x "$test_program" ]; then
-		cmake --fresh ${1:+"$@"} "$my_dir/../../.."
-		cmake --build . --parallel --clean-first \
-			--target "$(basename -- "$test_program")"
-	fi
+    if [ $build -ne 0 -o ! -x "$test_program" ]; then
+        cmake --fresh ${1:+"$@"} "$my_dir/../../.."
+        cmake --build . --parallel --clean-first \
+            --target "$(basename -- "$test_program")"
+    fi
 
-	# Build the test container:
-	docker build -t "$container_name" -f "$my_dir/Dockerfile.krbtest" "$my_dir"
-	CONTAINER_NAME=$container_name
-	trap '
-		docker rm -v --force -- "$CONTAINER_NAME" >/dev/null 2>&1
-		docker rmi --force -- "$CONTAINER_NAME" >/dev/null 2>&1
-	' EXIT INT TERM QUIT HUP
-	# Create test directory and files:
-	mkdir -p "$test_dir"
-	rm -f "$stop_file" "$log_file" "$start_file"
-	cat >"$krb5_config" <<EOF
+    # Build the test container:
+    docker build -t "$container_name" -f "$my_dir/Dockerfile.krbtest" "$my_dir"
+    CONTAINER_NAME=$container_name
+    trap '
+        docker rm -v --force -- "$CONTAINER_NAME" >/dev/null 2>&1
+        docker rmi --force -- "$CONTAINER_NAME" >/dev/null 2>&1
+    ' EXIT INT TERM QUIT HUP
+    # Create test directory and files:
+    mkdir -p "$test_dir"
+    rm -f "$stop_file" "$log_file" "$start_file"
+    cat >"$krb5_config" <<EOF
 [libdefaults]
-	default_realm = $krb5_realm
-	dns_lookup_realm = false
-	dns_lookup_kdc = false
-	ticket_lifetime = 24h
-	renew_lifetime = 7d
-	forwardable = true
-	default_tkt_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
-	default_tgs_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
-	permitted_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
+    default_realm = $krb5_realm
+    dns_lookup_realm = false
+    dns_lookup_kdc = false
+    ticket_lifetime = 24h
+    renew_lifetime = 7d
+    forwardable = true
+    default_tkt_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
+    default_tgs_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
+    permitted_enctypes = AES256-CTS-HMAC-SHA1-96 AES128-CTS-HMAC-SHA1-96
 
 [realms]
-	$krb5_realm = {
-		kdc = 127.0.0.1:8888
-	}
+    $krb5_realm = {
+        kdc = 127.0.0.1:8888
+    }
 
 [domain_realm]
-	.localhost = $krb5_realm
-	localhost = $krb5_realm
+    .localhost = $krb5_realm
+    localhost = $krb5_realm
 EOF
 
-	cat >"$openssl_config" <<EOF
+    cat >"$openssl_config" <<EOF
 # This enables legacy cipher suites like RC4 to make older Kerberos version
 # initialization work.
 # Without this one would get an error like this:
@@ -132,46 +132,46 @@ activate = 1
 [legacy_sect]
 activate = 1
 EOF
-	# Run the test container:
-	docker run -d --rm --name "$container_name" \
-		-e REALM=$krb5_realm \
-		-v "$test_dir:/test" \
-		-p 8888:88/tcp -p 8888:88/udp "$container_name"
+    # Run the test container:
+    docker run -d --rm --name "$container_name" \
+        -e REALM=$krb5_realm \
+        -v "$test_dir:/test" \
+        -p 8888:88/tcp -p 8888:88/udp "$container_name"
 
-	echo "Waiting for QFS Kerberos Test container to start..."
-	local rem_retries=60 # 60 seconds
-	while ! [ -f "$start_file" ]; do
-		rem_retries=$(expr $rem_retries - 1)
-		if [ $rem_retries -le 0 ]; then
-			echo "Waiting for QFS Kerberos Test container to start timed out"
-			if [ -f "$log_file" ]; then
-				cat "$log_file"
-			fi
-			return 1
-		fi
-		sleep 0.5
-		if [ x"$(docker ps -f "name=$container_name" \
-			-f "status=running" -q)" = x ]; then
-			echo "QFS Kerberos Test container failed to start"
-			if [ -f "$log_file" ]; then
-				cat "$log_file"
-			fi
-			return 1
-		fi
-	done
-	echo "QFS Kerberos Test container started, running tests..."
+    echo "Waiting for QFS Kerberos Test container to start..."
+    local rem_retries=60 # 60 seconds
+    while ! [ -f "$start_file" ]; do
+        rem_retries=$(expr $rem_retries - 1)
+        if [ $rem_retries -le 0 ]; then
+            echo "Waiting for QFS Kerberos Test container to start timed out"
+            if [ -f "$log_file" ]; then
+                cat "$log_file"
+            fi
+            return 1
+        fi
+        sleep 0.5
+        if [ x"$(docker ps -f "name=$container_name" \
+            -f "status=running" -q)" = x ]; then
+            echo "QFS Kerberos Test container failed to start"
+            if [ -f "$log_file" ]; then
+                cat "$log_file"
+            fi
+            return 1
+        fi
+    done
+    echo "QFS Kerberos Test container started, running tests..."
 
-	export KRB5_CONFIG=$krb5_config
-	export OPENSSL_CONF=$openssl_config
-	# Create a Kerberos ticket:
-	kdestroy
-	kinit --password=STDIN testclient <"$start_file"
-	klist
-	# Run the test program:
-	"$test_program" localhost test "$test_dir/test.keytab" dMRr2
-	kdestroy
-	# Stop the test container:
-	touch "$stop_file"
+    export KRB5_CONFIG=$krb5_config
+    export OPENSSL_CONF=$openssl_config
+    # Create a Kerberos ticket:
+    kdestroy
+    kinit --password=STDIN testclient <"$start_file"
+    klist
+    # Run the test program:
+    "$test_program" localhost test "$test_dir/test.keytab" dMRr2
+    kdestroy
+    # Stop the test container:
+    touch "$stop_file"
 }
 
 krb5_test ${1:+"$@"}
