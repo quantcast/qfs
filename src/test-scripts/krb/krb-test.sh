@@ -168,7 +168,11 @@ EOF
     export OPENSSL_CONF=$openssl_config
     # Create a Kerberos ticket:
     kdestroy
-    kinit --password=STDIN testclient <"$start_file"
+    if kinit -h 2>&1 | grep -- --password-file >/dev/null; then
+        kinit --password-file="$start_file" testclient
+    else
+        kinit testclient <"$start_file"
+    fi
     klist
     # Run the test program:
     "$test_program" localhost test "$test_dir/test.keytab" dMRr2
