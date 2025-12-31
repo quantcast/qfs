@@ -31,7 +31,6 @@ krb5_test() {
     local openssl_config=$test_dir/openssl.conf
     local stop_file=$test_dir/stop
     local start_file=$test_dir/start
-    local container_name=qfs-krb-test-$RANDOM-$RANDOM-$RANDOM-$RANDOM
     local log_file=$test_dir/log
     local krb5_realm=QFS.TEST
     local my_dir=$(dirname -- "$0") || return 1
@@ -76,10 +75,14 @@ EOF
             --target "$(basename -- "$test_program")"
     fi
 
+    local container_name=qfs-krb-test-$(
+        awk 'BEGIN { srand(); print int(rand() * 1e10) int(rand() * 1e10); }'
+    )
     # Build the test container:
     docker build -t "$container_name" -f "$my_dir/Dockerfile.krbtest" "$my_dir"
     CONTAINER_NAME=$container_name
     trap '
+        set +e
         docker rm -v --force -- "$CONTAINER_NAME" >/dev/null 2>&1
         docker rmi --force -- "$CONTAINER_NAME" >/dev/null 2>&1
     ' EXIT INT TERM QUIT HUP
