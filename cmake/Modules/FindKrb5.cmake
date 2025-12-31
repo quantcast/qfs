@@ -24,19 +24,19 @@
 # Removed gssapi if not requested in find package invocation.
 # - Find kerberos 5
 # Find the native Kerberos 5 headers and libraries.
-#  KRB5_INCLUDE_DIRS      - where to find krb5.h, etc.
-#  KRB5_LIBRARIES         - List of libraries when using kerberos 5.
-#  KRB5_FOUND             - True if kerberos 5 found.
+# KRB5_INCLUDE_DIRS      - where to find krb5.h, etc.
+# KRB5_LIBRARIES         - List of libraries when using kerberos 5.
+# KRB5_FOUND             - True if kerberos 5 found.
 # KRB5 modules may be specified as components for this find module.
 # Modules may be listed by running "krb5-config".  Modules include:
-#  krb5              Kerberos 5 application
-#  gssapi            GSSAPI application with Kerberos 5 bindings
-#  krb4              Kerberos 4 application
-#  kadm-client       Kadmin client
-#  kadm-server       Kadmin server
-#  kdb               Application that accesses the kerberos database
+# krb5              Kerberos 5 application
+# gssapi            GSSAPI application with Kerberos 5 bindings
+# krb4              Kerberos 4 application
+# kadm-client       Kadmin client
+# kadm-server       Kadmin server
+# kdb               Application that accesses the kerberos database
 # Typical usage:
-#  FIND_PACKAGE(KRB5 REQUIRED gssapi)
+# FIND_PACKAGE(KRB5 REQUIRED gssapi)
 
 # First find the config script from which to obtain other values.
 IF(KRB5_PREFIX)
@@ -44,8 +44,9 @@ IF(KRB5_PREFIX)
     PATHS ${KRB5_PREFIX}
     NO_SYSTEM_ENVIRONMENT_PATH
     NO_DEFAULT_PATH
-    )
+  )
 ENDIF(KRB5_PREFIX)
+
 FIND_PROGRAM(KRB5_C_CONFIG NAMES krb5-config PATHS /usr/lib/mit/bin)
 
 MESSAGE(STATUS "found krb5-config here ${KRB5_C_CONFIG}")
@@ -66,12 +67,12 @@ IF(KRB5_FOUND)
       OUTPUT_VARIABLE KRB5_C_CONFIG_CFLAGS
       OUTPUT_STRIP_TRAILING_WHITESPACE
       RESULT_VARIABLE KRB5_C_CONFIG_RESULT
-      )
+    )
   ELSE(COMMAND EXECUTE_PROCESS)
     EXEC_PROGRAM(${KRB5_C_CONFIG} ARGS "${KRB5_FIND_COMPONENTS} --cflags"
       OUTPUT_VARIABLE KRB5_C_CONFIG_CFLAGS
       RETURN_VALUE KRB5_C_CONFIG_RESULT
-      )
+    )
   ENDIF(COMMAND EXECUTE_PROCESS)
 
   # Parse the include flags.
@@ -82,6 +83,7 @@ IF(KRB5_FOUND)
 
     # Look for -I options.
     SET(KRB5_INCLUDE_DIRS)
+
     FOREACH(flag ${KRB5_C_CONFIG_CFLAGS})
       IF("${flag}" MATCHES "^-I")
         STRING(REGEX REPLACE "^-I" "" DIR "${flag}")
@@ -95,9 +97,9 @@ IF(KRB5_FOUND)
   ENDIF("${KRB5_C_CONFIG_RESULT}" MATCHES "^0$")
 ENDIF(KRB5_FOUND)
 
-IF (KRB5_PREFIX AND EXISTS "${KRB5_PREFIX}/include")
+IF(KRB5_PREFIX AND EXISTS "${KRB5_PREFIX}/include")
   SET(KRB5_INCLUDE_DIRS "${KRB5_PREFIX}/include" ${KRB5_INCLUDE_DIRS})
-ENDIF (KRB5_PREFIX AND EXISTS "${KRB5_PREFIX}/include")
+ENDIF(KRB5_PREFIX AND EXISTS "${KRB5_PREFIX}/include")
 
 # Lookup the libraries needed for the components requested.
 IF(KRB5_FOUND)
@@ -108,12 +110,12 @@ IF(KRB5_FOUND)
       OUTPUT_VARIABLE KRB5_C_CONFIG_LIBS
       OUTPUT_STRIP_TRAILING_WHITESPACE
       RESULT_VARIABLE KRB5_C_CONFIG_RESULT
-      )
+    )
   ELSE(COMMAND EXECUTE_PROCESS)
     EXEC_PROGRAM(${KRB5_C_CONFIG} ARGS "${KRB5_FIND_COMPONENTS} --libs"
       OUTPUT_VARIABLE KRB5_C_CONFIG_LIBS
       RETURN_VALUE KRB5_C_CONFIG_RESULT
-      )
+    )
   ENDIF(COMMAND EXECUTE_PROCESS)
 
   # Parse the library names and directories.
@@ -124,6 +126,7 @@ IF(KRB5_FOUND)
     # Look for -L flags for directories and -l flags for library names.
     SET(KRB5_LIBRARY_DIRS)
     SET(KRB5_LIBRARY_NAMES)
+
     FOREACH(flag ${KRB5_C_CONFIG_LIBS})
       IF("${flag}" MATCHES "^-L")
         STRING(REGEX REPLACE "^-L" "" DIR "${flag}")
@@ -145,7 +148,7 @@ IF(KRB5_FOUND)
         NAMES ${name}
         PATHS ${KRB5_LIBRARY_DIRS}
         NO_DEFAULT_PATH
-        )
+      )
       FIND_LIBRARY(KRB5_${name}_LIBRARY NAMES ${name})
       MARK_AS_ADVANCED(KRB5_${name}_LIBRARY)
 
@@ -167,6 +170,7 @@ ENDIF(KRB5_FOUND)
 IF(NOT KRB5_FOUND)
   SET(KRB5_DIR_MESSAGE
     "KRB5 was not found. Make sure the entries KRB5_* are set.")
+
   IF(NOT KRB5_FIND_QUIETLY)
     MESSAGE(STATUS "${KRB5_DIR_MESSAGE}")
   ELSE(NOT KRB5_FIND_QUIETLY)
@@ -177,16 +181,22 @@ IF(NOT KRB5_FOUND)
 ELSE(NOT KRB5_FOUND)
   SET(CMAKE_REQUIRED_INCLUDES ${KRB5_INCLUDE_DIRS})
   SET(CMAKE_REQUIRED_LIBRARIES ${KRB5_LIBRARIES})
+
   IF(NOT DEFINED KRB5_USE_KRB5H)
     INCLUDE(CheckIncludeFile)
-    CHECK_INCLUDE_FILE("krb5/krb5.h" KRB5_krb5_krb5_h_exists)
-    IF(NOT KRB5_krb5_krb5_h_exists)
-      CHECK_INCLUDE_FILE("krb5.h" KRB5_USE_KRB5H)
-    ELSE(NOT KRB5_krb5_krb5_h_exists)
-      SET(KRB5_USE_KRB5H FALSE)
-    ENDIF(NOT KRB5_krb5_krb5_h_exists)
+    CHECK_INCLUDE_FILE("krb5.h" KRB5_USE_KRB5H)
+
+    IF(NOT KRB5_USE_KRB5H)
+      CHECK_INCLUDE_FILE("krb5/krb5.h" KRB5_krb5_krb5_h_exists)
+
+      IF(NOT KRB5_krb5_krb5_h_exists)
+        SET(KRB5_USE_KRB5H FALSE)
+      ENDIF(NOT KRB5_krb5_krb5_h_exists)
+    ENDIF(NOT KRB5_USE_KRB5H)
   ENDIF(NOT DEFINED KRB5_USE_KRB5H)
+
   INCLUDE(CheckFunctionExists)
+
   IF(NOT DEFINED KRB5_FLAVOR)
     CHECK_FUNCTION_EXISTS(krb5_data_alloc
       KRB5_HAS_krb5_data_alloc)
@@ -194,7 +204,8 @@ ELSE(NOT KRB5_FOUND)
       KRB5_HAS_krb5_free_keytab_entry_contents)
     CHECK_FUNCTION_EXISTS(krb5_kt_free_entry
       KRB5_HAS_krb5_kt_free_entry)
-    IF(KRB5_HAS_krb5_free_keytab_entry_contents OR NOT krb5_data_alloc)
+
+    IF(KRB5_HAS_krb5_free_keytab_entry_contents OR NOT KRB5_HAS_krb5_data_alloc)
       SET(KRB5_FLAVOR "MIT")
       CHECK_FUNCTION_EXISTS(krb5_unparse_name_ext
         KRB5_HAS_krb5_unparse_name_ext)
@@ -202,11 +213,25 @@ ELSE(NOT KRB5_FOUND)
       SET(KRB5_FLAVOR "HEIMDAL")
     ENDIF()
   ENDIF(NOT DEFINED KRB5_FLAVOR)
+
+  INCLUDE(CheckStructHasMember)
+
+  IF(KRB5_krb5_krb5_h_exists)
+    CHECK_STRUCT_HAS_MEMBER(
+      krb5_creds keyblock krb/krb5.h KRB5_HAS_krb5_creds_keyblock
+    )
+  ELSE()
+    CHECK_STRUCT_HAS_MEMBER(
+      krb5_creds keyblock krb5.h KRB5_HAS_krb5_creds_keyblock
+    )
+  ENDIF()
+
   IF("${KRB5_FLAVOR}" STREQUAL "MIT")
     IF(NOT DEFINED KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
       CHECK_FUNCTION_EXISTS(krb5_get_init_creds_opt_set_out_ccache
         KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
     ENDIF(NOT DEFINED KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
+
     IF(NOT DEFINED KRB5_HAS_krb5_unparse_name_flags_ext)
       CHECK_FUNCTION_EXISTS(krb5_unparse_name_flags_ext
         KRB5_HAS_krb5_unparse_name_flags_ext)

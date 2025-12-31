@@ -128,6 +128,10 @@ if(KRB5_HAS_krb5_kt_free_entry)
     add_definitions(-DKRB5_HAS_krb5_kt_free_entry)
 endif()
 
+if(KRB5_HAS_krb5_creds_keyblock)
+    add_definitions(-DKRB5_HAS_krb5_creds_keyblock)
+endif()
+
 # Warn about old versions
 if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(STATUS "WARNING: openssl version ${OPENSSL_VERSION}")
