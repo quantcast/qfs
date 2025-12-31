@@ -25,7 +25,7 @@
 
 krb5_test() {
     local build=0
-    local test_dir=$PWD/test
+    local test_dir=$PWD/qfstest/krb-test
     local test_program=$PWD/src/cc/krb/qfskrbtest
     local krb5_config=$test_dir/krb5.conf
     local openssl_config=$test_dir/openssl.conf
@@ -137,7 +137,7 @@ activate = 1
 EOF
     # Run the test container:
     docker run -d --rm --name "$container_name" \
-        -e REALM=$krb5_realm \
+        -e "REALM=$krb5_realm" \
         -v "$test_dir:/test" \
         -p 8888:88/tcp -p 8888:88/udp "$container_name"
 
