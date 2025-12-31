@@ -49,7 +49,7 @@ done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
-MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz'
+MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
@@ -394,7 +394,7 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
     fi
     if [ x"$DISTRO" = x'centos' -o x"$DISTRO $VER" = x'ubuntu 14.04' ]; then
         mkdir -p "$MYTMPDIR"
-        curl --retry 3 -S -o "$MYMVNTAR" "$MYMVN_URL"
+        curl --retry 3 -f -L -S -o "$MYMVNTAR" "$MYMVN_URL"
         if [ x"$DISTRO $VER" = x'centos 5' ]; then
             # Download here as curl/openssl and root certs are dated on centos5,
             # and https downloads don't work.
