@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     krb5-kdc \
     krb5-admin-server \
     krb5-user \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # ENV REALM=QFS.TEST
@@ -48,94 +49,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /test
 
 # Setup script
-COPY <<'SETUP_EOF' /setup_kerberos.sh
-#!/bin/bash
-set -e
-
-REALM="${REALM:-QFS.TEST}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
-TEST_PASSWORD="${TEST_PASSWORD:-test123}"
-HOSTNAME=$(hostname -f)
-
-echo "Setting up Kerberos realm: $REALM"
-
-# Create krb5.conf
-cat > /etc/krb5.conf << EOF
-[libdefaults]
-    default_realm = ${REALM}
-    dns_lookup_realm = false
-    dns_lookup_kdc = false
-    ticket_lifetime = 24h
-    renew_lifetime = 7d
-    forwardable = true
-    default_tgs_enctypes = aes256-cts-hmac-sha1-96
-    default_tkt_enctypes = aes256-cts-hmac-sha1-96
-    permitted_enctypes = aes256-cts-hmac-sha1-96
-
-[realms]
-    ${REALM} = {
-        kdc = localhost
-        admin_server = localhost
-    }
-
-[domain_realm]
-    .${HOSTNAME} = ${REALM}
-    ${HOSTNAME} = ${REALM}
-
-[logging]
-    kdc = FILE:/var/log/krb5kdc.log
-    admin_server = FILE:/var/log/kadmin.log
-    default = FILE:/var/log/krb5lib.log
-EOF
-
-# Create KDC database
-kdb5_util create -s -P "$ADMIN_PASSWORD" -r "$REALM"
-
-# Create ACL file
-mkdir -p /etc/krb5kdc
-echo "*/admin@${REALM} *" > /etc/krb5kdc/kadm5.acl
-
-# Start KDC
-krb5kdc &
-KDC_PID=$!
-sleep 2
-
-kadmind &
-KADMIND_PID=$!
-sleep 2
-
-rm -f /test/test.keytab
-
-# Create principals
-kadmin.local -q "addprinc -pw $ADMIN_PASSWORD admin/admin@${REALM}"
-kadmin.local -q "addprinc -pw $TEST_PASSWORD testclient@${REALM}"
-kadmin.local -q "addprinc -randkey test/localhost@${REALM}"
-kadmin.local -q "addprinc -randkey test/${HOSTNAME}@${REALM}"
-
-# Create keytab
-kadmin.local -q "ktadd -k /test/test.keytab test/localhost@${REALM}"
-kadmin.local -q "ktadd -k /test/test.keytab test/${HOSTNAME}@${REALM}"
-
-chmod 644 /test/test.keytab
-
-echo ""
-echo "=========================================="
-echo "Kerberos Setup Complete!"
-echo "=========================================="
-echo "Realm: $REALM"
-echo "Test client: testclient@${REALM}"
-echo "Service: test/localhost@${REALM}"
-echo "Keytab: /test/test.keytab"
-echo ""
-echo "To get a ticket:"
-echo "  kinit testclient@${REALM}"
-echo "  (password: $TEST_PASSWORD)"
-echo ""
-
-# Keep processes running
-wait $KDC_PID
-SETUP_EOF
-
+COPY setup_kerberos.sh /setup_kerberos.sh
 RUN chmod +x /setup_kerberos.sh
 
 # Run script
