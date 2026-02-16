@@ -356,14 +356,10 @@ public:
         const char* inEPtr)
     {
         switch (inPtr[1] & 0xFF) {
+            case '0': inPtr[1] = '\0';
             case '\\':
             case '@':
             case '/':
-            case '\n':
-            case '\t':
-            case '\b':
-            case '\0':
-            case ' ':
                 memmove(inPtr, inPtr + 1, inEPtr - inPtr);
                 return true;
             default: break;
