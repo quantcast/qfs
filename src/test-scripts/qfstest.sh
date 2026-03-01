@@ -166,23 +166,36 @@ while [ $# -ge 1 ]; do
         krb_meta_host=${QFS_META_PRINCIPAL#*/}
         krb_meta_host=${krb_meta_host%%@*}
         # Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
         # Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
         # (conf/ChunkServer.prp)
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.service = ${krb_meta_service}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.host = ${krb_meta_host}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.service = ${krb_meta_service}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.host = ${krb_meta_host}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
         # Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
         # (conf/QfsClient.prp); run kinit $QFS_CLIENT_PRINCIPAL
-        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.service = ${krb_meta_service}
-        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.host = ${krb_meta_host}
-        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
+        myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.service = ${krb_meta_service}
+        myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.host = ${krb_meta_host}
+        myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -343,7 +356,8 @@ if [ x"$dontusefuser" != x'yes' ]; then
 fi
 
 # cptest.sh parameters
-sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 ''250e6'}
+sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 '\
+'250e6'}
 meta=${meta-"-s $metahost -p $metasrvport"}
 export sizes
 export meta
@@ -633,7 +647,8 @@ fi
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 cabundlefile="$chunksrvdir/ca-bundle.crt"
 objectstoredir="$chunksrvdir/object_store"
-cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/''ca-bundle.crt'
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/'\
+'ca-bundle.crt'
 if [ x"$s3test" = x'yes' ]; then
     if [ -f "$cabundlefileos" ]; then
         echo "Using $cabundlefileos"
@@ -1321,7 +1336,8 @@ cppidf="cptest${pidsuf}"
             [ x"$jerasuretest" = x'no' ] || {
                 sleep $cptestendsleeptime &&
                     mv cptest.log cptest-rs.log &&
-                    cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w ''-1'"$cptestextraopts" \
+                    cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w '\
+'-1'"$cptestextraopts" \
                         cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
                         cptest.sh
             }
