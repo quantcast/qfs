@@ -145,57 +145,6 @@ while [ $# -ge 1 ]; do
         fi
         shift
         mykrbenvfile=$1
-        if [ ! -f "$mykrbenvfile" ]; then
-            echo "Kerberos env file not found: $mykrbenvfile" 1>&2
-            exit 1
-        fi
-        . "$mykrbenvfile"
-        auth='yes'
-        # Require separate principals from env file (QFS_META_PRINCIPAL,
-        # QFS_CHUNK_PRINCIPAL, QFS_CLIENT_PRINCIPAL, KEYTAB_FILE)
-        for krb_var in QFS_META_PRINCIPAL QFS_CHUNK_PRINCIPAL \
-            QFS_CLIENT_PRINCIPAL KEYTAB_FILE; do
-            eval "krb_val=\$$krb_var"
-            if [ x"$krb_val" = x ]; then
-                echo "Kerberos env file must set $krb_var" 1>&2
-                exit 1
-            fi
-        done
-        # Parse meta principal (service/host@realm) for config
-        krb_meta_service=${QFS_META_PRINCIPAL%%/*}
-        krb_meta_host=${QFS_META_PRINCIPAL#*/}
-        krb_meta_host=${krb_meta_host%%@*}
-        # Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
-        myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
-        # Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
-        # (conf/ChunkServer.prp)
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.service = ${krb_meta_service}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.host = ${krb_meta_host}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
-        myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
-        # Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
-        # (conf/QfsClient.prp); run kinit $QFS_CLIENT_PRINCIPAL
-        myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.service = ${krb_meta_service}
-        myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.host = ${krb_meta_host}
-        myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -222,6 +171,64 @@ client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
     fi
     shift
 done
+
+if [ x"$mykrbenvfile" != x ]; then
+	if [ ! -f "$mykrbenvfile" ]; then
+		echo "Kerberos env file not found: $mykrbenvfile" 1>&2
+		exit 1
+	fi
+	. "$mykrbenvfile" || exit
+	auth='yes'
+	# Require separate principals from env file (QFS_META_PRINCIPAL,
+	# QFS_CHUNK_PRINCIPAL, QFS_CLIENT_PRINCIPAL, KEYTAB_FILE)
+	status=0
+	for krb_var in QFS_META_PRINCIPAL QFS_CHUNK_PRINCIPAL \
+		QFS_CLIENT_PRINCIPAL KEYTAB_FILE; do
+		eval "krb_val=\$$krb_var"
+		if [ x"$krb_val" = x ]; then
+			echo "Kerberos env file must set $krb_var" 1>&2
+			status=1
+		fi
+	done
+	if [ $status -ne 0 ]; then
+		exit 1
+	fi
+	# Parse meta principal (service/host@realm) for config
+	krb_meta_service=${QFS_META_PRINCIPAL%%/*}
+	krb_meta_host=${QFS_META_PRINCIPAL#*/}
+	krb_meta_host=${krb_meta_host%%@*}
+	# Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
+	# Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
+	# (conf/ChunkServer.prp)
+	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.service = ${krb_meta_service}
+	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.host = ${krb_meta_host}
+	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
+	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
+chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
+	# Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
+	# (conf/QfsClient.prp); run kinit $QFS_CLIENT_PRINCIPAL
+	myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.service = ${krb_meta_service}
+	myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.host = ${krb_meta_host}
+	myexclientconfig=${myexclientconfig}${mynewlinechar}\
+client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
+fi
 
 if [ x"$s3test" = x'yes' ]; then
     if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
