@@ -61,13 +61,14 @@ exec 0</dev/null
 exec 1>/test/log
 exec 2>&1
 
-export TEST_PASSWORD="${TEST_PASSWORD:-test123}"
+export KRB_ENV_FILE=/test/krb.env
 
 echo "Starting Kerberos services..."
 /setup_kerberos.sh
 
 echo "Getting Kerberos ticket..."
-echo "$TEST_PASSWORD" | kinit testclient@${REALM}
+. "$KRB_ENV_FILE"
+echo "$TEST_PASSWORD" | kinit "${QFS_CLIENT_PRINCIPAL}"
 klist
 
 echo "$TEST_PASSWORD" > /test/start

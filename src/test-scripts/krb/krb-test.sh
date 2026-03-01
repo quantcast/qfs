@@ -28,6 +28,7 @@ krb5_test() {
     local test_dir=$PWD/qfstest/krb-test
     local test_program=$PWD/src/cc/krb/qfskrbtest
     local krb5_config=$test_dir/krb5.conf
+	local krb_env_file=$test_dir/krb.env
     local openssl_config=$test_dir/openssl.conf
     local stop_file=$test_dir/stop
     local start_file=$test_dir/start
@@ -181,16 +182,19 @@ EOF
 
     export KRB5_CONFIG=$krb5_config
     export OPENSSL_CONF=$openssl_config
+    . "$krb_env_file"
+    # Service name from QFS_META_PRINCIPAL (service/host@realm)
+    krb_meta_service=${QFS_META_PRINCIPAL%%/*}
     # Create a Kerberos ticket:
     kdestroy
     if kinit -h 2>&1 | grep -- --password-file >/dev/null; then
-        kinit --password-file="$start_file" testclient
+        kinit --password-file="$start_file" "${QFS_CLIENT_PRINCIPAL}"
     else
-        kinit testclient <"$start_file"
+        kinit "${QFS_CLIENT_PRINCIPAL}" <"$start_file"
     fi
     klist
-    # Run the test program:
-    "$test_program" localhost test "$test_dir/test.keytab" dMRr2
+    # Run the test program (service host, service name, keytab path)
+    "$test_program" localhost "$krb_meta_service" "$test_dir/test.keytab" dMRr2
     kdestroy
     # Stop the test container:
     touch "$stop_file"

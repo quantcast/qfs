@@ -8,6 +8,12 @@ HOSTNAME=$(hostname -f)
 KEYTAB_FILE="${KEYTAB_FILE:-/test/test.keytab}"
 KRB_ENV_FILE="${KRB_ENV_FILE:-/test/krb.env}"
 
+# QFS principals (service/host@realm or user@realm); overridable for custom
+# realms/hosts
+QFS_META_PRINCIPAL="${QFS_META_PRINCIPAL:-qfsmeta/localhost@${REALM}}"
+QFS_CHUNK_PRINCIPAL="${QFS_CHUNK_PRINCIPAL:-qfschunk/localhost@${REALM}}"
+QFS_CLIENT_PRINCIPAL="${QFS_CLIENT_PRINCIPAL:-testclient@${REALM}}"
+
 echo "Setting up Kerberos realm: $REALM"
 
 # Create krb5.conf
@@ -72,20 +78,32 @@ wait_for_port 749 || {
 
 rm -f "$KEYTAB_FILE"
 
+# Derive meta/chunk service and host for principal creation (support localhost + HOSTNAME)
+meta_service="${QFS_META_PRINCIPAL%%/*}"
+meta_host="${QFS_META_PRINCIPAL#*/}"
+meta_host="${meta_host%%@*}"
+chunk_service="${QFS_CHUNK_PRINCIPAL%%/*}"
+chunk_host="${QFS_CHUNK_PRINCIPAL#*/}"
+chunk_host="${chunk_host%%@*}"
+
 # Create principals
 kadmin.local -q "addprinc -pw $ADMIN_PASSWORD admin/admin@${REALM}"
-kadmin.local -q "addprinc -pw $TEST_PASSWORD testclient@${REALM}"
-kadmin.local -q "addprinc -randkey test/localhost@${REALM}"
-kadmin.local -q "addprinc -randkey test/${HOSTNAME}@${REALM}"
+kadmin.local -q "addprinc -pw $TEST_PASSWORD ${QFS_CLIENT_PRINCIPAL}"
+kadmin.local -q "addprinc -randkey ${QFS_META_PRINCIPAL}"
+kadmin.local -q "addprinc -randkey ${meta_service}/${HOSTNAME}@${REALM}"
+kadmin.local -q "addprinc -randkey ${QFS_CHUNK_PRINCIPAL}"
+kadmin.local -q "addprinc -randkey ${chunk_service}/${HOSTNAME}@${REALM}"
 
-# Create keytab
+# Create keytab (meta and chunk principals; client uses password/kinit)
 mkdir -p "$(dirname -- "$KEYTAB_FILE")"
-kadmin.local -q "ktadd -k "$KEYTAB_FILE" test/localhost@${REALM}"
-kadmin.local -q "ktadd -k "$KEYTAB_FILE" test/${HOSTNAME}@${REALM}"
+kadmin.local -q "ktadd -k $KEYTAB_FILE ${QFS_META_PRINCIPAL}"
+kadmin.local -q "ktadd -k $KEYTAB_FILE ${meta_service}/${HOSTNAME}@${REALM}"
+kadmin.local -q "ktadd -k $KEYTAB_FILE ${QFS_CHUNK_PRINCIPAL}"
+kadmin.local -q "ktadd -k $KEYTAB_FILE ${chunk_service}/${HOSTNAME}@${REALM}"
 
 chmod 644 "$KEYTAB_FILE"
 
-# Create env file for sourcing (REALM, ADMIN_PASSWORD, TEST_PASSWORD, HOSTNAME, KEYTAB_FILE)
+# Create env file for sourcing
 mkdir -p "$(dirname -- "$KRB_ENV_FILE")"
 cat >"$KRB_ENV_FILE" <<ENVEOF
 # Kerberos test env - source with: . $KRB_ENV_FILE
@@ -94,6 +112,9 @@ export ADMIN_PASSWORD='${ADMIN_PASSWORD}'
 export TEST_PASSWORD='${TEST_PASSWORD}'
 export HOSTNAME='${HOSTNAME}'
 export KEYTAB_FILE='${KEYTAB_FILE}'
+export QFS_META_PRINCIPAL='${QFS_META_PRINCIPAL}'
+export QFS_CHUNK_PRINCIPAL='${QFS_CHUNK_PRINCIPAL}'
+export QFS_CLIENT_PRINCIPAL='${QFS_CLIENT_PRINCIPAL}'
 ENVEOF
 
 echo ""
@@ -101,15 +122,15 @@ echo "=========================================="
 echo "Kerberos Setup Complete!"
 echo "=========================================="
 echo "Realm: $REALM"
-echo "Test client: testclient@${REALM}"
-echo "Service: test/localhost@${REALM}"
+echo "QFS meta server principal: $QFS_META_PRINCIPAL"
+echo "QFS chunk server principal: $QFS_CHUNK_PRINCIPAL"
+echo "QFS client principal: $QFS_CLIENT_PRINCIPAL"
 echo "Keytab: $KEYTAB_FILE"
 echo ""
 echo "To get a ticket:"
-echo "  kinit testclient@${REALM}"
+echo "  kinit $QFS_CLIENT_PRINCIPAL"
 echo "  (password: $TEST_PASSWORD)"
 echo ""
-echo "To source env vars (REALM, ADMIN_PASSWORD, TEST_PASSWORD, HOSTNAME," \
-    "KEYTAB_FILE):"
+echo "To source env vars (REALM, KEYTAB_FILE, QFS_*_PRINCIPAL, etc.):"
 echo "  . $KRB_ENV_FILE"
 echo ""
