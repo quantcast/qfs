@@ -35,6 +35,7 @@ metaserverclithreads=${metaserverclithreads-2}
 myexmetaconfig=''
 myexchunkconfig=''
 myexclientconfig=''
+mykrbenvfile=''
 installprefix=''
 pythonwheeldir=''
 mynewlinechar='
@@ -137,12 +138,58 @@ while [ $# -ge 1 ]; do
         fi
         shift
         metasrvdir=$1
+    elif [ x"$1" = x'-kerberos' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+            exit 1
+        fi
+        shift
+        mykrbenvfile=$1
+        if [ ! -f "$mykrbenvfile" ]; then
+            echo "Kerberos env file not found: $mykrbenvfile" 1>&2
+            exit 1
+        fi
+        . "$mykrbenvfile"
+        auth='yes'
+        # Require separate principals from env file (QFS_META_PRINCIPAL,
+        # QFS_CHUNK_PRINCIPAL, QFS_CLIENT_PRINCIPAL, KEYTAB_FILE)
+        for krb_var in QFS_META_PRINCIPAL QFS_CHUNK_PRINCIPAL \
+            QFS_CLIENT_PRINCIPAL KEYTAB_FILE; do
+            eval "krb_val=\$$krb_var"
+            if [ x"$krb_val" = x ]; then
+                echo "Kerberos env file must set $krb_var" 1>&2
+                exit 1
+            fi
+        done
+        # Parse meta principal (service/host@realm) for config
+        krb_meta_service=${QFS_META_PRINCIPAL%%/*}
+        krb_meta_host=${QFS_META_PRINCIPAL#*/}
+        krb_meta_host=${krb_meta_host%%@*}
+        # Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
+        # Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
+        # (conf/ChunkServer.prp)
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.service = ${krb_meta_service}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.host = ${krb_meta_host}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
+        # Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
+        # (conf/QfsClient.prp); run kinit $QFS_CLIENT_PRINCIPAL
+        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.service = ${krb_meta_service}
+        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.host = ${krb_meta_host}
+        myexclientconfig=${myexclientconfig}${mynewlinechar}client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
             "[-valgrind]" \
             "[-ipv6]" \
             "[-auth | -noauth]" \
+            "[-kerberos <krb-env-file>]" \
             "[-s3 | -s3debug]" \
             "[-csrpctrace]" \
             "[-trdverify]" \
@@ -196,6 +243,12 @@ fi
 if [ x"$auth" = x'yes' ]; then
     echo "Authentication on"
     openssl version || exit 1
+fi
+
+# X509 certs and config only when auth is X509 (auth=yes and not Kerberos).
+auth_x509=no
+if [ x"$auth" = x'yes' ] && [ x"$mykrbenvfile" = x ]; then
+    auth_x509=yes
 fi
 
 if [ x"$testipv6" = x'yes' ]; then
@@ -290,7 +343,7 @@ if [ x"$dontusefuser" != x'yes' ]; then
 fi
 
 # cptest.sh parameters
-sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6'}
+sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 ''250e6'}
 meta=${meta-"-s $metahost -p $metasrvport"}
 export sizes
 export meta
@@ -426,7 +479,8 @@ else
         "${installbindir:+$installbindir/}quantsort/quantsort" \
         "$smdir/../../../glue/ksortcontroller"; do
         if [ ! -x "$name" ]; then
-            echo "$name doesn't exist or not executable, skipping sort master test"
+            echo "$name doesn't exist or not executable," \
+                "skipping sort master test"
             smtest=''
             break
         fi
@@ -571,14 +625,15 @@ fi
 if [ x"$(uname)" = x'Darwin' ]; then
     # Note: on macos DYLD_LIBRARY_PATH will disappear in sub shell due to
     # integrity system protection.
-    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}\
+${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
     export DYLD_LIBRARY_PATH
 fi
 
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 cabundlefile="$chunksrvdir/ca-bundle.crt"
 objectstoredir="$chunksrvdir/object_store"
-cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/''ca-bundle.crt'
 if [ x"$s3test" = x'yes' ]; then
     if [ -f "$cabundlefileos" ]; then
         echo "Using $cabundlefileos"
@@ -634,7 +689,7 @@ if [ $spacecheck -eq 1 ]; then
     exit 1
 fi
 
-if [ x"$auth" = x'yes' ]; then
+if [ x"$auth_x509" = x'yes' ]; then
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit
     cat >"$clientprop" <<EOF
 client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
@@ -659,7 +714,8 @@ if [ x"$dontusefuser" = x'yes' ]; then
     trap 'sleep 1; kill -KILL 0' TERM
     trap 'kill -TERM 0' EXIT INT HUP
 else
-    trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser 2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT INT HUP
+    trap 'cd "$testdir" && find . -type f $findprint | xargs $xargsnull fuser \
+2>/dev/null | xargs kill -KILL 2>/dev/null' EXIT INT HUP
 fi
 
 echo "Starting meta server $metahosturl:$metasrvport"
@@ -762,7 +818,7 @@ metaServer.chunkServer.chunkReallocTimeout = 500
 EOF
 fi
 
-if [ x"$auth" = x'yes' ]; then
+if [ x"$auth_x509" = x'yes' ]; then
     cat >>"$metasrvprop" <<EOF
 metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
 metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
@@ -770,7 +826,8 @@ metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.clientAuthentication.whiteList        = $clientuser root
 
 # Set short valid time to test session time enforcement.
-metaServer.clientAuthentication.maxAuthenticationValidTimeSec = $clisessionmaxtime
+metaServer.clientAuthentication.maxAuthenticationValidTimeSec = \
+$clisessionmaxtime
 # Insure that the write lease is valid for at least 10 min to avoid spurious
 # write retries with 5 seconds authentication timeous.
 metaServer.minWriteLeaseTimeSec = 600
@@ -784,6 +841,16 @@ metaServer.CSAuthentication.blackList            = none
 metaServer.CSAuthentication.maxAuthenticationValidTimeSec = $cssessionmaxtime
 
 metaServer.cryptoKeys.keysFileName               = keys.txt
+EOF
+fi
+if [ x"$auth" = x'yes' ] && [ x"$auth_x509" != x'yes' ]; then
+    # Kerberos: session time and write lease (no X509).
+    cat >>"$metasrvprop" <<EOF
+metaServer.clientAuthentication.maxAuthenticationValidTimeSec = \
+$clisessionmaxtime
+metaServer.minWriteLeaseTimeSec = 600
+metaServer.CSAuthentication.maxAuthenticationValidTimeSec = \
+$cssessionmaxtime
 EOF
 fi
 
@@ -935,7 +1002,7 @@ EOF
 chunkServer.diskIo.maxIoTimeSec = 580
 EOF
     fi
-    if [ x"$auth" = x'yes' ]; then
+    if [ x"$auth_x509" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit
         cat >>"$dir/$chunksrvprop" <<EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
@@ -993,11 +1060,21 @@ if [ x"$auth" = x'yes' ]; then
     END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }')
     clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
 
-    cat >"$clientrootprop" <<EOF
+    if [ x"$auth_x509" = x'yes' ]; then
+        cat >"$clientrootprop" <<EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
+    else
+        # Kerberos: root tools use QFS_META_PRINCIPAL (target) and
+        # QFS_CLIENT_PRINCIPAL (identity).
+        cat >"$clientrootprop" <<EOF
+client.auth.krb5.service = ${krb_meta_service}
+client.auth.krb5.host = ${krb_meta_host}
+client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
+EOF
+    fi
 else
     clientenvcfg=
     cat >"$clientrootprop" <<EOF
@@ -1244,7 +1321,7 @@ cppidf="cptest${pidsuf}"
             [ x"$jerasuretest" = x'no' ] || {
                 sleep $cptestendsleeptime &&
                     mv cptest.log cptest-rs.log &&
-                    cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1'"$cptestextraopts" \
+                    cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w ''-1'"$cptestextraopts" \
                         cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
                         cptest.sh
             }
@@ -1408,7 +1485,7 @@ if [ $fotest -ne 0 ]; then
 fi
 
 if [ x"$smtest" != x ]; then
-    if [ x"$smauthconf" != x ]; then
+    if [ x"$smauthconf" != x ] && [ x"$auth_x509" = x'yes' ]; then
         cat >"$smauthconf" <<EOF
 sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
@@ -1498,8 +1575,8 @@ runqfsroot -ls '/dumpster' |
                 if runqfsroot -mv "$fn" "$movefromdumpster/"; then
                     continue
                 fi
-                # The meta server is likely started deleting the file, by truncating
-                # n chunks at a time.
+                # The meta server is likely started deleting the file,
+                # by truncating n chunks at a time.
                 # List and stat the file for diagnostics.
                 runqfsroot -ls "$fn"
                 runqfsroot -astat "$fn"
