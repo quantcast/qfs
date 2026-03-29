@@ -46,7 +46,8 @@ RUN apt-get update && apt-get install -y \
 # ENV ADMIN_PASSWORD=admin123
 # ENV TEST_PASSWORD=test123
 
-WORKDIR /test
+ENV TEST_DIR=/test
+WORKDIR "${TEST_DIR}"
 
 # Setup script
 COPY setup_kerberos.sh /setup_kerberos.sh
@@ -57,11 +58,13 @@ COPY <<'RUN_EOF' /run_test.sh
 #!/bin/bash
 set -e
 
+TEST_DIR=${TEST_DIR:-/test}
+
 exec 0</dev/null
-exec 1>/test/log
+exec 1>"${TEST_DIR}/log"
 exec 2>&1
 
-export KRB_ENV_FILE=/test/krb.env
+export KRB_ENV_FILE=${TEST_DIR}/krb.env
 
 echo "Starting Kerberos services..."
 /setup_kerberos.sh
@@ -71,13 +74,13 @@ echo "Getting Kerberos ticket..."
 echo "$TEST_PASSWORD" | kinit "${QFS_CLIENT_PRINCIPAL}"
 klist
 
-echo "$TEST_PASSWORD" > /test/start
+echo "$TEST_PASSWORD" > "${TEST_DIR}/start"
 echo ""
 echo "============================================"
 echo "Waiting for QFS Kerberos Test to complete..."
 echo "============================================"
 echo ""
-until [ -f /test/stop ]; do
+until [ -f "${TEST_DIR}/stop" ]; do
     sleep 0.5
 done
 RUN_EOF

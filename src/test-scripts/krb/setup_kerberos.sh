@@ -5,14 +5,16 @@ REALM="${REALM:-QFS.TEST}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 TEST_PASSWORD="${TEST_PASSWORD:-test123}"
 HOSTNAME=$(hostname -f)
-KEYTAB_FILE="${KEYTAB_FILE:-/test/test.keytab}"
-KRB_ENV_FILE="${KRB_ENV_FILE:-/test/krb.env}"
+TEST_DIR="${TEST_DIR:-/test}"
+KEYTAB_FILE="${KEYTAB_FILE:-${TEST_DIR}/test.keytab}"
+KRB_ENV_FILE="${KRB_ENV_FILE:-${TEST_DIR}/krb.env}"
 
 # QFS principals (service/host@realm or user@realm); overridable for custom
 # realms/hosts
+QFS_CLIENT_USER="${QFS_CLIENT_USER:-$USER}"
 QFS_META_PRINCIPAL="${QFS_META_PRINCIPAL:-qfsmeta/localhost@${REALM}}"
 QFS_CHUNK_PRINCIPAL="${QFS_CHUNK_PRINCIPAL:-qfschunk/localhost@${REALM}}"
-QFS_CLIENT_PRINCIPAL="${QFS_CLIENT_PRINCIPAL:-testclient@${REALM}}"
+QFS_CLIENT_PRINCIPAL="${QFS_CLIENT_PRINCIPAL:-$QFS_CLIENT_USER@${REALM}}"
 
 echo "Setting up Kerberos realm: $REALM"
 
@@ -103,19 +105,19 @@ kadmin.local -q "ktadd -k $KEYTAB_FILE ${chunk_service}/${HOSTNAME}@${REALM}"
 
 chmod 644 "$KEYTAB_FILE"
 
-# Create env file for sourcing
+# Create env file for sourcing (%q so values with quotes/spaces/etc. are safe)
 mkdir -p "$(dirname -- "$KRB_ENV_FILE")"
-cat >"$KRB_ENV_FILE" <<ENVEOF
-# Kerberos test env - source with: . $KRB_ENV_FILE
-export REALM='${REALM}'
-export ADMIN_PASSWORD='${ADMIN_PASSWORD}'
-export TEST_PASSWORD='${TEST_PASSWORD}'
-export HOSTNAME='${HOSTNAME}'
-export KEYTAB_FILE='${KEYTAB_FILE}'
-export QFS_META_PRINCIPAL='${QFS_META_PRINCIPAL}'
-export QFS_CHUNK_PRINCIPAL='${QFS_CHUNK_PRINCIPAL}'
-export QFS_CLIENT_PRINCIPAL='${QFS_CLIENT_PRINCIPAL}'
-ENVEOF
+{
+    printf '# Kerberos test env - source with: . %s\n' "$KRB_ENV_FILE"
+    printf 'export REALM=%q\n' "$REALM"
+    printf 'export ADMIN_PASSWORD=%q\n' "$ADMIN_PASSWORD"
+    printf 'export TEST_PASSWORD=%q\n' "$TEST_PASSWORD"
+    printf 'export HOSTNAME=%q\n' "$HOSTNAME"
+    printf 'export KEYTAB_FILE=%q\n' "$KEYTAB_FILE"
+    printf 'export QFS_META_PRINCIPAL=%q\n' "$QFS_META_PRINCIPAL"
+    printf 'export QFS_CHUNK_PRINCIPAL=%q\n' "$QFS_CHUNK_PRINCIPAL"
+    printf 'export QFS_CLIENT_PRINCIPAL=%q\n' "$QFS_CLIENT_PRINCIPAL"
+} >"$KRB_ENV_FILE"
 
 echo ""
 echo "=========================================="
