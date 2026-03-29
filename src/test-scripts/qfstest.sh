@@ -199,35 +199,35 @@ if [ x"$mykrbenvfile" != x ]; then
 	krb_meta_host=${krb_meta_host%%@*}
 	# Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.service = ${krb_meta_service}
+"metaServer.CSAuthentication.krb5.service = ${krb_meta_service}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.host = ${krb_meta_host}
+"metaServer.CSAuthentication.krb5.host = ${krb_meta_host}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}
+"metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.service = ${krb_meta_service}
+"metaServer.clientAuthentication.krb5.service = ${krb_meta_service}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.host = ${krb_meta_host}
+"metaServer.clientAuthentication.krb5.host = ${krb_meta_host}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}
+"metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}"
 	# Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
 	# (conf/ChunkServer.prp)
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.service = ${krb_meta_service}
+"chunkserver.meta.auth.krb5.service = ${krb_meta_service}"
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.host = ${krb_meta_host}
+"chunkserver.meta.auth.krb5.host = ${krb_meta_host}"
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}
+"chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}"
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}
+"chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}"
 	# Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
 	# (conf/QfsClient.prp); run kinit $QFS_CLIENT_PRINCIPAL
 	myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.service = ${krb_meta_service}
+"client.auth.krb5.service = ${krb_meta_service}"
 	myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.host = ${krb_meta_host}
+"client.auth.krb5.host = ${krb_meta_host}"
 	myexclientconfig=${myexclientconfig}${mynewlinechar}\
-client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
+"client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}"
 fi
 
 if [ x"$s3test" = x'yes' ]; then
@@ -893,7 +893,7 @@ else
     # Create fake bucket to add default tier with non empty
     # chunkServer.objecStorageTierPrefixes
     cat >>"$metasrvprop" <<EOF
-chunkServer.diskQueue._test.bucketName = fale_default_15
+chunkServer.diskQueue._test.bucketName = fake_default_15
 EOF
 fi
 
