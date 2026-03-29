@@ -18,3 +18,4 @@ src/go/README.md
 # Specific gitignore files
 src/cc/common/.gitignore
 webui/.gitignore
+webui/files/sorttable/sorttable.js
