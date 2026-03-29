@@ -25,10 +25,12 @@
 
 krb5_test() {
     local build=0
-    local test_dir=$PWD/qfstest/krb-test
+    local run=0
+    local qfs_test=0
+    local test_dir=$PWD/qfstest-krb
     local test_program=$PWD/src/cc/krb/qfskrbtest
     local krb5_config=$test_dir/krb5.conf
-	local krb_env_file=$test_dir/krb.env
+    local krb_env_file=$test_dir/krb.env
     local openssl_config=$test_dir/openssl.conf
     local stop_file=$test_dir/stop
     local start_file=$test_dir/start
@@ -43,14 +45,32 @@ krb5_test() {
             build=1
             shift
             ;;
+        --run | -r)
+            if [ $# -le 1 ]; then
+                echo "test program not specified"
+                return 1
+            fi
+            run=1
+            shift
+            break
+            ;;
+        --qfs-test | -q)
+            qfs_test=1
+            shift
+            break
+            ;;
         --)
             shift
             break
             ;;
         -h | --help)
             cat <<EOF
-Usage: $0 [--build| -b] [--] <cmake arguments>
+Usage: $0 [--build| -b] [--run | -r] [--qfs-test | -q] [--] <cmake arguments>
         --build| -b: build QFS Kerberos test program
+        --run | -r: run the specified test program -- the remaining arguments \
+are treated as test program arguments
+        --qfs-test | -q: run qfstest.sh passing the remaining arguments as \
+arguments to qfstest.sh
         --: pass remaining arguments to cmake
         -h|--help: show this help message
 To build QFS with Heimdal Kerberos support on Mac OS set the KRB5_PREFIX
@@ -74,8 +94,13 @@ EOF
 
     set -e
 
+    if [ $(expr $run + $build + $qfs_test) -gt 1 ]; then
+        echo "cannot build and run specified test program or run qfstest.sh" \
+            " at the same time" 1>&2
+        return 1
+    fi
     if [ $build -ne 0 -o ! -x "$test_program" ]; then
-        cmake --fresh ${1:+"$@"} "$my_dir/../../.."
+        cmake --fresh ${1+"$@"} "$my_dir/../../.."
         cmake --build . --parallel --clean-first \
             --target "$(basename -- "$test_program")"
     fi
@@ -98,13 +123,28 @@ EOF
     # Run the test container:
     docker run -d --rm --name "$container_name" \
         -e "REALM=$krb5_realm" \
-        -v "$test_dir:/test" \
+        -e "TEST_DIR=$test_dir" \
+        -e "QFS_CLIENT_USER=${USER:-qfs_user}" \
+        -v "$test_dir:/$test_dir" \
         -p "127.0.0.1:$ker5_port:88/tcp" \
         -p "127.0.0.1:$ker5_port:88/udp" \
         "$container_name"
 
-    local krb5_kdc_tcp="kdc = $(docker port "$container_name" 88/tcp)"
-    local krb5_kdc_udp="kdc = $(docker port "$container_name" 88/udp)"
+    # docker port often prints 0.0.0.0:PORT; libkrb5 cannot use 0.0.0.0 as a KDC
+    # destination (MIT Kerberos fails with "Cannot find KDC for realm").
+    local kdc_tcp_hostport kdc_udp_hostport
+    kdc_tcp_hostport=$(docker port "$container_name" 88/tcp |
+        head -n1 | tr -d '\r')
+    kdc_udp_hostport=$(docker port "$container_name" 88/udp |
+        head -n1 | tr -d '\r')
+    case "$kdc_tcp_hostport" in
+    0.0.0.0:*) kdc_tcp_hostport="127.0.0.1:${kdc_tcp_hostport#0.0.0.0:}" ;;
+    esac
+    case "$kdc_udp_hostport" in
+    0.0.0.0:*) kdc_udp_hostport="127.0.0.1:${kdc_udp_hostport#0.0.0.0:}" ;;
+    esac
+    local krb5_kdc_tcp="kdc = $kdc_tcp_hostport"
+    local krb5_kdc_udp="kdc = $kdc_udp_hostport"
     if [ x"$krb5_kdc_tcp" = x"$krb5_kdc_udp" ]; then
         krb5_kdc_udp=
     fi
@@ -179,6 +219,9 @@ EOF
         fi
     done
     echo "QFS Kerberos Test container started, running tests..."
+    QFS_STOP_FILE=$stop_file
+    # Stop the test container when the script exits:
+    trap 'touch "$QFS_STOP_FILE"' EXIT INT TERM QUIT HUP
 
     export KRB5_CONFIG=$krb5_config
     export OPENSSL_CONF=$openssl_config
@@ -194,10 +237,15 @@ EOF
     fi
     klist
     # Run the test program (service host, service name, keytab path)
-    "$test_program" localhost "$krb_meta_service" "$test_dir/test.keytab" dMRr2
+    if [ $run -ne 0 ]; then
+        "$test_program" ${1+"$@"}
+    elif [ $qfs_test -ne 0 ]; then
+        "$my_dir/../qfstest.sh" -kerberos "$krb_env_file" ${1+"$@"}
+    else
+        "$test_program" localhost "$krb_meta_service" \
+            "$test_dir/test.keytab" dMRr2
+    fi
     kdestroy
-    # Stop the test container:
-    touch "$stop_file"
 }
 
-krb5_test ${1:+"$@"}
+krb5_test ${1+"$@"}
