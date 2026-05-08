@@ -41,6 +41,7 @@ pythonwheeldir=''
 mynewlinechar='
 '
 metasrvdir=
+use_keytab_for_client=1
 
 validnumorexit() {
     if [ x"$(expr "$2" - 0 2>/dev/null)" = x ]; then
@@ -145,6 +146,8 @@ while [ $# -ge 1 ]; do
         fi
         shift
         mykrbenvfile=$1
+    elif [ x"$1" = x'-no-use-keytab-for-client' ]; then
+        use_keytab_for_client=0
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 " \
@@ -152,6 +155,7 @@ while [ $# -ge 1 ]; do
             "[-ipv6]" \
             "[-auth | -noauth]" \
             "[-kerberos <krb-env-file>]" \
+            "[-no-use-keytab-for-client]" \
             "[-s3 | -s3debug]" \
             "[-csrpctrace]" \
             "[-trdverify]" \
@@ -179,11 +183,13 @@ if [ x"$mykrbenvfile" != x ]; then
 	fi
 	. "$mykrbenvfile" || exit
 	auth='yes'
-	# Require separate principals from env file (QFS_META_PRINCIPAL,
-	# QFS_CHUNK_PRINCIPAL, QFS_CLIENT_PRINCIPAL, KEYTAB_FILE)
+	# Require separate principals and per-role keytabs from env file.
 	status=0
-	for krb_var in QFS_META_PRINCIPAL QFS_CHUNK_PRINCIPAL \
-		QFS_CLIENT_PRINCIPAL KEYTAB_FILE; do
+	for krb_var in \
+		QFS_META_PRINCIPAL QFS_CHUNK_PRINCIPAL \
+		QFS_CLIENT_PRINCIPAL QFS_ADMIN_PRINCIPAL \
+		QFS_META_KEYTAB QFS_CHUNK_KEYTAB \
+		QFS_CLIENT_KEYTAB QFS_ADMIN_KEYTAB; do
 		eval "krb_val=\$$krb_var"
 		if [ x"$krb_val" = x ]; then
 			echo "Kerberos env file must set $krb_var" 1>&2
@@ -197,19 +203,48 @@ if [ x"$mykrbenvfile" != x ]; then
 	krb_meta_service=${QFS_META_PRINCIPAL%%/*}
 	krb_meta_host=${QFS_META_PRINCIPAL#*/}
 	krb_meta_host=${krb_meta_host%%@*}
+	# Parse chunk principal (service/host@realm) for the meta server name
+	# remap below.
+	krb_chunk_service=${QFS_CHUNK_PRINCIPAL%%/*}
+	krb_chunk_host=${QFS_CHUNK_PRINCIPAL#*/}
+	krb_chunk_host=${krb_chunk_host%%@*}
+	# Client user name (principal with realm stripped) used in the meta
+	# server white list below.
+	krb_client_user=${QFS_CLIENT_PRINCIPAL%%@*}
+	clientuser=${krb_client_user}
+	# Admin user name (principal with realm stripped) used in the meta
+	krb_admin_user=${QFS_ADMIN_PRINCIPAL%%@*}
 	# Meta server: use QFS_META_PRINCIPAL (conf/MetaServer.prp)
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
 "metaServer.CSAuthentication.krb5.service = ${krb_meta_service}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
 "metaServer.CSAuthentication.krb5.host = ${krb_meta_host}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-"metaServer.CSAuthentication.krb5.keytab = ${KEYTAB_FILE}"
+"metaServer.CSAuthentication.krb5.keytab = ${QFS_META_KEYTAB}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
 "metaServer.clientAuthentication.krb5.service = ${krb_meta_service}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
 "metaServer.clientAuthentication.krb5.host = ${krb_meta_host}"
 	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
-"metaServer.clientAuthentication.krb5.keytab = ${KEYTAB_FILE}"
+"metaServer.clientAuthentication.krb5.keytab = ${QFS_META_KEYTAB}"
+	# Strip @REALM from authenticated principal so user lookup matches
+	# local user names (e.g. "mike@QFS.TEST" -> "mike").
+	# This is to make it work with /etc/passwd that would typically have no
+	# realm in user names.
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+"metaServer.clientAuthentication.krb5.princUnparseMode = noRealm"
+	# Map the chunk server service principals to "root" on the meta
+	# server's client port: chunk servers run a client to the meta server
+	# in order to perform chunk recovery, and that client must have root
+	# access. The remap is applied to the post-noRealm name (e.g.
+	# "qfschunk/localhost"). Only "root" and the test client user are
+	# allowed to authenticate to the client port.
+	myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+"metaServer.clientAuthentication.nameRemap =\
+ ${krb_chunk_service}/${krb_chunk_host} root ${krb_admin_user} root"
+    # Same white list as for x504 auth.
+    myexmetaconfig=${myexmetaconfig}${mynewlinechar}\
+"metaServer.clientAuthentication.whiteList = $clientuser root"
 	# Chunk server: use QFS_CHUNK_PRINCIPAL, meta uses QFS_META_PRINCIPAL
 	# (conf/ChunkServer.prp)
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
@@ -217,7 +252,7 @@ if [ x"$mykrbenvfile" != x ]; then
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
 "chunkserver.meta.auth.krb5.host = ${krb_meta_host}"
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
-"chunkserver.meta.auth.krb5.keytab = ${KEYTAB_FILE}"
+"chunkserver.meta.auth.krb5.keytab = ${QFS_CHUNK_KEYTAB}"
 	myexchunkconfig=${myexchunkconfig}${mynewlinechar}\
 "chunkserver.meta.auth.krb5.clientName = ${QFS_CHUNK_PRINCIPAL}"
 	# Client: target meta QFS_META_PRINCIPAL, identity QFS_CLIENT_PRINCIPAL
@@ -228,6 +263,18 @@ if [ x"$mykrbenvfile" != x ]; then
 "client.auth.krb5.host = ${krb_meta_host}"
 	myexclientconfig=${myexclientconfig}${mynewlinechar}\
 "client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}"
+	if [ $use_keytab_for_client -ne 0 ]; then
+		# Pin client identity to QFS_CLIENT_PRINCIPAL via the keytab so the
+		# Kerberos client does not fall back to whatever happens to be in the
+		# default credential cache (KRB5CCNAME / /tmp/krb5cc_*). Without this
+		# line clientName is only used to validate an existing ccache and the
+		# client may end up authenticating as some other principal (e.g. an
+		# admin principal previously kinit'd by another test step).
+		myexclientconfig=${myexclientconfig}${mynewlinechar}\
+"client.auth.krb5.keytab = ${QFS_CLIENT_KEYTAB}"
+	fi
+else
+	clientuser=${clientuser-"$(id -un)"}
 fi
 
 if [ x"$s3test" = x'yes' ]; then
@@ -281,8 +328,6 @@ else
     metahosturl=$metahost
     iptobind='0.0.0.0'
 fi
-
-clientuser=${clientuser-"$(id -un)"}
 
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
@@ -1089,13 +1134,19 @@ client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
     else
-        # Kerberos: root tools use QFS_META_PRINCIPAL (target) and
-        # QFS_CLIENT_PRINCIPAL (identity).
+        # Kerberos: root tools use QFS_ADMIN_PRINCIPAL. Set keytab so the
+        # admin principal is taken from the keytab and not from the
+        # ambient default credential cache.
         cat >"$clientrootprop" <<EOF
 client.auth.krb5.service = ${krb_meta_service}
 client.auth.krb5.host = ${krb_meta_host}
-client.auth.krb5.clientName = ${QFS_CLIENT_PRINCIPAL}
+client.auth.krb5.clientName = ${QFS_ADMIN_PRINCIPAL}
 EOF
+	if [ $use_keytab_for_client -ne 0 ]; then
+		cat >>"$clientrootprop" <<EOF
+client.auth.krb5.keytab = ${QFS_ADMIN_KEYTAB}
+EOF
+	fi
     fi
 else
     clientenvcfg=
