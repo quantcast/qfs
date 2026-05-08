@@ -25,6 +25,8 @@
 //----------------------------------------------------------------------------
 
 #include "KrbClient.h"
+#include "common/IntToString.h"
+#include "common/StBuffer.h"
 
 #ifdef KFS_KRB_IGNORE_DEPRECATED
 #pragma clang diagnostic push
@@ -36,6 +38,8 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <string>
 #include <algorithm>
@@ -64,9 +68,11 @@ public:
           mInitedFlag(false),
           mUseKeyTabFlag(false),
           mForceCacheInitFlag(false),
+          mPrivateCacheFlag(false),
           mLastCredEndTime(-1),
           mServiceName(),
-          mErrorMsg()
+          mErrorMsg(),
+          mCacheFilePath()
     {
         mOutBuf.data   = 0;
         mOutBuf.length = 0;
@@ -253,9 +259,11 @@ private:
     bool              mInitedFlag;
     bool              mUseKeyTabFlag;
     bool              mForceCacheInitFlag;
+    bool              mPrivateCacheFlag;
     time_t            mLastCredEndTime;
     string            mServiceName;
     string            mErrorMsg;
+    string            mCacheFilePath;
 
     void InitCredCacheKeyTab()
     {
@@ -294,7 +302,16 @@ private:
                         0,
                         0,
                         theInitOptionsPtr)) == 0) {
-#ifndef KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT
+#if defined(KFS_KRB_USE_HEIMDAL) || \
+    ! defined(KFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT)
+                    // Heimdal's krb5_get_init_creds_opt has no
+                    // set_out_ccache equivalent (the shim in KfsKrb5.h
+                    // is a no-op on Heimdal), so the new TGT must be
+                    // explicitly stored into mCachePtr; otherwise a
+                    // subsequent krb5_get_credentials() against
+                    // mCachePtr returns KRB5_CC_NOTFOUND. The
+                    // non-MIT-init-creds-opt branch needs the same
+                    // explicit store.
                     if ((mErrCode = krb5_cc_initialize(
                                 mCtx, mCachePtr, mCreds.client)) == 0) {
                             mErrCode = krb5_cc_store_cred(
@@ -359,7 +376,17 @@ private:
             ))) {
             return;
         }
-        if ((mErrCode = krb5_cc_default(mCtx, &mCachePtr)) != 0) {
+        if (mUseKeyTabFlag) {
+            // Keytab-based clients must not share the default credential
+            // cache: that ccache may also be used by an interactive kinit
+            // or by another QFS client running in the same process / under
+            // the same KRB5CCNAME, which would clobber TGTs across clients
+            // (causing KRB5_CC_NOTFOUND on re-auth). Use a private,
+            // process-local ccache instead.
+            if ((mErrCode = OpenPrivateCache()) != 0) {
+                return;
+            }
+        } else if ((mErrCode = krb5_cc_default(mCtx, &mCachePtr)) != 0) {
             return;
         }
         if (mUseKeyTabFlag) {
@@ -399,14 +426,94 @@ private:
             mServerPtr = 0;
         }
         if (mCachePtr) {
-            krb5_error_code const theCErr = krb5_cc_close(mCtx, mCachePtr);
+            krb5_error_code theCErr;
+            if (mPrivateCacheFlag) {
+                // krb5_cc_destroy wipes the cache contents and frees the
+                // ccache handle (so do NOT also call krb5_cc_close).
+                theCErr = krb5_cc_destroy(mCtx, mCachePtr);
+            } else {
+                theCErr = krb5_cc_close(mCtx, mCachePtr);
+            }
             mCachePtr = 0;
+            mPrivateCacheFlag = false;
             if (! theErr) {
                 theErr = theCErr;
             }
         }
+        if (! mCacheFilePath.empty()) {
+            // Defensive: krb5_cc_destroy on a FILE: ccache normally
+            // unlinks the backing file, but we already unlinked it at
+            // creation time on POSIX. unlink() again here is harmless and
+            // covers the (unreachable) case where the early unlink was
+            // skipped.
+            unlink(mCacheFilePath.c_str());
+            mCacheFilePath.clear();
+        }
         krb5_free_context(mCtx);
         return theErr;
+    }
+    krb5_error_code OpenPrivateCache()
+    {
+        // Try a MEMORY: ccache first - it lives only in process memory
+        // and is supported by both MIT krb5 and Heimdal. The name is
+        // made unique per Impl instance so concurrent KrbClient objects
+        // in the same process do not share state.
+        StringBufT<128> theName("MEMORY:qfs-krb-");
+        AppendDecIntToString(theName, getpid()).Append('-');
+        AppendHexIntToString(theName,reinterpret_cast<uintptr_t>(
+            reinterpret_cast<const void*>(this)));
+        krb5_error_code theErr = krb5_cc_resolve(
+            mCtx, theName.GetPtr(), &mCachePtr);
+        if (theErr == 0 && mCachePtr) {
+            mPrivateCacheFlag = true;
+            return 0;
+        }
+        if (mCachePtr) {
+            krb5_cc_close(mCtx, mCachePtr);
+            mCachePtr = 0;
+        }
+        // Fall back to a private FILE: ccache in TMPDIR / /tmp. Create
+        // it via mkstemp so the name is unique and the file is owned
+        // by this process, then immediately unlink it: on POSIX the
+        // file remains accessible through the open fd until close, and
+        // an interrupted process leaves nothing behind on disk.
+        const char* theTmpDirPtr = getenv("TMPDIR");
+        if (! theTmpDirPtr || ! *theTmpDirPtr) {
+            theTmpDirPtr = "/tmp";
+        }
+        const char* const theTemplPatternPtr = "qfs-krb-XXXXXX";
+        const char* const theKrb5FilePrefixPtr = "FILE:";
+        const size_t theKrb5FilePrefixLen = strlen(theKrb5FilePrefixPtr);
+        const size_t theTemplPatternLen = strlen(theTemplPatternPtr);
+        const size_t theTmpDirLen = strlen(theTmpDirPtr);
+        StBufferT<char, 1024> theCacheNameBuf;
+        char* thePtr = theCacheNameBuf.Resize(
+            theKrb5FilePrefixLen + theTmpDirLen + theTemplPatternLen + 1);
+        memcpy(thePtr, theKrb5FilePrefixPtr, theKrb5FilePrefixLen);
+        thePtr += theKrb5FilePrefixLen;
+        char* const theTmplPtr = thePtr;
+        memcpy(thePtr, theTmpDirPtr, theTmpDirLen);
+        thePtr += theTmpDirLen;
+        memcpy(thePtr, theTemplPatternPtr, theTemplPatternLen + 1);
+        const int theFd = mkstemp(theTmplPtr);
+        if (theFd < 0) {
+            return errno != 0 ? errno : EIO;
+        }
+        // Unlink immediately so an aborted process leaves no residue.
+        // libkrb5 will recreate / write to the named path; on POSIX
+        // unlink before re-create is harmless.
+        unlink(theTmplPtr);
+        // The libkrb5 FILE ccache code opens its own fd; ours is only
+        // used to reserve the name. Closing it here is fine.
+        if ((theErr = krb5_cc_resolve(
+                mCtx, theCacheNameBuf.GetPtr(), &mCachePtr)) != 0) {
+            close(theFd);
+            return theErr;
+        }
+        close(theFd);
+        mPrivateCacheFlag = true;
+        mCacheFilePath    = theTmplPtr;
+        return 0;
     }
     krb5_error_code CleanupAuth()
     {
