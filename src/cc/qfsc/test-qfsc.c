@@ -147,7 +147,7 @@ static char* test_qfs_getwd() {
 
 static char* test_readdir() {
   struct qfs_iter* iter = NULL;
-  struct qfs_attr attr;
+  struct qfs_attr attr = {0};
   int res;
 
   const char* expected[] = {
@@ -204,7 +204,7 @@ static char* test_readdirnames() {
 }
 
 static char* test_qfs_stat() {
-  struct qfs_attr attr;
+  struct qfs_attr attr = {0};
   check_qfs_call(qfs_stat(qfs, "/unit-test", &attr));
 
   check(strcmp(attr.filename, "unit-test") == 0,
@@ -219,7 +219,7 @@ static char* test_qfs_create() {
   check_qfs_call(fd = qfs_create(qfs, "/unit-test/file"));
 
   // Now test qfs_stat_fd
-  struct qfs_attr attr;
+  struct qfs_attr attr = {0};
   check_qfs_call(qfs_stat_fd(qfs, fd, &attr));
 
   check(strcmp(attr.filename, "file") == 0, "filename should be correct");
@@ -283,7 +283,7 @@ static char* test_large_write() {
   check_qfs_call(qfs_close(qfs, fd));
   check_qfs_call(fd = qfs_open_file(qfs, "/unit-test/file", O_RDWR, 0, ""));
 
-  struct qfs_attr attr;
+  struct qfs_attr attr = {0};
   check_qfs_call(qfs_stat(qfs, "/unit-test/file", &attr));
 
   check(strcmp(attr.filename, "file") == 0,
@@ -373,7 +373,7 @@ static char* test_qfs_symlink() {
 }
 
 static char* test_qfs_lstat() {
-  struct qfs_attr attr;
+  struct qfs_attr attr = {0};
   struct qfs_ext_attrs ext_attrs;
   const mode_t mode = ~qfs_get_umask(qfs) & 0777;
   check_qfs_call(qfs_lstat_ex(qfs, symlink_test_path, &attr, &ext_attrs));
