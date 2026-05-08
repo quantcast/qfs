@@ -64,17 +64,10 @@ exec 0</dev/null
 exec 1>"${TEST_DIR}/log"
 exec 2>&1
 
-export KRB_ENV_FILE=${TEST_DIR}/krb.env
-
 echo "Starting Kerberos services..."
 /setup_kerberos.sh
 
-echo "Getting Kerberos ticket..."
-. "$KRB_ENV_FILE"
-echo "$TEST_PASSWORD" | kinit "${QFS_CLIENT_PRINCIPAL}"
-klist
-
-echo "$TEST_PASSWORD" > "${TEST_DIR}/start"
+touch "${TEST_DIR}/start"
 echo ""
 echo "============================================"
 echo "Waiting for QFS Kerberos Test to complete..."
