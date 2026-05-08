@@ -49,7 +49,7 @@ done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
-MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.14/binaries/apache-maven-3.9.14-bin.tar.gz'
+MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.15/binaries/apache-maven-3.9.15-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
