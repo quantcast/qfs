@@ -135,10 +135,46 @@ if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(STATUS "WARNING: QFS authentication will not work properly")
 endif()
 
-# Change this to where the install directory is located
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "." CACHE PATH "install directory prefix" FORCE)
+if(NOT DEFINED QFS_OUTPUT_DIR)
+    set(QFS_OUTPUT_DIR "${KFS_DIR_PREFIX}/output" CACHE PATH
+        "directory for deployable QFS build output")
 endif()
+get_filename_component(QFS_OUTPUT_DIR "${QFS_OUTPUT_DIR}" ABSOLUTE
+    BASE_DIR "${KFS_DIR_PREFIX}")
+
+# Change this to where the install directory is located
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT OR
+    CMAKE_INSTALL_PREFIX STREQUAL ".")
+    set(CMAKE_INSTALL_PREFIX "${QFS_OUTPUT_DIR}" CACHE PATH
+        "install directory prefix" FORCE)
+endif()
+message(STATUS "QFS deployable output directory: ${CMAKE_INSTALL_PREFIX}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${QFS_OUTPUT_DIR}/bin" CACHE PATH
+    "directory for QFS runtime build output" FORCE)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${QFS_OUTPUT_DIR}/lib" CACHE PATH
+    "directory for QFS shared library build output" FORCE)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${QFS_OUTPUT_DIR}/lib/static" CACHE PATH
+    "directory for QFS static library build output" FORCE)
+foreach(QFS_OUTPUT_CONFIG DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${QFS_OUTPUT_CONFIG}
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}" CACHE PATH
+        "directory for QFS runtime build output" FORCE)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${QFS_OUTPUT_CONFIG}
+        "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}" CACHE PATH
+        "directory for QFS shared library build output" FORCE)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${QFS_OUTPUT_CONFIG}
+        "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}" CACHE PATH
+        "directory for QFS static library build output" FORCE)
+endforeach()
+
+function(qfs_set_target_runtime_output_dir output_dir)
+    set_target_properties(${ARGN} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${output_dir}")
+    foreach(QFS_OUTPUT_CONFIG DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set_target_properties(${ARGN} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${QFS_OUTPUT_CONFIG} "${output_dir}")
+    endforeach()
+endfunction()
 
 # Build with statically linked libraries; the value for this variable has to be
 # defined here overwriting whatever is in the cache.

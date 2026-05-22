@@ -20,6 +20,8 @@
 #
 
 add_executable(mstress_client EXCLUDE_FROM_ALL mstress_client.cc)
+qfs_set_target_runtime_output_dir("${CMAKE_CURRENT_BINARY_DIR}"
+    mstress_client)
 
 if(USE_STATIC_LIB_LINKAGE)
     add_dependencies(mstress_client kfsClient)

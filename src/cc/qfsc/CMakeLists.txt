@@ -44,6 +44,8 @@ target_link_libraries (qfsc-shared
 
 add_executable (test-qfsc test-qfsc.c)
 set_target_properties (test-qfsc PROPERTIES LINKER_LANGUAGE CXX)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools"
+    test-qfsc)
 
 if (USE_STATIC_LIB_LINKAGE)
     add_dependencies (test-qfsc qfsc)
