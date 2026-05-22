@@ -166,6 +166,8 @@ add_executable (${rsmktablebin} mktable_main.c)
 target_link_libraries (${rstestbin} kfsrs)
 add_dependencies (${rstestbin} kfsrs)
 add_dependencies (${rsmktablebin} kfsrs)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools"
+    ${rstestbin} ${rsmktablebin})
 
 install (TARGETS kfsrs kfsrs-shared
         LIBRARY DESTINATION lib

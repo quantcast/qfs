@@ -22,6 +22,7 @@
 # Do not assume GNU Make. Keep this makefile as simple as possible.
 
 BUILD_TYPE=release
+QFS_OUTPUT_DIR=output
 CMAKE_OPTIONS=-D CMAKE_BUILD_TYPE=RelWithDebInfo
 CMAKE=cmake
 MAKE_OPTIONS=
@@ -31,7 +32,7 @@ QFSHADOOP_VERSIONS=0.23.11  1.0.4  1.1.2  2.5.1  2.7.2  2.7.7  2.8.5  2.9.2  2.1
 
 QFS_PYTHON_DIR=python-qfs
 QFS_PYTHON_WHEEL_DIR=${QFS_PYTHON_DIR}/dist
-QFS_PYTHON_TEST_OPTION=test -d ${QFS_PYTHON_WHEEL_DIR} && echo -python-wheel-dir ${QFS_PYTHON_WHEEL_DIR}
+QFS_PYTHON_TEST_OPTION=test -d $${qfs_output_dir}/${QFS_PYTHON_WHEEL_DIR} && echo -python-wheel-dir $${qfs_output_dir}/${QFS_PYTHON_WHEEL_DIR}
 QFS_MSTRESS_ON=true
 
 .PHONY: all
@@ -39,11 +40,16 @@ all: build
 
 .PHONY: dir
 dir:
-	mkdir -p build/${BUILD_TYPE}
+	mkdir -p build/${BUILD_TYPE} ${QFS_OUTPUT_DIR}
 
 .PHONY: run-cmake
 run-cmake: dir
-	cd build/${BUILD_TYPE} && ${CMAKE} ${CMAKE_OPTIONS} ../..
+	cd build/${BUILD_TYPE} && \
+		qfs_output_dir=`cd ../.. && pwd`/${QFS_OUTPUT_DIR} && \
+		${CMAKE} \
+			-D QFS_OUTPUT_DIR="$$qfs_output_dir" \
+			-D CMAKE_INSTALL_PREFIX="$$qfs_output_dir" \
+			${CMAKE_OPTIONS} ../..
 
 .PHONY: build
 build: run-cmake
@@ -51,11 +57,19 @@ build: run-cmake
 	`${QFS_MSTRESS_ON} && \
 		echo ${QFSHADOOP_VERSIONS} | grep '3\.4\.1' >/dev/null 2>&1 && \
 		mvn --version >/dev/null 2>&1 && echo mstress-bootstrap mstress-tarball`
+	if ls -1 build/${BUILD_TYPE}/benchmarks/mstress*.tgz >/dev/null 2>&1; then \
+		mkdir -p ${QFS_OUTPUT_DIR}/benchmarks && \
+		cp build/${BUILD_TYPE}/benchmarks/mstress*.tgz \
+			${QFS_OUTPUT_DIR}/benchmarks/; \
+	fi
 
 .PHONY: java
 java: build
 	./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean
 	./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS}
+	if ls -1 build/java/qfs-access/qfs-access*.jar >/dev/null 2>&1; then \
+		cp build/java/qfs-access/qfs-access*.jar ${QFS_OUTPUT_DIR}/lib/; \
+	fi
 
 .PHONY: hadoop-jars
 hadoop-jars: java
@@ -67,6 +81,9 @@ hadoop-jars: java
 	            || exit 1; \
 	    done \
 	; fi
+	if ls -1 build/java/hadoop-qfs/hadoop-*.jar >/dev/null 2>&1; then \
+		cp build/java/hadoop-qfs/hadoop-*.jar ${QFS_OUTPUT_DIR}/lib/; \
+	fi
 
 .PHONY: go
 go: build
@@ -76,7 +93,7 @@ go: build
 			exit; \
 		} \
 		END { exit ret ? 0 : 1 }'; then \
-		QFS_BUILD_DIR=`pwd`/build/$(BUILD_TYPE) && \
+		QFS_BUILD_DIR=`pwd`/${QFS_OUTPUT_DIR} && \
 		cd src/go && \
 		CGO_CFLAGS="-I$${QFS_BUILD_DIR}/include" && \
 		export CGO_CFLAGS && \
@@ -93,6 +110,7 @@ go: build
 .PHONY: tarball
 tarball: hadoop-jars python
 	cd build && \
+	qfs_output_dir=../${QFS_OUTPUT_DIR}; \
 	myuname=`uname -s`; \
 	myarch=`cc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && \
@@ -129,16 +147,16 @@ tarball: hadoop-jars python
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
 	mkdir "tmpreldir/$$tarname" && \
-	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib \
-		${BUILD_TYPE}/include ../scripts ../webui \
+	cp -r $$qfs_output_dir/bin $$qfs_output_dir/lib \
+		$$qfs_output_dir/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
 	if ls -1 ./java/qfs-access/qfs-access-*.jar >/dev/null 2>&1; then \
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	if ls -1 ./java/hadoop-qfs/hadoop-*.jar >/dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
-	if ls -1 ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl >/dev/null 2>&1; \
+	if ls -1 $$qfs_output_dir/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl >/dev/null 2>&1; \
 		then \
-		cp ${BUILD_TYPE}/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
+		cp $$qfs_output_dir/${QFS_PYTHON_WHEEL_DIR}/qfs*.whl \
 			"tmpreldir/$$tarname/lib/"; fi && \
 	if ls -1 ${BUILD_TYPE}/benchmarks/mstress.tgz > /dev/null 2>&1; then \
 		cp ${BUILD_TYPE}/benchmarks/mstress.tgz \
@@ -151,7 +169,7 @@ python: build
 	if python3 -c 'import sys; exit(0 if sys.version_info >= (3, 6) else 1)' \
 			>/dev/null 2>&1 && \
 			python3 -c 'import venv' >/dev/null 2>&1 ; then \
-		cd build/${BUILD_TYPE} && \
+		cd ${QFS_OUTPUT_DIR} && \
 		rm -rf ${QFS_PYTHON_DIR} && \
 		mkdir ${QFS_PYTHON_DIR} && \
 		cd ${QFS_PYTHON_DIR} && \
@@ -159,7 +177,10 @@ python: build
 		ln -s ../../../src/cc/access/kfs_setup.py setup.py && \
 		python3 -m venv .venv && \
 		. .venv/bin/activate && python -m pip install build && \
-		python -m build -w . ; \
+		python -m build -w . && \
+		if ls -1 dist/qfs*.whl >/dev/null 2>&1; then \
+			cp dist/qfs*.whl ../lib/; \
+		fi ; \
 	else \
 		echo 'python3 module venv is not available'; \
 	fi
@@ -167,14 +188,16 @@ python: build
 .PHONY: mintest
 mintest: hadoop-jars python
 	cd build/${BUILD_TYPE} && \
+	qfs_output_dir=`cd ../.. && pwd`/${QFS_OUTPUT_DIR} && \
 	../../src/test-scripts/qfstest.sh \
 		`${QFS_PYTHON_TEST_OPTION}` \
-		-install-prefix . -auth ${QFSTEST_OPTIONS}
+		-install-prefix "$$qfs_output_dir" -auth ${QFSTEST_OPTIONS}
 
 .PHONY: test
 test: mintest
 	cd build/${BUILD_TYPE} && \
-	installbindir=`pwd`/bin && \
+	qfs_output_dir=`cd ../.. && pwd`/${QFS_OUTPUT_DIR} && \
+	installbindir=$$qfs_output_dir/bin && \
 	metadir=$$installbindir && \
 	export metadir && \
 	chunkdir=$$installbindir && \
@@ -192,7 +215,7 @@ test: mintest
 		echo '--------- Test without authentication --------' && \
 		../../src/test-scripts/qfstest.sh \
 			`${QFS_PYTHON_TEST_OPTION}` \
-			-install-prefix . -noauth ${QFSTEST_OPTIONS} ; \
+			-install-prefix "$$qfs_output_dir" -noauth ${QFSTEST_OPTIONS} ; \
 	fi
 
 .PHONY: rat
@@ -201,4 +224,4 @@ rat: dir
 
 .PHONY: clean
 clean:
-	rm -rf build
+	rm -rf build ${QFS_OUTPUT_DIR}

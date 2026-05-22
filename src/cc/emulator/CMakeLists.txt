@@ -52,6 +52,8 @@ foreach (exe_file ${exe_files})
         kfsEmulator
     )
 endforeach (exe_file)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/emulator"
+    ${exe_files})
 
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     target_link_libraries(kfsEmulator mtmalloc)
