@@ -105,7 +105,7 @@ QFS **并非不能** 采用 HDFS NN 式布局；当前选择是 **统一 B+ 树 
 ┌───────────────────────────▼─────────────────────────────┐
 │  持久化层                                                 │
 │  • Edit Log（二进制 op，组提交 fsync）                     │
-│  • 用户快照：HDFS 式引用 + 文件级 COW（§6.3）               │
+│  • 用户快照：Ref + COW + 目录 diff（§6.3）                 │
 │  • Checkpoint/FSImage：一致性点 N + 后台遍历（§6.4）          │
 │  • Quorum / VR 复制（复用现有 LogWriter/VR 基础设施）       │
 └─────────────────────────────────────────────────────────┘
@@ -115,11 +115,11 @@ QFS **并非不能** 采用 HDFS NN 式布局；当前选择是 **统一 B+ 树 
 
 | 维度 | QFS 现状 | 本 RFC |
 |------|----------|--------|
-| 主索引 | 全局 B+ 树，dentry/fattr 不同 key | DirNode（Small hash / Large **复用 `kfstree` 每目录一棵 `Tree`**）+ InodeTable |
+| 主索引 | 全局 B+ 树，dentry/fattr 不同 key | DirNode（Small hash / Large **抽取/适配 `kfstree` 节点算法的目录局部 B+ 树**）+ InodeTable |
 | CREATE 索引操作 | 2× 全局 `insert` + 多次 `findLeaf` | 1× DirNode insert + 1× InodeTable insert |
 | 百万级单目录 | 同全局树叶子链/同桶冲突风险 | Large 布局 O(log N)，首版必做 promotion |
-| 持久化顺序 | 先 WAL committed，再 `handle()` | 临界区内改内存 + append log buffer；fsync 摊销 |
-| 用户快照 | （现 QFS 无同等机制） | `InodeRef` + 文件级 COW，创建 O(1)（§6.3） |
+| 持久化顺序 | 先 WAL committed，再 `handle()` | 临界区内写入 **pending 版本** + append log buffer；commit 后进入对外可见视图 |
+| 用户快照 | （现 QFS 无同等机制） | `InodeRef` + 文件级 COW + 目录 diff，创建 O(1)（§6.3） |
 | checkpoint | B+ 树页/节点序列化 | 模糊 FSImage（§6.4）+ replay txn>N |
 | chunk 元数据 | 同树 `KFS_CHUNKINFO` | BlockMap 分离，allocate 时再写 |
 
@@ -137,7 +137,7 @@ Inode {
   mode, uid, gid, size, mtime, ctime, atime
   nlink, flags               // 见 §8.4：WORM、dumpster 子树、striping 等
   snapshottable: bool        // 目录可打快照（§6.3）
-  snap_ref_count: u32        // 被用户快照持有的 frozen 引用数（§6.3.6）；live inode 常为 0
+  snap_ref_count: u32        // 被用户快照持有的 frozen 引用数（§6.3.4）；live inode 常为 0
   replication | ec_policy    // 或仅指针，详细布局在 allocate 时设置
   dir_child_count            // 仅目录；用于 readdir 分页提示
   generation:   u64          // 每次 rename/unlink/rmdir/promotion 递增，供 cache 失效
@@ -176,12 +176,12 @@ DirNode  = {
 
 #### 4.2.3 Large 布局（子项数 ≥ 阈值，或 Small 无法安全插入）
 
-**决策：Large 布局直接复用当前 QFS B+ 树实现**（`kfstree.h` / `kfstree.cc`），不新写一套目录 B-tree。与全局 `metatree` 的差异仅是 **每目录一棵独立 `Tree` 实例**，键空间 scoped 在该 `parent_fid` 下。
+**决策：Large 布局复用当前 QFS B+ 树的节点/Key/迭代算法**（`kfstree.h` / `kfstree.cc`），但实现上需要抽取或适配为 **目录局部 B+ 树组件**，而不是把现有 `Tree` 类原封不动实例化。现有 `Tree` 仍带有全局 namespace、checkpoint、dumpster、path cache 等语义；LargeDir 只需要其中的有序 dentry 索引能力。
 
 | 复用组件 | 路径 / 说明 |
 |----------|-------------|
 | 内部节点 | `Node`（`NKEY=170`，4096B 页式节点，`findplace` 二分，`split` / `merge`） |
-| 树操作 | `Tree::insert`、`Tree::del`、`lowerBound` / `findLeaf`、`LeafIter` |
+| 树操作 | 复用/抽取 `insert`、`del`、`lowerBound` / `findLeaf`、`LeafIter` 的节点算法 |
 | 键 | 现有 `Key` / `PartialMatch`；叶键 **`Key(KFS_DENTRY, parent_fid, name_hash)`**，与现 `MetaDentry::keySelf()` 一致 |
 | 叶记录 | `MetaDentry`（或薄封装 `DirBTreeLeaf` 内嵌相同字段）；`matchSelf` 比对 `name` |
 | 内存 | `MetaNode::allocate` / `PoolAllocator`（与现 meta 节点相同） |
@@ -189,17 +189,17 @@ DirNode  = {
 ```text
 LargeDir {
   parent_fid:  fid_t
-  tree:        Tree          // 现 kfstree.Tree，非全局 metatree 单例
+  tree:        DirBTree      // 从 kfstree 节点算法抽取/适配，非全局 metatree 单例
 }
 ```
 
 - **语义**：逻辑上仍是「该目录下 name → child_fid」；物理上用 **一棵子树** 存该目录全部 `MetaDentry` 叶，**不再**插入全局 `metatree` 的混合 key 空间。
-- **`lookup` / `create`**：对该目录的 `Tree` 调用与现 `getDentry` / `insert` 相同逻辑（`findLeaf` + 叶链 `peer()` 扫同名 hash），**O(log N)**，无百万长链。
+- **`lookup` / `create`**：对该目录的 `DirBTree` 调用与现 `getDentry` / `insert` 相同逻辑（`findLeaf` + 叶链 `peer()` 扫同名 hash），**O(log N)**，无百万长链。
 - **`readdir`**：`LeafIter` 逻辑序遍历 + §5.4 **逻辑位置 cookie**（禁止裸指针）。
 - **升格（promotion）**：原子性与并发语义见 **§4.2.6**（`PROMOTING` 状态、写阻塞、读仍用 Small、staging 完成后一次性切换）。
-- **checkpoint / fsck**：Large 目录序列化可 **复用现 Node/Meta checkpoint 格式**；fsck 见 §8.5（`PROMOTING` 视为 transient，持久化快照中不应出现）。
+- **checkpoint / fsck**：Large 目录可复用现 Node/Meta 的 **记录编码思路**，但需新增 `section_dirs.large` 外层元数据（`parent_fid`、layout、generation、child_count、记录数/校验和），不能直接把全局 `metatree` checkpoint 流嵌入；fsck 见 §8.5（`PROMOTING` 视为 transient，持久化快照中不应出现）。
 
-**不新写**：单独的目录 B-tree 节点类型、另一套 split/merge 或不同于 `Node` 页大小的树实现。
+**不重复造轮子**：split/merge、节点页大小、Key 排序、LeafIter 语义应尽量沿用 `kfstree`；但需要把全局 `Tree` 的非目录职责剥离出去。
 
 #### 4.2.4 复杂度与验收（百万级单目录）
 
@@ -216,15 +216,15 @@ LargeDir {
 | | 全局 `metatree`（现 QFS） | Large `DirNode`（本 RFC） |
 |--|---------------------------|---------------------------|
 | 代码 | `kfstree` | **同一套** `kfstree` |
-| 实例 | 单例 `metatree`，混放 dentry/fattr/chunk | **每超大目录一个 `Tree`** |
+| 实例 | 单例 `metatree`，混放 dentry/fattr/chunk | **每超大目录一个 `DirBTree`** |
 | create 副作用 | 可能 split 共享祖先内部节点 | 仅影响该目录子树 |
 | 小目录 | 也走全局树 | **Small `flat_hash`**，不进 B+ 树 |
 
-InodeTable、BlockMap **不再**进入任何 B+ 树；仅 **超大目录的子项列表** 使用 `Tree` 存 `MetaDentry` 叶。
+InodeTable、BlockMap **不再**进入任何 B+ 树；仅 **超大目录的子项列表** 使用 `DirBTree` 存 `MetaDentry` 叶。
 
 #### 4.2.6 晋升（Promotion）的原子性与可见性（已决）
 
-**问题**：§4.2.3 若在「半建成」的 Large `Tree` 上并发 `lookup`/`create`，可能看到 **不完整** 的 B+ 树或 Small/Large 双写混乱。
+**问题**：§4.2.3 若在「半建成」的 Large `DirBTree` 上并发 `lookup`/`create`，可能看到 **不完整** 的 B+ 树或 Small/Large 双写混乱。
 
 **决策**：`DirNode` 增加 **`state`**；晋升在 **staging** 中构建 Large，通过 **一次性发布** 切换；晋升期间 **读走 Small、写阻塞或排队**。
 
@@ -250,7 +250,7 @@ promote_small_to_large(parent_fid):
 
   1. assert(state == SMALL)
   2. state = PROMOTING
-  3. staging.large = new Tree()          // 读者不可见
+  3. staging.large = new DirBTree()      // 读者不可见
   4. for entry in body.small:            // 只读 Small，不改 Small
        staging.large.insert(MetaDentry(...))
   5. // 一次性发布（原子切换可见布局）
@@ -351,24 +351,30 @@ BlockMap : 按 fid 分片
 1. shard = hash(parent_fid) % N_SHARDS
 2. lock(DirShard[shard])
 3.   if DirIndex[parent].contains(name) → 处理 exclusive / truncate 语义
-4.   new_fid = FidAllocator.next()
-5.   DirTable[parent].insert(name, new_fid)   // §4.2，必要时 promotion
-6.   InodeTable[new_fid] = Inode{ parent, attrs... }
-7.   update parent.mtime, parent.file_count
-8.   txn = EditLog.append(CREATE, parent, name, new_fid, attrs, op_id)
-9. unlock
-10. if sync_policy == always: wait(txn.committed)
-11. return new_fid
+4.   txn_id = EditLog.reserve_txn()
+5.   new_fid = FidAllocator.next()
+6.   DirTable[parent].insert_pending(name, new_fid, create_txn=txn_id)   // §4.2，必要时 promotion
+7.   InodeTable[new_fid] = Inode{ parent, attrs..., create_txn=txn_id, delete_txn=none, pending=true }
+8.   update parent pending mtime / child_count version
+9.   EditLog.append_buffer(txn_id, CREATE, parent, name, new_fid, attrs, op_id)
+10. unlock
+11. if sync_policy == always: wait(txn_id.committed)
+12. return { new_fid, txn_id }
 ```
 
 **树操作次数**：0。持久化：1 条 edit（组提交时与其他 op 共享一次 fsync）。
+
+**可见性要求**：步骤 6–9 修改的是 **pending 版本**。普通 `LOOKUP`/`READDIR` 只暴露 `txn_id <= committed_txn_id` 的版本；同一客户端是否可读到自己的 pending create 由会话级 read-your-writes 选项单独定义，默认不向其它客户端暴露未提交 txn。
 
 ### 5.2 LOOKUP（单级）
 
 ```text
 lock(DirShard[hash(parent)])
-  entry = DirTable[parent].lookup(name)
+  entry = DirTable[parent].lookup_committed(name, committed_txn_id)
+  if entry == null: return ENOENT
   fa = InodeTable[entry.fid]
+  if fa.create_txn > committed_txn_id: return ENOENT
+  if fa.delete_txn != none and fa.delete_txn <= committed_txn_id: return ENOENT
 unlock
 → 权限检查
 ```
@@ -386,8 +392,8 @@ readdir(parent, cookie, max_entries) → 分页返回 DirEntry 列表
 
 | `DirNode.state` | 遍历方式 | cookie 概要 |
 |-----------------|----------|-------------|
-| **SMALL** | 桶序 + 桶内序 | 逻辑位置（§5.4.1） |
-| **PROMOTING** | 仍按 Small | 同 SMALL；`generation` 未变 |
+| **SMALL** | 按 `NameKey` 逻辑序（Small 有界，必要时临时排序） | 逻辑 key 游标（§5.4.1） |
+| **PROMOTING** | 仍按 Small 的 `NameKey` 逻辑序 | 同 SMALL；promotion 完成后 `generation++` |
 | **LARGE** | B+ 树 key 序（`kfstree`） | **逻辑 key 游标**，禁止节点指针 |
 
 - 每次 RPC 仅返回 **≤ max_entries**（默认上限如 1024，可配置）。
@@ -413,12 +419,13 @@ readdir(parent, cookie, max_entries) → 分页返回 DirEntry 列表
 CookieSmall = {
   generation:   u64
   layout:       SMALL | PROMOTING
-  bucket_id:    u32      // 开放寻址桶序号（稳定枚举顺序）
-  slot:         u32      // 桶内下一起始槽位
+  last_key:     NameKey?  // 上一页最后一条；空表示从头
 }
 ```
 
-- 仅在 **同一 `generation`、同一 Small 布局** 下有效；**promotion 完成** 后 `generation++`，旧 cookie **作废**（切换为 Large cookie 或从头）。
+- Small 不把开放寻址的 `bucket_id`/`slot` 暴露给 cookie；rehash、删除后的 tombstone 清理、Robin Hood 位移都会改变物理桶位置。
+- `readdir` 对 Small 使用 `NameKey` 逻辑序重定位；Small 有阈值上限（默认 4096），可在每页临时收集并排序，或维护有序 side index。
+- Small 上任意 `create`/`delete`/rehash 必须 `generation++`，旧 cookie 返回 `EINVAL` 并要求客户端重扫；promotion 完成同样 `generation++`，旧 Small cookie 作废。
 
 ##### LARGE（推荐：逻辑 key 游标）
 
@@ -465,6 +472,7 @@ CookieLargeAlt = { generation, leaf_node_id, index_in_leaf }
 | 事件 | cookie 行为 |
 |------|-------------|
 | **promotion 完成** | `generation++`；Small cookie **失效**；客户端用空 cookie 对 Large 重扫 |
+| **Small 上 create/delete/rehash** | `generation++`；Small cookie **失效**，避免开放寻址物理位置变化造成漏扫/重复 |
 | **rename/unlink/rmdir（目录）** | `generation++`；所有 cookie 失效 |
 | **Large 上 create/delete** | `generation` 可不变；**`last_key` cookie 仍有效**（靠 `NameKey` 重定位）；若产品要求列举快照视图，另议 |
 | **返回 `-EBADF`/`EINVAL`** | 客户端 **丢弃 cookie，从空重新开始** |
@@ -507,11 +515,11 @@ checksum per block / per record
 
 **Log 线程模型**：单写者 append + fsync；namespace 分片锁与 log 锁分离，缩短临界区。
 
-### 6.3 用户快照（已决：HDFS 式引用 + 文件级 COW）
+### 6.3 用户快照（已决：HDFS 式引用 + 文件级 COW + 目录 Diff）
 
 **放置说明**：本节描述 **Snapshottable 目录上的用户可见快照**（类比 HDFS `createSnapshot`），与 §6.4 **周期性 Checkpoint/FSImage**（NN 冷备）分工不同。实现可落在 **P3/P3.1**（§9）。
 
-**决策：创建快照采用 HDFS 核心思路——引用（Rename/Reference）而非复制；修改采用文件级写时复制（COW）。** 不采用对整棵树做全量内存扫描来「创建」用户快照（该做法保留给 §6.4 Checkpoint）。
+**决策：创建快照采用 HDFS 核心思路——引用（Rename/Reference）而非复制；文件内容修改采用文件级写时复制（COW）；目录项变化必须记录目录 diff。** 不采用对整棵树做全量内存扫描来「创建」用户快照（该做法保留给 §6.4 Checkpoint）。
 
 #### 6.3.1 核心机制（对齐 HDFS）
 
@@ -541,14 +549,38 @@ mutate(file1):
 ```
 
 - **目录级百万文件**：创建 `s1` **不遍历** `DirTable`；仅在被修改的单个文件上支付 COW（约一次 create + 后续 write 的元数据开销）。
-- **Large 目录**：COW 只 **`replace_name` 一条 DirEntry**（Small 或 `kfstree` 单键更新），不重扫整棵 per-dir `Tree`。
+- **Large 目录**：COW 只 **`replace_name` 一条 DirEntry**（Small 或 `DirBTree` 单键更新），不重扫整棵 per-dir `DirBTree`。
+
+#### 6.3.1.1 目录 Diff（必需）
+
+仅有 `InodeRef + 文件级 COW` **不足以**提供用户快照的时间点语义：快照创建后，live 目录里的 `create`、`unlink`、`rename` 若直接修改 `DirTable`，快照读会跟着变化。首版快照必须同时实现 **目录级 diff**（对齐 HDFS snapshot diff 思路），记录快照创建点之后每个 snapshottable 子树内的目录项变化。
+
+```text
+DirSnapshotDiff {
+  dir_fid, snap_id, base_txn
+  created:  set<NameKey>                 // 快照之后新建，快照视图不可见
+  deleted:  map<NameKey, frozen_fid>      // 快照之后删除/rename out，快照视图仍可见
+  renamed:  optional oldName -> newName   // 可展开为 deleted+created
+}
+```
+
+规则：
+
+- `createSnapshot(D)`：只创建根 `SnapshotRecord`，不遍历百万子项；目录 diff 延迟到后续 mutation 时按需创建。
+- `create(parent, name)`：若 parent 被某个活跃快照覆盖，在对应 `DirSnapshotDiff.created` 记录 `name`，使该快照视图过滤掉新名字。
+- `unlink/rename out(parent, name)`：若被快照覆盖，先冻结当前 `child_fid`（文件按 §6.3.4；目录需冻结目录引用和后续 diff 链），在 `deleted[name]` 记录 frozen 引用，快照视图继续返回旧条目。
+- `rename across dirs`：按源目录 `deleted` + 目标目录 `created` 处理；必须与 §7.3 锁顺序一致。
+- `readdir(snapshot)`：以 live DirIndex 为基底叠加 diff：过滤 `created`，补回 `deleted`，并按 `NameKey` 逻辑序输出；Large 目录仍使用 `DirBTree` lowerBound，再 merge diff 项。
+
+没有目录 diff 时，§6.3 的用户快照只能算 inode 引用缓存，不能作为可恢复的目录快照交付。
 
 #### 6.3.2 性能预期（与 HDFS 对照）
 
 | 场景 | 性能 | 原因 |
 |------|------|------|
 | 读活动/读快照文件 | 快照读无额外锁；活动读与无快照相同 | Ref 只读解析 |
-| 创建 / 删除快照 | **近似 O(1)** | 仅增删 `SnapshotRecord` / `InodeRef` |
+| 创建快照 | **O(1)** | 仅新增 `SnapshotRecord` / `InodeRef`，不遍历子树 |
+| 删除快照 | O(本快照登记的 frozen/diff 项) | 释放 `cow_inodes`、`dir_diffs.deleted` 与倒排索引引用 |
 | 首次修改快照覆盖下的文件 | 有开销（COW 一个 inode） | 与被修改文件数成正比，与目录总规模无关 |
 | 再次修改已 COW 过的活动文件 | 与无快照相同 | 已操作活动侧新 inode |
 
@@ -558,16 +590,17 @@ mutate(file1):
 SnapshotRecord {
   snap_id, name, root_dir_fid, txn_id_at_create: N
   root_ref: InodeRef              // O(1) 创建：指向 snapshottable 根目录 inode
-  cow_inodes:  set<fid_t>         // 可选：本快照触发的 frozen fid 登记，便于 delete 时递减
+  cow_inodes:  set<fid_t>         // 本快照引用的 frozen fid，便于 delete 时递减
+  dir_diffs:   map<dir_fid, DirSnapshotDiff> // 本快照目录项变化
 }
 
 InodeRef { target_fid, txn_id_cap }
 ```
 
-- **`snap_ref_count`** 定义在 §4.1 `Inode` 上：表示有多少 **独立快照引用** 仍依赖该 **inode 对象**（通常为 COW 后的 **frozen** 副本；活动/live inode 在分裂后一般为 0）。
-- Edit log：`SNAPSHOT_CREATE`、`SNAPSHOT_DELETE`、`INODE_COW_SPLIT`（含 `frozen_fid`、`live_fid`、`snap_ref_delta`），供 standby **确定性 replay**。
+- **`snap_ref_count`** 定义在 §4.1 `Inode` 上：表示有多少 **独立快照引用** 仍依赖该 **inode 对象**（通常为 COW 后的 **frozen** 副本；活动/live inode 在分裂后一般为 0）。目录项时间点语义由 §6.3.1.1 的 `DirSnapshotDiff` 维护，inode 引用计数只解决 frozen inode 生命周期。
+- Edit log：`SNAPSHOT_CREATE`、`SNAPSHOT_DELETE`、`INODE_COW_SPLIT`（含 `frozen_fid`、`live_fid`、`snap_ref_delta`）、`DIR_SNAPSHOT_DIFF_UPDATE`，供 standby **确定性 replay**。
 
-#### 6.3.6 Frozen inode 引用计数（已决）
+#### 6.3.4 Frozen inode 引用计数（已决）
 
 **问题**：§6.3 删除快照时「仅回收本快照专属的 frozen inode」。若同一 frozen inode 被 **多个快照** 引用（例如 `/foo` 上连续创建 `s1`、`s2` 后才首次修改 `file1`），**不能在 `snap_ref_count > 0` 时释放**。
 
@@ -580,7 +613,7 @@ InodeRef { target_fid, txn_id_cap }
 | **`createSnapshot`** | 根目录 `root_ref.target` **+1**（可选） | 创建本身 O(1)；**不**遍历子树给每个文件 +1。未 COW 的文件仍与 live 共用同一 `fid`，读快照走解析路径。 |
 | **首次 `COW_SPLIT`（file1）** | 对 **frozen_fid**（旧 inode 副本）设为 **覆盖该文件的所有活跃快照数** `K` | 例：存在 `s1`、`s2` 均可见 `file1` 时尚未修改 → `frozen.snap_ref_count = 2`。活动侧新 `live_fid`：`snap_ref_count = 0`。 |
 | **再建快照 `s3`（已有 frozen file1）** | 若 `s3` 仍指向含 `file1` 的视图且 `file1` 已 frozen：对 `frozen_fid` **+1** | 仅影响 **已分裂** 的 frozen 对象；仍与 live 共用的路径在首次 COW 时一次性结算。 |
-| **`deleteSnapshot(s)`** | 对该快照登记过的每个 `frozen_fid`：**-1** | 来自 `cow_inodes` 或快照元数据索引；**仅当减到 0** 时 `free_inode(frozen_fid)` + 释放 BlockMap |
+| **`deleteSnapshot(s)`** | 对该快照登记过的每个 `frozen_fid`：**-1** | 来自 `cow_inodes`、`dir_diffs.deleted` 或快照元数据索引；**仅当减到 0** 时 `free_inode(frozen_fid)` + 释放 BlockMap |
 | **活动路径修改 live inode** | 不增减 | live 与快照引用解耦 |
 
 ```text
@@ -595,8 +628,13 @@ cow_split(file_fid, parent, name):
 
 deleteSnapshot(snap_id):
   for fid in snap.cow_inodes:
-    if (--InodeTable[fid].snap_ref_count == 0)
+    if snapshot_ref_index.remove(fid, snap_id) and --InodeTable[fid].snap_ref_count == 0
       free_inode_and_blockmap(fid)
+  for diff in snap.dir_diffs:
+    for fid in diff.deleted.values:
+      if snapshot_ref_index.remove(fid, snap_id) and --InodeTable[fid].snap_ref_count == 0
+        free_inode_and_blockmap(fid)
+  release snap.dir_diffs
   remove SnapshotRecord
   append EditLog(SNAPSHOT_DELETE, snap_id, ...)
 ```
@@ -619,9 +657,11 @@ deleteSnapshot(snap_id):
 
 ##### fsck（§8.5 扩展）
 
-- 对每个 `snap_ref_count > 0` 的 inode：存在至少一条 `SnapshotRecord` / `cow_inodes` 反向引用。
+- 对每个 `snap_ref_count > 0` 的 inode：存在至少一条 `SnapshotRecord` / `cow_inodes` / `dir_diffs.deleted` / `SnapshotRefIndex` 反向引用。
 - 对每个 `SnapshotRecord.cow_inodes` 中的 `fid`：`snap_ref_count >= 1`。
-- 删除快照后的 spot check：`cow_inodes` 中不应出现已 free 的 `fid`。
+- 对每个 `DirSnapshotDiff.deleted` 中的 `frozen_fid`：inode 存在，`snap_ref_count >= 1`，且 `SnapshotRefIndex[frozen_fid]` 包含该 `snap_id`。
+- `snap_ref_count == |SnapshotRefIndex[fid]|`；允许再与所有 `cow_inodes`、`dir_diffs.deleted` 的并集交叉校验。
+- 删除快照后的 spot check：`cow_inodes` / `dir_diffs.deleted` 中不应出现已 free 的 `fid`。
 
 ##### `count_snapshots_covering` 与倒排索引（已决）
 
@@ -631,27 +671,27 @@ deleteSnapshot(snap_id):
 
 | 方案 | 做法 |
 |------|------|
-| **A. 倒排索引（推荐）** | 维护 `SnapshotRefIndex: frozen_fid → { snap_id... }`（及可选 `(parent,name) → frozen_fid`）。`createSnapshot`：对仍与 live 共用的路径 **不** 预遍历；**COW 时** 将 `frozen_fid` 登记到 **当前所有覆盖该 `(parent,name)` 的活跃快照**（由 snap 链/目录 Ref 解析一次，写入索引）。`deleteSnapshot`：对 `cow_inodes` 中每个 `fid` 从索引移除 `snap_id`，再 `--snap_ref_count`。 |
+| **A. 倒排索引（推荐）** | 维护 `SnapshotRefIndex: frozen_fid → { snap_id... }`（及可选 `(parent,name) → frozen_fid`）。`createSnapshot`：对仍与 live 共用的路径 **不** 预遍历；**COW / 目录 diff 产生 frozen 引用时** 将 `frozen_fid` 登记到 **当前所有覆盖该 `(parent,name)` 的活跃快照**（由 snap 链/目录 Ref 解析一次，写入索引）。`deleteSnapshot`：对 `cow_inodes` 与 `dir_diffs.deleted` 中每个 `fid` 从索引移除 `snap_id`，再 `--snap_ref_count`。 |
 | **B. 快照创建时预计算** | 在 `createSnapshot` O(1) 元数据之外，记录「该快照可见的 (parent,name)→fid 视图版本」；首次 COW 时用 **快照差分元数据** 得到 `K`，写入 `snap_ref_count` 与 `cow_inodes`。 |
 
 - **禁止**：`deleteSnapshot` 或 replay 时依赖 **未持久化的** 临时扫描结果且与主路径不一致。
 - **再建快照 `s3`（file1 已 frozen）**：`SnapshotRefIndex` 对 `frozen_fid` **insert(s3)** 并 `snap_ref_count++`（与上表「再建快照」行一致）。
-- **fsck**：`snap_ref_count == |SnapshotRefIndex[fid]|`（允许索引与 `cow_inodes` 并集交叉校验）。
+- **fsck**：`snap_ref_count == |SnapshotRefIndex[fid]|`（允许索引与 `cow_inodes`、`dir_diffs.deleted` 并集交叉校验）。
 
-**成熟度说明**：引用计数为业界成熟手段，但须在 **COW 初值 / 多快照叠加 / delete + replay / 索引一致性** 上做 **专项测试**，列入 **P3.1 验收**。
+**成熟度说明**：引用计数为业界成熟手段，但须在 **COW 初值 / 目录 diff frozen 引用 / 多快照叠加 / delete + replay / 索引一致性** 上做 **专项测试**，列入 **P3.1 验收**。
 
-#### 6.3.4 与 §6.4 Checkpoint 的边界
+#### 6.3.5 与 §6.4 Checkpoint 的边界
 
 | | §6.3 用户快照 | §6.4 Checkpoint/FSImage |
 |--|----------------|-------------------------|
 | 目的 | 时间点恢复、误删回滚、对比历史 | MetaServer **重启/冷备**、缩短 replay |
 | 创建成本 | **O(1)** per snap | O(namespace) 后台扫描（可模糊） |
 | 读路径 | 快照视图 | 正常命名空间 |
-| 存储 | 内存 Ref + 被 COW 分离的 inode | 磁盘 FSImage 文件 |
+| 存储 | 内存 Ref + 目录 diff + 被 COW 分离的 inode | 磁盘 FSImage 文件 |
 
 两者可同时存在：HDFS 亦区分 **Snapshot** 与 **Checkpoint（FSImage）**。
 
-#### 6.3.5 未采纳为用户快照的方案
+#### 6.3.6 未采纳为用户快照的方案
 
 | 方案 | 结论 |
 |------|------|
@@ -671,18 +711,21 @@ deleteSnapshot(snap_id):
 triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
   ├─ 记录 LAST_TXN_ID = committed_txn_id  （N）
   ├─ 后台线程遍历 InodeTable、DirTable（§4）、BlockMap（可选）
-  │     允许与写并发；图像可「模糊」
-  ├─ 写出 FSImage + footer(N)
+  │     允许与写并发，但只序列化 txn_id <= N 的 committed 视图
+  │     忽略 pending txn>N；对 delete_txn>N 的旧版本仍按 N 时刻保留
+  ├─ 写出 FSImage + footer(N)；每个 section 带 section checksum 和 max_txn_seen<=N
   └─ 原子 publish
 
 冷启动：load FSImage(N) → replay Edit Log (txn_id > N) → 一致
 ```
 
-正确性：依赖 §6.7 之「先 Edit Log 再内存 / committed 边界」；模糊项由 replay 修正（同原 §6.3.2 论证）。
+正确性：依赖 §6.7 的版本化可见性边界。Checkpoint 可以与写并发，但 **不能**把 txn>N 的新 dentry/inode 写入 FSImage(N)，否则冷启动 replay(txn>N) 会重复 create、复活已删除对象或双加计数。实现必须在扫描时按 `create_txn <= N < delete_txn` 过滤，或在 FSImage 记录中携带版本并在 load 阶段过滤。
 
 #### 6.4.2 FSImage 内容与 Large 目录
 
-- `section_inodes`、`section_dirs`（Small 桶或嵌入 **`kfstree` checkpoint 流**）。
+- `section_inodes`、`section_dirs`（Small 逻辑项或 Large `DirBTree` 记录流），记录必须带可过滤的 create/delete txn 或保证已经按 N 过滤。
+- `section_snapshots`：只写 `create_txn <= N` 且未在 N 前删除的 `SnapshotRecord`，包括 `cow_inodes`、`dir_diffs` 与可重建 `SnapshotRefIndex` 的记录；`DIR_SNAPSHOT_DIFF_UPDATE` 中 txn>N 的变化不得进入 FSImage(N)。
+- `section_blockmap`（可选）：若写入，则与 inode 一样按版本过滤，避免 replay 后重复块引用计数。
 - log 截断：**可选**运维操作，非恢复前提。
 
 #### 6.4.3 代价
@@ -714,11 +757,13 @@ triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
 **提议默认顺序**：
 
 ```text
-（分片锁内）改内存 → append 到 log 内存 buffer → 释放锁
+reserve txn_id
+（分片锁内）写 pending 版本 → append 到 log 内存 buffer → 释放锁
 （log 线程）buffer → 复制 → fsync → 推进 committed_txn_id
+（发布阶段）txn_id <= committed_txn_id 的 pending 版本进入 committed 视图
 ```
 
-对比 QFS：**先 log committed 再 `handle()`**，客户端等待包含「空窗期」内无法从内存读到结果的双重延迟。本 RFC 的可见性边界见 **§6.7**：其他客户端以 **已提交命名空间** 为准；发起方在 RPC 成功后的可见范围与 **lease / sync 策略** 对齐 HDFS 习惯，而非「未提交 txn 全网可见」。
+对比 QFS：**先 log committed 再 `handle()`**，客户端等待包含「空窗期」内无法从内存读到结果的双重延迟。本 RFC 将内存修改拆成 **pending 版本** 与 **committed 视图**：写路径可以先构造 pending 状态并排队 fsync，但普通读路径只能读 committed 视图。发起方在 RPC 成功后的可见范围与 **lease / sync 策略** 对齐 HDFS 习惯，而非「未提交 txn 全网可见」。
 
 ### 6.7 读一致性（已决）
 
@@ -726,8 +771,8 @@ triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
 
 | 场景 | 规则 |
 |------|------|
-| **命名空间变更**（CREATE / REMOVE / RENAME …） | 对其他客户端：仅在 edit **已 committed**（`committed_txn_id` 推进、quorum 复制完成）后可见；primary 内存中未 fsync 的 buffer **不**对外暴露。 |
-| **RPC 返回与 durable** | `sync=always`：成功返回 ≡ 命名空间变更已 durable，他客户端可见（在 primary 正常服务前提下）。`sync=batch`：返回表示 **已接受**；他客户端可见时点不早于本批 **组提交 fsync**（类比 HDFS edit 组提交窗口）。 |
+| **命名空间变更**（CREATE / REMOVE / RENAME …） | 对其他客户端：仅在 edit **已 committed**（`committed_txn_id` 推进、quorum 复制完成）后可见；primary 内存中的 pending 版本 **不**进入普通读视图。 |
+| **RPC 返回与 durable** | `sync=always`：成功返回 ≡ 命名空间变更已 durable，他客户端可见（在 primary 正常服务前提下）。`sync=batch`：返回表示 **已接受并分配 txn/fid**；他客户端可见时点不早于本批 **组提交 fsync**。若需要 read-your-writes，必须用会话 token 或等待 txn committed。 |
 | **文件数据读写** | 命名空间登记（create 得 fid）与 **写数据** 分离；已打开文件的读写一致性由 **chunk lease** 保证写者独占/租约续期，读者看到已提交块版本，与 HDFS 「NN 管名字、DN 管块 + lease」分工一致。 |
 | **Primary / standby** | 仅 primary 执行 namespace 变更并写 edit；standby 通过 log replay 追赶；客户端 mutating 与强一致命名空间读面向 primary（与现 VR 一致）。 |
 
@@ -736,7 +781,7 @@ triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
 - **(a) 仅 primary 本地可见未提交变更**：不足以定义多客户端语义，且与 backup 复制模型冲突。
 - **(b) 未提交 txn 全网可见**：破坏恢复与 fsck 假设，并引入跨客户端脏读。
 
-**实现提示**：可在 `Inode` 或目录上保留 `last_committed_txn`；`lookup` / `readdir` 仅暴露 `txn_id ≤ committed_txn_id` 的视图；写路径 lease 逻辑复用现有 QFS 实现，本层不新增第二套租约协议。
+**实现提示**：DirEntry/Inode 需要携带 `create_txn`、`delete_txn`（或等价版本区间）与 pending 标志；`lookup` / `readdir` 只暴露 `create_txn <= committed_txn_id < delete_txn` 的视图。commit 发布可以批量翻转 pending，也可以只推进全局 `committed_txn_id` 并在读路径过滤。写路径 lease 逻辑复用现有 QFS 实现，本层不新增第二套租约协议。
 
 ---
 
@@ -750,14 +795,36 @@ triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
 | `InodeTable` | `hash(fid) % M` 分片；读多写少用 RW lock |
 | `FidAllocator` | 无锁原子或独立 mutex |
 | `EditLog buffer` | 单写者 + MPSC 队列 |
-| `PathCache` | RCU 或 per-shard 锁 |
+| 客户端 `PathCache` | 客户端本地缓存，不在 MetaServer 锁层次内 |
 
 **禁止**：所有 mutating RPC 共用一个 `submit_request` 全局 mutex（现状瓶颈）。
 
 ### 7.2 与 B+ 树分片锁的区别
 
 对 **全局 `metatree`（单例 B+ 树）**，「按 parent 加锁」**不安全**（不同目录可能 split 同一内部节点，见 `MetaTree-Lock-Optimization.md`）。  
-对 **DirTable 分片**：按 `parent_fid` 加锁 **安全**——Small 为独立 `flat_hash`；Large 为 **该目录专属 `Tree` 实例**（仍用 `kfstree`，但不与别目录共享内部节点）。
+对 **DirTable 分片**：按 `parent_fid` 加锁 **安全**——Small 为独立 `flat_hash`；Large 为 **该目录专属 `DirBTree` 实例**（抽取/适配 `kfstree` 节点算法，但不与别目录共享内部节点）。
+
+### 7.3 跨目录操作锁顺序（已决）
+
+`rename`、dumpster move、快照 COW / 目录 diff 更新会同时触碰多个目录、inode、BlockMap 与快照元数据，必须使用全局确定性锁顺序，禁止按调用路径临时加锁。
+
+**锁顺序**：
+
+```text
+1. SnapshotRegistry / SnapshotRefIndex 元数据锁（仅快照相关操作）
+2. DirShard locks，按 (shard_id, parent_fid) 升序；同一目录只加一次
+3. InodeTable locks，按 fid 升序
+4. BlockMap locks，按 fid 升序
+5. EditLog append buffer（只追加内存 buffer，不在锁内等待 fsync）
+```
+
+规则：
+
+- `RENAME(src_parent, name, dst_parent, new_name)`：先按 `(shard_id, parent_fid)` 顺序拿源/目标父目录写锁；在锁内重新校验源项存在、目标项冲突、权限和 generation；再写入同一个 txn 的 pending `delete(src)` + `create(dst)`，并更新 inode parent/name 与目录 diff。
+- `remove(..., todumpster=true)`：视为从源父目录 rename 到 `dumpster_fid`，按同一 DirShard 顺序加锁，不给 dumpster 单独开后门锁。
+- 快照 COW / diff：先拿 snapshot 元数据锁，确定受影响的 `snap_id` / `DirSnapshotDiff` / `SnapshotRefIndex`，再按目录和 fid 顺序加锁；不得持有低层锁后再回头等待 snapshot 元数据锁。
+- 冲突处理：多资源操作使用 `try_lock` + 释放已持有锁 + 退避重试，避免 ABBA；禁止在持有另一把目录锁时做读锁升级为写锁。
+- `EditLog` 只在已完成内存 pending 版本后 append buffer；`fsync` / quorum 等待发生在释放业务锁之后。
 
 ---
 
@@ -823,7 +890,7 @@ Phase A — InodeTable
 Phase B — DirTable（每个目录 fid）
   按 DirNode.layout 枚举：
     - **SMALL**：flat_hash 全桶扫描，校验无重复 NameKey、探测链有界
-    - **LARGE**：遍历该目录专属 `Tree` 叶（同现 `kfstree` 迭代），校验 `Key(KFS_DENTRY, parent, hash)` 与 name 唯一
+    - **LARGE**：遍历该目录专属 `DirBTree` 叶（同现 `kfstree` 迭代），校验 `Key(KFS_DENTRY, parent, hash)` 与 name 唯一
   对每条 DirEntry (name → child_fid)：
     - InodeTable[child_fid] 存在且 parent_fid == 当前目录 fid
   对 InodeTable 中 type=dir 的项：
@@ -839,10 +906,12 @@ Phase C — 双向一致
 Phase D — 与 edit committed 视图一致（可选在线 fsck）
   仅扫描 txn_id ≤ committed_txn_id 的视图（§6.7）
 
-Phase E — 用户快照引用计数（§6.3.6）
+Phase E — 用户快照与目录 diff（§6.3.1.1 / §6.3.4）
   - 对每个 SnapshotRecord：cow_inodes 中 fid 存在且 snap_ref_count >= 1
-  - 对每个 snap_ref_count > 0 的 inode：至少被一个 SnapshotRecord.cow_inodes 引用
-  - 无 snap_ref_count == 0 且仅被快照元数据悬挂的 unreachable frozen
+  - 对每个 DirSnapshotDiff：所属 snap_id 存在，base_txn <= committed_txn_id，created/deleted 的 NameKey 无重复
+  - 对每个 DirSnapshotDiff.deleted 中的 frozen_fid：inode 存在，snap_ref_count >= 1，SnapshotRefIndex 包含该 snap_id
+  - 对每个 snap_ref_count > 0 的 inode：至少被 SnapshotRecord.cow_inodes、dir_diffs.deleted 或 SnapshotRefIndex 引用
+  - snap_ref_count == |SnapshotRefIndex[fid]|；无 snap_ref_count == 0 且仅被快照元数据悬挂的 unreachable frozen
 ```
 
 报告格式可继续兼容现 `MetaFsck` / `kfsfsck` 客户端字段；内部扫描源从 `metatree` 迭代改为 **InodeTable + DirIndex 枚举**。
@@ -858,7 +927,7 @@ Phase E — 用户快照引用计数（§6.3.6）
 | **P2** | `DirTable`（§4.2 Small+Large+promotion）+ `InodeTable`；百万级单目录基准 | 高 |
 | **P2.1** | §8.4 特殊路径 + §8.5 fsck（含两种 DirNode layout） | 可运维 |
 | **P3** | v2 edit + §6.4 Checkpoint（FSImage N + replay）+ 冷启动闭环 | 很高 |
-| **P3.1** | §6.3 用户快照 + §6.3.6 `snap_ref_count`（COW/delete/replay/fsck 测试） | 可回滚目录 |
+| **P3.1** | §6.3 用户快照 + 目录 Diff + §6.3.4 `snap_ref_count`（COW/delete/replay/fsck 测试） | 可回滚目录 |
 
 （**范围外**：多 MetaServer namespace 分片、BlockMap 独立服务、inode 换出等，不列入本 RFC 路线图。）
 
@@ -879,8 +948,11 @@ Phase E — 用户快照引用计数（§6.3.6）
 | Promotion 原子性与可见性 | §4.2.6 |
 | Promotion 墙钟上限（写者饥饿） | §4.2.6 |
 | Readdir cookie 逻辑位置（`NameKey`） | §5.4.1 |
-| 用户快照（HDFS 式 Ref + 文件级 COW） | §6.3 |
-| Frozen inode `snap_ref_count` + 倒排索引 | §6.3.6 |
+| 用户快照（HDFS 式 Ref + 文件级 COW + 目录 Diff） | §6.3 |
+| Frozen inode `snap_ref_count` + 倒排索引 | §6.3.4 |
+| 目录快照 Diff | §6.3.1.1 |
+| Pending / committed 视图 | §6.6 / §6.7 |
+| 跨目录锁顺序 | §7.3 |
 | Checkpoint/FSImage（一致性点 + 后台遍历） | §6.4 |
 | Checkpoint 扫描内存与节流 | §6.4.4 |
 
@@ -895,7 +967,7 @@ Phase E — 用户快照引用计数（§6.3.6）
 | 保留全局 B+ 树，仅优化锁 | 无法消除双 insert 与树分裂；并发上限低（见 `MetaTree-Lock-Optimization.md`） |
 | 仅全局 B+ 树 | 已否决；见 §4.2.5 |
 | 单目录百万项仍用平铺 HashMap+链表 | **已否决**；首版必须 Large 布局 + promotion |
-| 每目录一棵 B+ 树（Large 布局） | **已采纳**，**复用 `kfstree`**，仅用于 `child_count ≥ threshold` 的目录 |
+| 每目录一棵 B+ 树（Large 布局） | **已采纳**，**抽取/适配 `kfstree` 节点算法**，仅用于 `child_count ≥ threshold` 的目录 |
 | 自研另一套目录 B-tree 实现 | **已否决**，与现网重复且难保持 checkpoint 一致 |
 | 纯 tmpfs、无持久化 | 不符合 QFS 定位 |
 | 完全照搬 RocksDB/LSM 存 namespace | 写放大与 create 延迟不如 hash + edit log 直接 |
@@ -920,7 +992,7 @@ Phase E — 用户快照引用计数（§6.3.6）
 
 ## 13. 参考文献（仓库内）
 
-- `src/cc/meta/kfstree.h` / `kfstree.cc` — B+ 树（Large 目录 **复用** 本实现；全局 `metatree` 不再用于 namespace dentry）
+- `src/cc/meta/kfstree.h` / `kfstree.cc` — B+ 树（Large 目录 **抽取/适配** 节点算法；全局 `metatree` 不再用于 namespace dentry）
 - `src/cc/meta/kfsops.cc` — `Tree::create` / `link` 双 `insert`
 - `src/cc/meta/MetaRequest.cc` — `MetaCreate::start` / `handle`，`SubmitBegin`
 - `src/cc/meta/LogWriter.cc` — `Enqueue`、`WriteLog`、`fsync`
@@ -943,10 +1015,11 @@ Phase E — 用户快照引用计数（§6.3.6）
 | 0.5 | 2026-05-25 | 范围限定单机内存；去掉 namespace 水平分片/换出开放项与 P4 路线图 |
 | 0.6 | 2026-05-25 | §8.4 特殊路径、§8.5 fsck 已决；§10 无剩余开放项 |
 | 0.7 | 2026-05-25 | §4.2 大目录首版必做：Small flat_hash + Large 每目录 B+ 树 + promotion |
-| 0.8 | 2026-05-25 | Large 布局明确复用现 `kfstree`（`Tree`/`Node`/`Key`/`MetaDentry`），不新写 B-tree |
+| 0.8 | 2026-05-25 | Large 布局明确抽取/适配现 `kfstree` 节点算法（`Node`/`Key`/`MetaDentry`），不新写 B-tree |
 | 0.9 | 2026-05-25 | §6.3 已决：一致性点 + 后台模糊 FSImage + replay(txn>N) |
 | 1.0 | 2026-05-25 | §6.3 改为 HDFS 式用户快照（InodeRef+文件级COW）；§6.4 为 Checkpoint/FSImage |
 | 1.1 | 2026-05-25 | §4.2.6 Promotion：`PROMOTING` 状态、staging、读 Small/写等待、原子发布 |
-| 1.2 | 2026-05-25 | §6.3.6：`snap_ref_count`、COW/删快照维护、fsck 与无环不变量 |
+| 1.2 | 2026-05-25 | §6.3.4：`snap_ref_count`、COW/删快照维护、fsck 与无环不变量 |
 | 1.3 | 2026-05-25 | §5.4.1：readdir cookie 用逻辑 key 游标，禁止 LeafIter/节点指针 |
-| 1.4 | 2026-05-25 | §4.2.6 晋升墙钟上限；§5.4.1 `last_key`；§6.3.6 倒排索引；§6.4.4 checkpoint 内存 |
+| 1.4 | 2026-05-25 | §4.2.6 晋升墙钟上限；§5.4.1 `last_key`；§6.3.4 倒排索引；§6.4.4 checkpoint 内存 |
+| 1.5 | 2026-05-25 | 补充 pending/committed 视图、目录快照 diff、checkpoint 版本过滤、跨目录锁顺序 |
