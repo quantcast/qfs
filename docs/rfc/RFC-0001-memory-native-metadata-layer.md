@@ -278,6 +278,16 @@ promote_small_to_large(parent_fid):
 
 **不采用**：晋升过程中对活动 RPC 暴露「部分迁移」的 Large；不采用无 `PROMOTING` 标记、原地边建树边切换 `layout` 字段。
 
+##### 晋升期间的读性能与写者饥饿（已决）
+
+- **读者**：`PROMOTING` 期间仍持目录 **读锁** 访问 `body.small`，可与其它 `lookup`/`readdir` **并发**；晋升线程 **只读遍历** Small，不修改 Small。
+- **风险**：触发晋升时 Small 可能已接近阈值（如 **数千～4096** 项），步骤 4 的 `insert` 循环耗时可 **阻塞同目录所有写者**（`create`/`unlink` 等等待 `promote_cv`），极端情况下造成 **写者饥饿**。
+- **决策**：单次 `promote_small_to_large` 须有 **墙上时钟上限**（默认 **`meta.dir.promoteMaxWallMs = 1000`**，可配置）：
+  - 在循环中 **分批** `insert`（如每批 256/512 项）并检查超时；
+  - **未超时**：正常完成步骤 5–7；
+  - **超时**：中止本轮晋升 → **回滚 SMALL**（§失败与恢复），返回 `-EBUSY` / 可重试错误；**不**半发布 Large；客户端/写路径 **退避重试** 或稍后由下一次 `create` 再次触发。
+- **观测**：对 `promote_wall_ms`、`promote_aborted_timeout` 打点；P2 验收：4096 项目录晋升 p99 墙钟 **≤ 配置上限**。
+
 ##### 失败与恢复
 
 - 若步骤 4 失败：`state` 回滚 **SMALL**，丢弃 `staging`，`generation` 不变，唤醒等待者并返回错误。
@@ -418,19 +428,21 @@ CookieSmall = {
 CookieLarge = {
   generation:   u64
   layout:       LARGE
-  after_hash:   u64          // 上一页最后一条的 name_hash
-  after_name:   bytes        // 上一页最后一条的文件名（字典序续扫）
+  last_key:     NameKey      // 上一页最后一条的完整排序键 (name_hash, name)
 }
+// 字段名 after_hash/after_name 仅作实现别名，语义上必须是 NameKey 二元组
 ```
+
+- **排序键**：与 §4.2.1 `NameKey` 一致；`kfstree` 叶序为 **先 `name_hash` 再 `name` 字典序**（同 `MetaDentry::matchSelf`）。单目录内 **不可能** 存在两个相同 `name`，但续扫仍须用 **`(hash, name)` 对**，不能仅用 `name`（不同 hash 桶下仅比 name 会错位）。
+- **禁止**：cookie 仅编码 `name` 字符串而省略 `name_hash`。
 
 恢复算法：
 
 ```text
 readdir_resume(parent, cookie):
   if cookie.generation != DirNode.generation: INVALID
-  key = Key(KFS_DENTRY, parent, cookie.after_hash)
-  it = lowerBound(tree, key)                    // 现 kfstree
-  skip entries where (hash,name) <= cookie.after_name lexicographically
+  it = lowerBound(tree, Key(KFS_DENTRY, parent, cookie.last_key.name_hash))
+  skip entries where NameKey(hash,name) <= cookie.last_key lexicographically
   return next max_entries from it (LeafIter 仅作实现手段，不写入 cookie)
 ```
 
@@ -446,7 +458,7 @@ CookieLargeAlt = { generation, leaf_node_id, index_in_leaf }
 
 - `leaf_node_id` 为 **分配的稳定叶标识**（split 时子叶继承/拆分规则须在 RFC 实现细则中定义），**不是**运行时指针。
 - 恢复时若 `leaf_node_id` 已合并/分裂：**从该 id 映射节点的最小 key**，或 **`lowerBound(该 key)` 的下一个有效叶** 继续，**宁可少量重复不可漏**（与建议一致）。
-- 首版 **优先 `after_name` 游标**；`leaf_node_id` 方案可在性能优化阶段引入。
+- 首版 **优先 `last_key`（NameKey）游标**；`leaf_node_id` 方案可在性能优化阶段引入。
 
 ##### 与 promotion / mutation 的交互
 
@@ -454,7 +466,7 @@ CookieLargeAlt = { generation, leaf_node_id, index_in_leaf }
 |------|-------------|
 | **promotion 完成** | `generation++`；Small cookie **失效**；客户端用空 cookie 对 Large 重扫 |
 | **rename/unlink/rmdir（目录）** | `generation++`；所有 cookie 失效 |
-| **Large 上 create/delete** | `generation` 可不变；**`after_name` cookie 仍有效**（靠 key 重定位）；若产品要求列举快照视图，另议 |
+| **Large 上 create/delete** | `generation` 可不变；**`last_key` cookie 仍有效**（靠 `NameKey` 重定位）；若产品要求列举快照视图，另议 |
 | **返回 `-EBADF`/`EINVAL`** | 客户端 **丢弃 cookie，从空重新开始** |
 
 ##### RPC 响应
@@ -575,9 +587,9 @@ InodeRef { target_fid, txn_id_cap }
 cow_split(file_fid, parent, name):
   frozen_fid = retain_or_clone_inode(file_fid)   // 旧版本留给快照
   live_fid   = allocate_new_inode(...)
-  frozen.snap_ref_count = count_snapshots_covering(parent, name, frozen_fid)
+  frozen.snap_ref_count = snapshot_ref_index.count(frozen_fid)   // 见下，禁止仅靠运行时全表扫描
   DirTable[parent].replace_name(name, live_fid)
-  for each snap covering this path:
+  for each snap in snapshot_ref_index.ref_snapshots(frozen_fid):
     snap.cow_inodes.insert(frozen_fid)
   append EditLog(INODE_COW_SPLIT, frozen_fid, live_fid, snap_ref_count, ...)
 
@@ -611,7 +623,22 @@ deleteSnapshot(snap_id):
 - 对每个 `SnapshotRecord.cow_inodes` 中的 `fid`：`snap_ref_count >= 1`。
 - 删除快照后的 spot check：`cow_inodes` 中不应出现已 free 的 `fid`。
 
-**成熟度说明**：引用计数为业界成熟手段（HDFS snapshot diff、 btrfs 等同类问题），但本实现须在 **COW 分裂计数初值**、**多快照叠加**、**delete + replay** 三条路径上做 **专项测试**（属性测试或模拟并发删除），列入 **P3.1 验收**。
+##### `count_snapshots_covering` 与倒排索引（已决）
+
+**问题**：`frozen.snap_ref_count = count_snapshots_covering(...)` 若在 COW 时 **扫描全部 SnapshotRecord** 或沿路径动态枚举，易错且 O(快照数)；多快照引用同一 frozen inode 时 **跨快照累计** 必须精确。
+
+**决策**（二选一，首版至少实现其一）：
+
+| 方案 | 做法 |
+|------|------|
+| **A. 倒排索引（推荐）** | 维护 `SnapshotRefIndex: frozen_fid → { snap_id... }`（及可选 `(parent,name) → frozen_fid`）。`createSnapshot`：对仍与 live 共用的路径 **不** 预遍历；**COW 时** 将 `frozen_fid` 登记到 **当前所有覆盖该 `(parent,name)` 的活跃快照**（由 snap 链/目录 Ref 解析一次，写入索引）。`deleteSnapshot`：对 `cow_inodes` 中每个 `fid` 从索引移除 `snap_id`，再 `--snap_ref_count`。 |
+| **B. 快照创建时预计算** | 在 `createSnapshot` O(1) 元数据之外，记录「该快照可见的 (parent,name)→fid 视图版本」；首次 COW 时用 **快照差分元数据** 得到 `K`，写入 `snap_ref_count` 与 `cow_inodes`。 |
+
+- **禁止**：`deleteSnapshot` 或 replay 时依赖 **未持久化的** 临时扫描结果且与主路径不一致。
+- **再建快照 `s3`（file1 已 frozen）**：`SnapshotRefIndex` 对 `frozen_fid` **insert(s3)** 并 `snap_ref_count++`（与上表「再建快照」行一致）。
+- **fsck**：`snap_ref_count == |SnapshotRefIndex[fid]|`（允许索引与 `cow_inodes` 并集交叉校验）。
+
+**成熟度说明**：引用计数为业界成熟手段，但须在 **COW 初值 / 多快照叠加 / delete + replay / 索引一致性** 上做 **专项测试**，列入 **P3.1 验收**。
 
 #### 6.3.4 与 §6.4 Checkpoint 的边界
 
@@ -661,6 +688,20 @@ triggerCheckpoint()   // 周期或 MetaCheckpoint RPC
 #### 6.4.3 代价
 
 快照扫描慢 → `txn_id > N` 的 log 段变长 → **重启 replay 变长**；需控制 checkpoint 周期（配置 `meta.checkpoint.interval` 等）。
+
+#### 6.4.4 扫描期内存压力（已决）
+
+**问题**：后台遍历 `InodeTable`、`DirTable`（含 Large 目录 `kfstree` 流式导出）、`BlockMap` 时，若 **每 inode/每目录项分配独立序列化 buffer**，峰值内存可与 **瞬时分配速率 × 对象数** 成正比，挤压热路径 RSS。
+
+**决策**：
+
+| 措施 | 说明 |
+|------|------|
+| **Buffer 池** | 后台线程 **复用** 固定大小写缓冲（如 1–4 MiB），`section_*` 写满再 flush 到 FSImage 文件，避免 per-object `malloc` |
+| **扫描节流** | `meta.checkpoint.maxEntriesPerTick` / `maxBytesPerTick` 限制每时间片处理条数；`yield` 或短 sleep，避免与 mutating 抢满 CPU |
+| **Large 目录** | 按 `LeafIter` **流式** 写出 checkpoint 记录，**禁止** 先将百万 `MetaDentry` 载入单一 `vector` |
+| **背压** | 若 FSImage 写盘慢于扫描，队列深度有界；超限则 **拉长 checkpoint 周期** 而非无界堆内存 |
+| **可观测** | `checkpoint_scan_rss_delta`、`checkpoint_buffer_pool_bytes` 指标；压测：全量 namespace 扫描期间 CREATE p99 退化 **≤ 约定比例**（如 20%，P3 验收） |
 
 ### 6.5 与 QFS LogWriter / VR 的关系
 
@@ -836,10 +877,12 @@ Phase E — 用户快照引用计数（§6.3.6）
 | fsck | §8.5 |
 | 大目录索引（Small/Large + promotion） | §4.2 |
 | Promotion 原子性与可见性 | §4.2.6 |
-| Readdir cookie 逻辑位置 | §5.4.1 |
+| Promotion 墙钟上限（写者饥饿） | §4.2.6 |
+| Readdir cookie 逻辑位置（`NameKey`） | §5.4.1 |
 | 用户快照（HDFS 式 Ref + 文件级 COW） | §6.3 |
-| Frozen inode `snap_ref_count` | §6.3.6 |
+| Frozen inode `snap_ref_count` + 倒排索引 | §6.3.6 |
 | Checkpoint/FSImage（一致性点 + 后台遍历） | §6.4 |
+| Checkpoint 扫描内存与节流 | §6.4.4 |
 
 后续若扩展 **多机分片、inode 换出**，另起 RFC。
 
@@ -906,3 +949,4 @@ Phase E — 用户快照引用计数（§6.3.6）
 | 1.1 | 2026-05-25 | §4.2.6 Promotion：`PROMOTING` 状态、staging、读 Small/写等待、原子发布 |
 | 1.2 | 2026-05-25 | §6.3.6：`snap_ref_count`、COW/删快照维护、fsck 与无环不变量 |
 | 1.3 | 2026-05-25 | §5.4.1：readdir cookie 用逻辑 key 游标，禁止 LeafIter/节点指针 |
+| 1.4 | 2026-05-25 | §4.2.6 晋升墙钟上限；§5.4.1 `last_key`；§6.3.6 倒排索引；§6.4.4 checkpoint 内存 |
