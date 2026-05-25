@@ -162,14 +162,26 @@ def PrintMemoryUsage(opts):
             Globals.SERVER_KEYWORD,
         )
 
-    proc = subprocess.Popen(
-        ["ssh", opts.server, psCmd],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    if opts.server in ("localhost", "127.0.0.1"):
+        proc = subprocess.Popen(
+            [psCmd],
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    else:
+        proc = subprocess.Popen(
+            ["ssh", opts.server, psCmd],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     result = proc.communicate()
     if result and len(result[0].strip()) > 0:
-        print("Memory usage %sKB" % result[0].strip())
+        memory = result[0].strip()
+        if not isinstance(memory, str):
+            memory = memory.decode("utf-8", "replace")
+        print("Memory usage %sKB" % memory)
     else:
         print("Memory usage <unknown> KB")
 
@@ -189,7 +201,7 @@ def RunMStressMaster(opts, hostsList):
     # print 'Master: called with %r, %r' % (opts, hostsList)
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "create"):
+    if not RunMStressMasterTest(opts, hostsList, "create"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -200,7 +212,7 @@ def RunMStressMaster(opts, hostsList):
     print("==========================================")
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "stat"):
+    if not RunMStressMasterTest(opts, hostsList, "stat"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -210,7 +222,7 @@ def RunMStressMaster(opts, hostsList):
     print("==========================================")
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "readdir"):
+    if not RunMStressMasterTest(opts, hostsList, "readdir"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -221,10 +233,10 @@ def RunMStressMaster(opts, hostsList):
 
     if opts.leave_files:
         print("\nNot deleting files because of -l option")
-        return False
+        return True
 
     startTime = datetime.datetime.now()
-    if RunMStressMasterTest(opts, hostsList, "delete"):
+    if not RunMStressMasterTest(opts, hostsList, "delete"):
         return False
     deltaTime = datetime.datetime.now() - startTime
     print(
@@ -273,16 +285,30 @@ def RunMStressMasterTest(opts, hostsList, test):
             + opts.filesystem
             + ".slave.log"
         )
-        p = subprocess.Popen(
-            [
-                "/usr/bin/ssh",
-                client,
-                "%s -c %s -k %s >& %s"
-                % (ssh_cmd, client, clientHostMapping[client], slaveLogfile),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        slave_cmd = "%s -c %s -k %s >& %s" % (
+            ssh_cmd,
+            client,
+            clientHostMapping[client],
+            slaveLogfile,
         )
+        if client in ("localhost", "127.0.0.1"):
+            p = subprocess.Popen(
+                [slave_cmd],
+                shell=True,
+                executable="/bin/bash",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        else:
+            p = subprocess.Popen(
+                [
+                    "/usr/bin/ssh",
+                    client,
+                    slave_cmd,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
         running_procs[p] = client
 
     success = True
@@ -323,7 +349,7 @@ def RunMStressMasterTest(opts, hostsList, test):
             else:
                 sys.stdout.write(".")
             sys.stdout.flush()
-            time.sleep(0.5)
+            time.sleep(0.05)
     return success
 
 
@@ -439,7 +465,7 @@ def RunMStressSlave(opts, clientsPerHost):
             else:
                 sys.stdout.write(".")
             sys.stdout.flush()
-            time.sleep(0.5)
+            time.sleep(0.05)
     return success
 
 

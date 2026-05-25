@@ -183,6 +183,9 @@ def main():
     print("==> Created planfile: %s" % opts.output_file)
     print("copying file %s to all client hosts" % opts.output_file)
     for client in hostlist:
+        if client in ("localhost", "127.0.0.1"):
+            print("available %s on %s" % (opts.output_file, client))
+            continue
         p = subprocess.Popen(
             [
                 "/usr/bin/scp",
@@ -195,7 +198,9 @@ def main():
             if ret is None:
                 time.sleep(0.5)
             else:
-                print("transfered %s to %s" % (opts.output_file, client))
+                if ret != 0:
+                    sys.exit("failed to transfer %s to %s" % (opts.output_file, client))
+                print("transferred %s to %s" % (opts.output_file, client))
                 break
 
 

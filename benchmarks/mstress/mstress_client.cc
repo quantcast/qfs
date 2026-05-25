@@ -35,8 +35,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <queue>
 #include <algorithm>
+#include <deque>
 
 #if __cplusplus >= 201103L
 #include <random>
@@ -185,11 +185,9 @@ void hexout(char* str, int len) {
   printf("\n");
 }
 
-void myitoa(int n, char* buf)
+void myitoa(int n, char* buf, size_t len = 32)
 {
-  static char result[32];
-  snprintf(result, 32, "%d", n);
-  strcpy(buf, result);
+  snprintf(buf, len, "%d", n);
 }
 
 //Return a random permutation of numbers in [0..range).
@@ -343,7 +341,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
   char name[512];
   strncpy(name, client->prefix_.c_str(), sizeof(name) / sizeof(name[0]) - 1);
   for (int i = 0; i < client->inodesPerLevel_; i++) {
-    myitoa(i, name + client->prefixLen_);
+    myitoa(i, name + client->prefixLen_, sizeof(name) - client->prefixLen_);
     client->path_.Push(name);
     //hexout(client->path_.actualPath_, client->path_.len_ + 3);
 
@@ -433,16 +431,16 @@ int StatDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
 
     for (int d = 0; d < client->levels_; d++) {
       int randIdx = rand() % client->inodesPerLevel_;
-      myitoa(randIdx, name + client->prefixLen_);
+      myitoa(randIdx, name + client->prefixLen_, sizeof(name) - client->prefixLen_);
       client->path_.Push(name);
       //fprintf(logFile, "Stat: path now is %s\n", client->path_.actualPath_);
     }
     //fprintf(logFile, "Stat: doing stat on [%s]\n", client->path_.actualPath_);
 
     KFS::KfsFileAttr attr;
-    int err = kfsClient->Stat(os.str().c_str(), attr);
+    int err = kfsClient->Stat(client->path_.String(), attr);
     if (err) {
-      fprintf(logFile, "error doing stat on %s\n", os.str().c_str());
+      fprintf(logFile, "error doing stat on %s\n", client->path_.String());
       return err;
     }
 
@@ -466,14 +464,15 @@ int ListDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
   gettimeofday(&tvAlpha, NULL);
   int inodeCount = 0;
 
-  queue<string> pending;
+  deque<string> pending;
   ostringstream os;
   os << TEST_BASE_DIR << "/" << client->hostName_ + "_" << client->processName_;
-  pending.push(os.str());
+  pending.push_back(os.str());
 
   while (!pending.empty()) {
-    string parent = pending.front();
-    pending.pop();
+    string parent;
+    parent.swap(pending.front());
+    pending.pop_front();
     //fprintf(logFile, "readdir on parent [%s]\n", parent.c_str());
     vector<KFS::KfsFileAttr> children;
     int err = kfsClient->ReaddirPlus(parent.c_str(), children);
@@ -482,20 +481,19 @@ int ListDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
       return err;
     }
     while (!children.empty()) {
-      string child = children.back().filename;
-      bool isDir = children.back().isDirectory;
-      children.pop_back();
+      const KFS::KfsFileAttr& childAttr = children.back();
+      const string& child = childAttr.filename;
+      bool isDir = childAttr.isDirectory;
       //fprintf(logFile, "  Child = %s inodeCount=%d\n", child.c_str(), inodeCount);
-      if (child == "." ||
-          child == "..") {
-        continue;
+      if (child != "." && child != "..") {
+        inodeCount ++;
+        if (isDir) {
+          string nextParent = parent + "/" + child;
+          pending.push_back(nextParent);
+          //fprintf(logFile, "  Adding next parent [%s]\n", nextParent.c_str());
+        }
       }
-      inodeCount ++;
-      if (isDir) {
-        string nextParent = parent + "/" + child;
-        pending.push(nextParent);
-        //fprintf(logFile, "  Adding next parent [%s]\n", nextParent.c_str());
-      }
+      children.pop_back();
       if (inodeCount > 0 && inodeCount % COUNT_INCR == 0) {
         fprintf(logFile, "Readdir paths so far: %d\n", inodeCount);
       }
@@ -546,7 +544,7 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
     while (lev < client->levels_) {
       pos = idx / client->inodesPerLevel_;
       delta = idx - (pos * client->inodesPerLevel_);
-      myitoa(delta, sfx);
+      myitoa(delta, sfx, sizeof(sfx));
       if (pathSoFar.length()) {
         pathSoFar = client->prefix_ + sfx + "/" + pathSoFar;
       } else {
