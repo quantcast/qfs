@@ -55,6 +55,8 @@ foreach (exe_file ${exe_files})
         )
     endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools"
+    ${exe_files})
 
 #
 install (TARGETS ${exe_files}

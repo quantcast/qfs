@@ -32,5 +32,8 @@ else (USE_STATIC_LIB_LINKAGE)
     add_dependencies (qfssample kfsClient-shared)
 endif (USE_STATIC_LIB_LINKAGE)
 
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/examples"
+    qfssample)
+
 install (TARGETS qfssample
     RUNTIME DESTINATION bin/examples)
