@@ -214,7 +214,8 @@ public:
             bool               inResolverUseOsResolverFlag   = false,
             int                inResolverCacheSize           = 8 << 10,
             int                inResolverCacheExpiration     = -1,
-            const string&      inNodeId                      = string())
+            const string&      inNodeId                      = string(),
+            bool               inParallelReplicaWriteFlag    = true)
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -244,7 +245,8 @@ public:
               mResolverUseOsResolverFlag(inResolverUseOsResolverFlag),
               mResolverCacheSize(inResolverCacheSize),
               mResolverCacheExpiration(inResolverCacheExpiration),
-              mNodeId(inNodeId)
+              mNodeId(inNodeId),
+              mParallelReplicaWriteFlag(inParallelReplicaWriteFlag)
             {}
             int                 mMetaMaxRetryCount;
             int                 mMetaTimeSecBetweenRetries;
@@ -276,6 +278,7 @@ public:
             int                 mResolverCacheSize;
             int                 mResolverCacheExpiration;
             string              mNodeId;
+            bool                mParallelReplicaWriteFlag;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,

@@ -35,8 +35,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <queue>
 #include <algorithm>
+#include <deque>
+#include <stdint.h>
+#include <fcntl.h>
 
 #if __cplusplus >= 201103L
 #include <random>
@@ -45,11 +47,39 @@
 using namespace std;
 
 #include "libclient/KfsClient.h"
+#include "common/Properties.h"
 
 FILE* logFile = stdout;
 
 #define TEST_BASE_DIR "/mstress"
 #define COUNT_INCR 500
+
+struct WriteTimingStats {
+  int64_t openUsec;
+  int64_t writeUsec;
+  int64_t closeUsec;
+  int64_t openCount;
+  int64_t writeCount;
+  int64_t closeCount;
+
+  WriteTimingStats()
+    : openUsec(0),
+      writeUsec(0),
+      closeUsec(0),
+      openCount(0),
+      writeCount(0),
+      closeCount(0)
+    {}
+};
+
+static WriteTimingStats gWriteTimingStats;
+
+static int64_t NowUsec()
+{
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return (int64_t)tv.tv_sec * 1000000 + (int64_t)tv.tv_usec;
+}
 
 /*
   This program is invoked with the following arguments:
@@ -139,6 +169,7 @@ struct Client {
   int levels_;
   int inodesPerLevel_;
   int pathsToStat_;
+  int64_t fileSize_;
 };
 const size_t Client::INITIAL_SIZE = 1 << 12;
 
@@ -148,7 +179,17 @@ class AutoCleanupKfsClient
 public:
   AutoCleanupKfsClient(Client* client) : initialized(false)
   {
-    kfsClient = KFS::Connect(client->dfsServer_, client->dfsPort_);
+    const char* const config = getenv("QFS_CLIENT_CONFIG");
+    if (config && config[0]) {
+      KFS::Properties props;
+      if (props.loadProperties(config, '=') == 0) {
+        kfsClient = KFS::Connect(client->dfsServer_, client->dfsPort_, &props);
+      } else {
+        kfsClient = 0;
+      }
+    } else {
+      kfsClient = KFS::Connect(client->dfsServer_, client->dfsPort_);
+    }
     if (kfsClient) {
       initialized = true;
     }
@@ -185,11 +226,26 @@ void hexout(char* str, int len) {
   printf("\n");
 }
 
-void myitoa(int n, char* buf)
+void myitoa(int n, char* buf, size_t len = 32)
 {
-  static char result[32];
-  snprintf(result, 32, "%d", n);
-  strcpy(buf, result);
+  snprintf(buf, len, "%d", n);
+}
+
+static void DumpQfsClientStats(KFS::KfsClient* kfsClient, const char* tag)
+{
+  if (! kfsClient) {
+    return;
+  }
+  KFS::Properties* const stats = kfsClient->GetStats();
+  if (! stats) {
+    return;
+  }
+  fprintf(logFile, "\n=== qfs_client stats (%s) ===\n", (tag ? tag : ""));
+  for (KFS::Properties::iterator it = stats->begin(); it != stats->end(); ++it) {
+    fprintf(logFile, "%s=%s\n", it->first.c_str(), it->second.c_str());
+  }
+  fprintf(logFile, "=== end qfs_client stats ===\n\n");
+  delete stats;
 }
 
 //Return a random permutation of numbers in [0..range).
@@ -294,6 +350,7 @@ void ParsePlanFile(Client* client)
 {
   string line;
   ifstream ifs(client->planfilePath_.c_str(), ifstream::in);
+  client->fileSize_ = 0;
 
   while (ifs.good()) {
     getline(ifs, line);
@@ -314,6 +371,10 @@ void ParsePlanFile(Client* client)
     }
     if (line.substr(0, 6) == "nstat=") {
       client->pathsToStat_ = atoi(line.substr(6).c_str());
+      continue;
+    }
+    if (line.substr(0, 9) == "filesize=") {
+      client->fileSize_ = atoll(line.substr(9).c_str());
       continue;
     }
   }
@@ -343,7 +404,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
   char name[512];
   strncpy(name, client->prefix_.c_str(), sizeof(name) / sizeof(name[0]) - 1);
   for (int i = 0; i < client->inodesPerLevel_; i++) {
-    myitoa(i, name + client->prefixLen_);
+    myitoa(i, name + client->prefixLen_, sizeof(name) - client->prefixLen_);
     client->path_.Push(name);
     //hexout(client->path_.actualPath_, client->path_.len_ + 3);
 
@@ -357,6 +418,7 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
       (*createdCount)++;
       if (*createdCount > 0 && (*createdCount) % COUNT_INCR == 0) {
         fprintf(logFile, "Created paths so far: %d\n", *createdCount);
+        fflush(logFile);
       }
       if (!isLeaf) {
         rc = CreateDFSPaths(client, kfs, level+1, createdCount);
@@ -367,14 +429,56 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs, int level, int* cr
       }
     } else {
       //fprintf(logFile, "Creating file [%s]\n", client->path_.actualPath_);
-      rc = kfsClient->Create(client->path_.String());
+      const int64_t openStartUsec = NowUsec();
+      rc = client->fileSize_ > 0 ?
+        kfsClient->Open(client->path_.String(), O_CREAT|O_RDWR) :
+        kfsClient->Create(client->path_.String());
+      if (client->fileSize_ > 0) {
+        gWriteTimingStats.openUsec += NowUsec() - openStartUsec;
+        gWriteTimingStats.openCount++;
+      }
       if (rc < 0) {
         fprintf(logFile, "Create(%s) failed with rc=%d\n", client->path_.String(), rc);
         return rc;
       }
+      if (client->fileSize_ > 0) {
+        static const size_t kWriteBufSize = 1 << 20;
+        if (*createdCount == 0) {
+          fprintf(logFile, "Writing %lld bytes per file...\n",
+            (long long)client->fileSize_);
+          fflush(logFile);
+        }
+        static vector<char> sWriteBuf(kWriteBufSize, 'x');
+        int64_t remaining = client->fileSize_;
+        while (remaining > 0) {
+          const size_t len = (remaining < (int64_t)kWriteBufSize) ?
+            (size_t)remaining : kWriteBufSize;
+          const int64_t writeStartUsec = NowUsec();
+          const ssize_t wr = kfsClient->Write(rc, &sWriteBuf[0], len);
+          gWriteTimingStats.writeUsec += NowUsec() - writeStartUsec;
+          gWriteTimingStats.writeCount++;
+          if (wr != (ssize_t)len) {
+            fprintf(logFile, "Write(%s) failed expected=%zu actual=%ld\n",
+              client->path_.String(), len, (long)wr);
+            kfsClient->Close(rc);
+            return (wr < 0 ? (int)wr : -EIO);
+          }
+          remaining -= wr;
+        }
+        const int64_t closeStartUsec = NowUsec();
+        const int closeErr = kfsClient->Close(rc);
+        gWriteTimingStats.closeUsec += NowUsec() - closeStartUsec;
+        gWriteTimingStats.closeCount++;
+        if (closeErr < 0) {
+          fprintf(logFile, "Close(%s) failed with rc=%d\n",
+            client->path_.String(), closeErr);
+          return closeErr;
+        }
+      }
       (*createdCount)++;
       if (*createdCount > 0 && (*createdCount) % COUNT_INCR == 0) {
         fprintf(logFile, "Created paths so far: %d\n", *createdCount);
+        fflush(logFile);
       }
     }
     client->path_.Pop(name);
@@ -409,6 +513,32 @@ int CreateDFSPaths(Client* client, AutoCleanupKfsClient* kfs)
   struct timeval tvZigma;
   gettimeofday(&tvZigma, NULL);
   fprintf(logFile, "Client: %d paths created in %ld msec\n", createdCount, TimeDiffMilliSec(&tvAlpha, &tvZigma));
+  fflush(logFile);
+  if (client->fileSize_ > 0) {
+    const long totalMsec = TimeDiffMilliSec(&tvAlpha, &tvZigma);
+    fprintf(logFile, "Client: %lld bytes written in %ld msec\n",
+      (long long)createdCount * (long long)client->fileSize_,
+      totalMsec);
+    fprintf(logFile,
+      "Client write timing: open count=%lld total=%lld usec avg=%lld usec\n",
+      (long long)gWriteTimingStats.openCount,
+      (long long)gWriteTimingStats.openUsec,
+      (long long)(gWriteTimingStats.openCount ?
+        gWriteTimingStats.openUsec / gWriteTimingStats.openCount : 0));
+    fprintf(logFile,
+      "Client write timing: write count=%lld total=%lld usec avg=%lld usec\n",
+      (long long)gWriteTimingStats.writeCount,
+      (long long)gWriteTimingStats.writeUsec,
+      (long long)(gWriteTimingStats.writeCount ?
+        gWriteTimingStats.writeUsec / gWriteTimingStats.writeCount : 0));
+    fprintf(logFile,
+      "Client write timing: close count=%lld total=%lld usec avg=%lld usec\n",
+      (long long)gWriteTimingStats.closeCount,
+      (long long)gWriteTimingStats.closeUsec,
+      (long long)(gWriteTimingStats.closeCount ?
+        gWriteTimingStats.closeUsec / gWriteTimingStats.closeCount : 0));
+    fflush(logFile);
+  }
   return 0;
 }
 
@@ -433,21 +563,22 @@ int StatDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
 
     for (int d = 0; d < client->levels_; d++) {
       int randIdx = rand() % client->inodesPerLevel_;
-      myitoa(randIdx, name + client->prefixLen_);
+      myitoa(randIdx, name + client->prefixLen_, sizeof(name) - client->prefixLen_);
       client->path_.Push(name);
       //fprintf(logFile, "Stat: path now is %s\n", client->path_.actualPath_);
     }
     //fprintf(logFile, "Stat: doing stat on [%s]\n", client->path_.actualPath_);
 
     KFS::KfsFileAttr attr;
-    int err = kfsClient->Stat(os.str().c_str(), attr);
+    int err = kfsClient->Stat(client->path_.String(), attr);
     if (err) {
-      fprintf(logFile, "error doing stat on %s\n", os.str().c_str());
+      fprintf(logFile, "error doing stat on %s\n", client->path_.String());
       return err;
     }
 
     if (count > 0 && count % COUNT_INCR == 0) {
       fprintf(logFile, "Stat paths so far: %d\n", count);
+      fflush(logFile);
     }
   }
 
@@ -466,14 +597,15 @@ int ListDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
   gettimeofday(&tvAlpha, NULL);
   int inodeCount = 0;
 
-  queue<string> pending;
+  deque<string> pending;
   ostringstream os;
   os << TEST_BASE_DIR << "/" << client->hostName_ + "_" << client->processName_;
-  pending.push(os.str());
+  pending.push_back(os.str());
 
   while (!pending.empty()) {
-    string parent = pending.front();
-    pending.pop();
+    string parent;
+    parent.swap(pending.front());
+    pending.pop_front();
     //fprintf(logFile, "readdir on parent [%s]\n", parent.c_str());
     vector<KFS::KfsFileAttr> children;
     int err = kfsClient->ReaddirPlus(parent.c_str(), children);
@@ -482,22 +614,22 @@ int ListDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
       return err;
     }
     while (!children.empty()) {
-      string child = children.back().filename;
-      bool isDir = children.back().isDirectory;
-      children.pop_back();
+      const KFS::KfsFileAttr& childAttr = children.back();
+      const string& child = childAttr.filename;
+      bool isDir = childAttr.isDirectory;
       //fprintf(logFile, "  Child = %s inodeCount=%d\n", child.c_str(), inodeCount);
-      if (child == "." ||
-          child == "..") {
-        continue;
+      if (child != "." && child != "..") {
+        inodeCount ++;
+        if (isDir) {
+          string nextParent = parent + "/" + child;
+          pending.push_back(nextParent);
+          //fprintf(logFile, "  Adding next parent [%s]\n", nextParent.c_str());
+        }
       }
-      inodeCount ++;
-      if (isDir) {
-        string nextParent = parent + "/" + child;
-        pending.push(nextParent);
-        //fprintf(logFile, "  Adding next parent [%s]\n", nextParent.c_str());
-      }
+      children.pop_back();
       if (inodeCount > 0 && inodeCount % COUNT_INCR == 0) {
         fprintf(logFile, "Readdir paths so far: %d\n", inodeCount);
+        fflush(logFile);
       }
     }
   }
@@ -546,7 +678,7 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
     while (lev < client->levels_) {
       pos = idx / client->inodesPerLevel_;
       delta = idx - (pos * client->inodesPerLevel_);
-      myitoa(delta, sfx);
+      myitoa(delta, sfx, sizeof(sfx));
       if (pathSoFar.length()) {
         pathSoFar = client->prefix_ + sfx + "/" + pathSoFar;
       } else {
@@ -590,6 +722,7 @@ int RemoveDFSPaths(Client* client, AutoCleanupKfsClient* kfs) {
 int main(int argc, char* argv[])
 {
   Client client;
+  setvbuf(logFile, NULL, _IOLBF, 0);
 
   parse_options(argc, argv, &client);
 
@@ -614,6 +747,7 @@ int main(int argc, char* argv[])
     fprintf(logFile, "Error: unrecognized test '%s'", client.testName_.c_str());
     return -1;
   }
+  DumpQfsClientStats(kfs.GetClient(), client.testName_.c_str());
   return result;
 }
 

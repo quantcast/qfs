@@ -40,6 +40,8 @@ namespace client
 {
 using std::string;
 
+class ClientPool;
+
 // Kfs client write protocol state machine.
 class Writer
 {
@@ -85,7 +87,21 @@ public:
               mRetriesCount(0),
               mWriteCount(0),
               mWriteByteCount(0),
-              mBufferCompactionCount(0)
+              mBufferCompactionCount(0),
+              mCloseCount(0),
+              mCloseUsec(0),
+              mSetSizeCount(0),
+              mSetSizeUsec(0),
+              mChunkCloseCount(0),
+              mChunkCloseUsec(0),
+              mChunkWriteCount(0),
+              mChunkWriteUsec(0),
+              mChunkResetCount(0),
+              mChunkResetUsec(0),
+              mWriteIdAllocCount(0),
+              mWriteIdAllocUsec(0),
+              mAllocateCount(0),
+              mAllocateUsec(0)
             {}
         void Clear()
             { *this = Stats(); }
@@ -104,6 +120,20 @@ public:
             mWriteCount            += inStats.mWriteCount;
             mWriteByteCount        += inStats.mWriteByteCount;
             mBufferCompactionCount += inStats.mBufferCompactionCount;
+            mCloseCount           += inStats.mCloseCount;
+            mCloseUsec            += inStats.mCloseUsec;
+            mSetSizeCount         += inStats.mSetSizeCount;
+            mSetSizeUsec          += inStats.mSetSizeUsec;
+            mChunkCloseCount      += inStats.mChunkCloseCount;
+            mChunkCloseUsec       += inStats.mChunkCloseUsec;
+            mChunkWriteCount      += inStats.mChunkWriteCount;
+            mChunkWriteUsec       += inStats.mChunkWriteUsec;
+            mChunkResetCount      += inStats.mChunkResetCount;
+            mChunkResetUsec       += inStats.mChunkResetUsec;
+            mWriteIdAllocCount   += inStats.mWriteIdAllocCount;
+            mWriteIdAllocUsec    += inStats.mWriteIdAllocUsec;
+            mAllocateCount       += inStats.mAllocateCount;
+            mAllocateUsec        += inStats.mAllocateUsec;
             return *this;
         }
         template<typename T>
@@ -122,6 +152,20 @@ public:
             inFunctor("Retries",           mRetriesCount);
             inFunctor("Writes" ,           mWriteCount);
             inFunctor("WriteBytes",        mWriteByteCount);
+            inFunctor("CloseCount",       mCloseCount);
+            inFunctor("CloseUsec",        mCloseUsec);
+            inFunctor("SetSizeCount",     mSetSizeCount);
+            inFunctor("SetSizeUsec",      mSetSizeUsec);
+            inFunctor("ChunkCloseCount",  mChunkCloseCount);
+            inFunctor("ChunkCloseUsec",   mChunkCloseUsec);
+            inFunctor("ChunkWriteCount",  mChunkWriteCount);
+            inFunctor("ChunkWriteUsec",   mChunkWriteUsec);
+            inFunctor("ChunkResetCount",  mChunkResetCount);
+            inFunctor("ChunkResetUsec",   mChunkResetUsec);
+            inFunctor("WriteIdAllocCount", mWriteIdAllocCount);
+            inFunctor("WriteIdAllocUsec",  mWriteIdAllocUsec);
+            inFunctor("AllocateCount",    mAllocateCount);
+            inFunctor("AllocateUsec",     mAllocateUsec);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;
@@ -135,6 +179,20 @@ public:
         Counter mWriteCount;
         Counter mWriteByteCount;
         Counter mBufferCompactionCount;
+        Counter mCloseCount;
+        Counter mCloseUsec;
+        Counter mSetSizeCount;
+        Counter mSetSizeUsec;
+        Counter mChunkCloseCount;
+        Counter mChunkCloseUsec;
+        Counter mChunkWriteCount;
+        Counter mChunkWriteUsec;
+        Counter mChunkResetCount;
+        Counter mChunkResetUsec;
+        Counter mWriteIdAllocCount;
+        Counter mWriteIdAllocUsec;
+        Counter mAllocateCount;
+        Counter mAllocateUsec;
     };
     class Striper
     {
@@ -200,7 +258,9 @@ public:
         int         inIdleTimeoutSec,
         int         inMaxWriteSize,
         const char* inLogPrefixPtr,
-        int64_t     inChunkServerInitialSeqNum);
+        int64_t     inChunkServerInitialSeqNum,
+        ClientPool* inClientPoolPtr = 0,
+        bool        inParallelReplicaWriteFlag = false);
     virtual ~Writer();
     int Open(
         kfsFileId_t inFileId,

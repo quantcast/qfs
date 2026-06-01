@@ -120,6 +120,10 @@ public:
     };
 
     bool SetParameters(const Properties& prop);
+    bool IsLazyCreateOnWriteEnabled() const
+        { return mLazyCreateOnWriteFlag; }
+    bool IsWritePrepareChecksumVerifySkipped() const
+        { return mSkipWritePrepareChecksumVerifyFlag; }
     /// Init function to configure the chunk manager object.
     bool Init(const vector<string>& chunkDirs, const Properties& prop);
 
@@ -962,6 +966,8 @@ private:
     bool       mDiskBufferManagerEnabledFlag;
     bool       mForceVerifyDiskReadChecksumFlag;
     bool       mWritePrepareReplyFlag;
+    bool       mSkipWritePrepareChecksumVerifyFlag;
+    bool       mLazyCreateOnWriteFlag;
     CryptoKeys mCryptoKeys;
     int64_t    mFileSystemId;
     string     mFileSystemIdSuffix;

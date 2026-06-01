@@ -37,6 +37,7 @@
 #include "ClientSM.h"
 #include "Replay.h"
 #include "MetaVrOps.h"
+#include "NamespaceV2.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
@@ -85,6 +86,191 @@ using KFS::libkfsio::globals;
 static bool    gWormMode = false;
 static string  gChunkmapDumpDir(".");
 static const char* const ftypes[] = { "empty", "file", "dir" };
+
+static bool
+IsNamespaceV2RpcEnabled()
+{
+    const NamespaceV2::Config& cfg = NamespaceV2::GetConfig();
+    return cfg.enabledFlag && cfg.rpcEnabledFlag;
+}
+
+static bool
+UseNamespaceV2RpcPath(
+    const MetaRequest& req)
+{
+    return req.namespaceV2LogFlag ||
+        (IsNamespaceV2RpcEnabled() && ! req.replayFlag);
+}
+
+static NamespaceV2::NamespaceStore&
+GetNamespaceV2StoreLocked()
+{
+    return NamespaceV2::GetStore();
+}
+
+static FileType
+NamespaceV2FileType(
+    NamespaceV2::InodeType type)
+{
+    return type == NamespaceV2::kInodeTypeDir ? KFS_DIR : KFS_FILE;
+}
+
+class NamespaceV2RpcFattr : public MFattr
+{
+public:
+    void Set(
+        const NamespaceV2::LookupResult& attr)
+    {
+        fid                 = attr.fid;
+        type                = NamespaceV2FileType(attr.type);
+        striperType         = KFS_STRIPED_FILE_TYPE_NONE;
+        numReplicas         = type == KFS_FILE && 0 < attr.numReplicas ?
+            attr.numReplicas : 0;
+        numRecoveryStripes  = 0;
+        numStripes          = 0;
+        stripeSize          = 0;
+        mtime               = attr.mtime;
+        ctime               = attr.ctime;
+        atime               = attr.atime;
+        subcount1           = type == KFS_DIR ? attr.fileCount : 0;
+        subcount2           = type == KFS_DIR ? attr.dirCount : 0;
+        filesize            = 0;
+        minSTier            = kKfsSTierMax;
+        maxSTier            = kKfsSTierMax;
+        fattrExtTypes       = kFileAttrExtTypeNone;
+        user                = attr.user;
+        group               = attr.group;
+        mode                = attr.mode;
+        extAttributes.clear();
+    }
+};
+
+static void
+NamespaceV2SetFattr(
+    const NamespaceV2::LookupResult& attr,
+    MFattr&                         fattr)
+{
+    NamespaceV2RpcFattr tmp;
+    tmp.Set(attr);
+    fattr = tmp;
+}
+
+static int
+NamespaceV2ResolveAbsPathLocked(
+    NamespaceV2::NamespaceStore& store,
+    fid_t&                       dir,
+    string&                      name)
+{
+    if (dir != ROOTFID || name.empty() || name[0] != '/' ||
+            name[name.size() - 1] == '/') {
+        return 0;
+    }
+    const size_t nameStart = name.rfind('/');
+    size_t parentEnd = nameStart;
+    while (parentEnd > 0 && name[parentEnd - 1] == '/') {
+        --parentEnd;
+    }
+    const string leaf = name.substr(nameStart + 1);
+    if (leaf.empty()) {
+        return -EINVAL;
+    }
+    if (parentEnd == 0) {
+        name = leaf;
+        return 0;
+    }
+    NamespaceV2::LookupResult parent;
+    const int status = store.LookupPath(ROOTFID,
+        name.substr(0, parentEnd), parent);
+    if (status != 0) {
+        return status;
+    }
+    if (parent.type != NamespaceV2::kInodeTypeDir) {
+        return -ENOTDIR;
+    }
+    dir  = parent.fid;
+    name = leaf;
+    return 0;
+}
+
+static bool
+NamespaceV2HasCreateIds(
+    fid_t    fid,
+    uint64_t txnId)
+{
+    return fid >= 0 && txnId != 0;
+}
+
+static bool
+NamespaceV2NeedsCreateIds(
+    fid_t    fid,
+    uint64_t txnId)
+{
+    return fid < 0 && txnId == 0;
+}
+
+static bool
+NamespaceV2ReserveCreateIds(
+    fid_t&    fid,
+    uint64_t& txnId)
+{
+    if (fid >= 0 && txnId != 0) {
+        return true;
+    }
+    if (fid >= 0 || txnId != 0) {
+        return false;
+    }
+    NamespaceV2::TxnId reservedTxnId = 0;
+    GetNamespaceV2StoreLocked().ReserveCreateIds(fid, reservedTxnId);
+    txnId = reservedTxnId;
+    return fid >= 0 && txnId != 0;
+}
+
+static int
+NamespaceV2ApplyCreateEdit(
+    fid_t                  parentFid,
+    const string&          name,
+    NamespaceV2::InodeType type,
+    fid_t&                 fid,
+    uint64_t&              txnId,
+    kfsUid_t               user,
+    kfsGid_t               group,
+    kfsMode_t              mode,
+    int16_t                numReplicas,
+    int64_t                mtime,
+    bool                   commitFlag,
+    bool                   advanceSeedsFlag = true)
+{
+    if (! NamespaceV2HasCreateIds(fid, txnId)) {
+        return -EINVAL;
+    }
+    return GetNamespaceV2StoreLocked().ApplyCreateTrusted(parentFid, name, type, fid,
+        (NamespaceV2::TxnId)txnId, user, group, mode, numReplicas, mtime,
+        commitFlag, advanceSeedsFlag);
+}
+
+void
+MetaRequest::ReserveNamespaceV2CreateIdsBatch(
+    size_t    count,
+    fid_t&    firstFid,
+    uint64_t& firstTxnId)
+{
+    NamespaceV2::TxnId firstTxn = 0;
+    GetNamespaceV2StoreLocked().ReserveCreateIdsRange(
+        count, firstFid, firstTxn);
+    firstTxnId = firstTxn;
+}
+
+void
+MetaRequest::CommitNamespaceV2Batch(
+    uint64_t firstTxnId,
+    uint64_t lastTxnId)
+{
+    if (firstTxnId != 0 && lastTxnId != 0) {
+        GetNamespaceV2StoreLocked().CommitThroughRange(
+            (NamespaceV2::TxnId)firstTxnId,
+            (NamespaceV2::TxnId)lastTxnId);
+    }
+}
 
 class StIdempotentRequestHandler
 {
@@ -701,6 +887,16 @@ MetaLookup::handle()
     }
     authType = kAuthenticationTypeUndef; // always reset if op gets here.
     SetEUserAndEGroup(*this);
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::LookupResult attr;
+        NamespaceV2::NamespaceStore& store = GetNamespaceV2StoreLocked();
+        status = (dir == ROOTFID && name == "/") ?
+            store.GetAttr(ROOTFID, attr) : store.Lookup(dir, name, attr);
+        if (status == 0) {
+            NamespaceV2SetFattr(attr, fattr);
+        }
+        return;
+    }
     MetaFattr* fa = 0;
     if ((status = metatree.lookup(dir, name, euser, egroup, fa)) == 0) {
         FattrReply(fa, fattr);
@@ -720,6 +916,14 @@ MetaLookupPath::handle()
         return;
     }
     SetEUserAndEGroup(*this);
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::LookupResult attr;
+        status = GetNamespaceV2StoreLocked().LookupPath(root, path, attr);
+        if (status == 0) {
+            NamespaceV2SetFattr(attr, fattr);
+        }
+        return;
+    }
     MetaFattr* fa = 0;
     if ((status = metatree.lookupPath(
             root, path, euser, egroup, fa)) == 0) {
@@ -876,6 +1080,57 @@ const string kInvalidChunksPath("/proc/invalid_chunks");
 const string kInvalidChunksPrefix(kInvalidChunksPath + "/");
 
 /* virtual */ bool
+MetaCreate::PrepareLog()
+{
+    return ! namespaceV2LogFlag ||
+        NamespaceV2ReserveCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ bool
+MetaCreate::NeedsNamespaceV2CreateIds() const
+{
+    return namespaceV2LogFlag && ! replayFlag && ! replayBypassFlag &&
+        status == 0 && NamespaceV2NeedsCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ bool
+MetaCreate::SetNamespaceV2CreateIds(
+    fid_t    inFid,
+    uint64_t inTxnId)
+{
+    if (! NeedsNamespaceV2CreateIds() || inFid < 0 || inTxnId == 0) {
+        return false;
+    }
+    fid = inFid;
+    namespaceV2TxnId = inTxnId;
+    return true;
+}
+
+/* virtual */ bool
+MetaCreate::CanBatchApplyNamespaceV2() const
+{
+    return namespaceV2LogFlag && ! namespaceV2AppliedFlag &&
+        ! replayFlag && ! replayBypassFlag && status == 0 &&
+        logseq.IsValid() && NamespaceV2HasCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ uint64_t
+MetaCreate::GetNamespaceV2BatchTxnId() const
+{
+    return namespaceV2TxnId;
+}
+
+/* virtual */ void
+MetaCreate::ApplyNamespaceV2Batch(
+    bool commitFlag)
+{
+    status = NamespaceV2ApplyCreateEdit(dir, name,
+        NamespaceV2::kInodeTypeFile, fid, namespaceV2TxnId,
+        user, group, mode, numReplicas, mtime, commitFlag, false);
+    namespaceV2AppliedFlag = true;
+}
+
+/* virtual */ bool
 MetaCreate::start()
 {
     if (! SetUserAndGroup(*this)) {
@@ -887,6 +1142,58 @@ MetaCreate::start()
     }
     if (0 != status) {
         return false;
+    }
+    if (IsNamespaceV2RpcEnabled()) {
+        const bool kDirFlag = false;
+        if (! CheckCreatePerms(*this, kDirFlag)) {
+            return false;
+        }
+        if (gWormMode && ! IsWormMutationAllowed(name)) {
+            statusMsg = "worm mode";
+            status    = -EPERM;
+            return false;
+        }
+        fid = -1;
+        const bool wasNotObjectStoreFileFlag = 0 < numReplicas;
+        if (striperType != KFS_STRIPED_FILE_TYPE_NONE &&
+                0 < numRecoveryStripes) {
+            numReplicas = min(numReplicas,
+                gLayoutManager.GetMaxReplicasPerRSFile());
+        } else {
+            numReplicas = min(numReplicas,
+                gLayoutManager.GetMaxReplicasPerFile());
+        }
+        if (0 == numReplicas && wasNotObjectStoreFileFlag &&
+                gLayoutManager.IsObjectStoreEnabled()) {
+            striperType        = KFS_STRIPED_FILE_TYPE_NONE;
+            numRecoveryStripes = 0;
+            numStripes         = 0;
+            stripeSize         = 0;
+            if (minSTier < kKfsSTierMax) {
+                maxSTier = minSTier;
+            }
+        }
+        if (maxSTier < minSTier || ! IsValidSTier(minSTier) ||
+                ! IsValidSTier(maxSTier)) {
+            status    = -EINVAL;
+            statusMsg = "invalid storage tier range";
+            return false;
+        }
+        if (minSTier < kKfsSTierMax && 0 == numReplicas &&
+                minSTier != maxSTier) {
+            status    = -EINVAL;
+            statusMsg = "storage tier range is not supported with object store files";
+            return false;
+        }
+        if (! gLayoutManager.Validate(*this)) {
+            if (0 <= status) {
+                status = -EINVAL;
+            }
+            return false;
+        }
+        mtime = microseconds();
+        namespaceV2LogFlag = true;
+        return true;
     }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
@@ -1019,6 +1326,15 @@ MetaCreate::handle()
     if (IsHandled()) {
         return;
     }
+    if (namespaceV2AppliedFlag) {
+        return;
+    }
+    if (UseNamespaceV2RpcPath(*this)) {
+        status = NamespaceV2ApplyCreateEdit(dir, name,
+            NamespaceV2::kInodeTypeFile, fid, namespaceV2TxnId,
+            user, group, mode, numReplicas, mtime, true);
+        return;
+    }
     fid = 0;
     MetaFattr* fa = 0;
     bool const kToDumpsterFlag = true;
@@ -1058,6 +1374,57 @@ MetaCreate::handle()
 }
 
 /* virtual */ bool
+MetaMkdir::PrepareLog()
+{
+    return ! namespaceV2LogFlag ||
+        NamespaceV2ReserveCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ bool
+MetaMkdir::NeedsNamespaceV2CreateIds() const
+{
+    return namespaceV2LogFlag && ! replayFlag && ! replayBypassFlag &&
+        status == 0 && NamespaceV2NeedsCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ bool
+MetaMkdir::SetNamespaceV2CreateIds(
+    fid_t    inFid,
+    uint64_t inTxnId)
+{
+    if (! NeedsNamespaceV2CreateIds() || inFid < 0 || inTxnId == 0) {
+        return false;
+    }
+    fid = inFid;
+    namespaceV2TxnId = inTxnId;
+    return true;
+}
+
+/* virtual */ bool
+MetaMkdir::CanBatchApplyNamespaceV2() const
+{
+    return namespaceV2LogFlag && ! namespaceV2AppliedFlag &&
+        ! replayFlag && ! replayBypassFlag && status == 0 &&
+        logseq.IsValid() && NamespaceV2HasCreateIds(fid, namespaceV2TxnId);
+}
+
+/* virtual */ uint64_t
+MetaMkdir::GetNamespaceV2BatchTxnId() const
+{
+    return namespaceV2TxnId;
+}
+
+/* virtual */ void
+MetaMkdir::ApplyNamespaceV2Batch(
+    bool commitFlag)
+{
+    status = NamespaceV2ApplyCreateEdit(dir, name,
+        NamespaceV2::kInodeTypeDir, fid, namespaceV2TxnId,
+        user, group, mode, 0, mtime, commitFlag, false);
+    namespaceV2AppliedFlag = true;
+}
+
+/* virtual */ bool
 MetaMkdir::start()
 {
     if (! SetUserAndGroup(*this)) {
@@ -1074,6 +1441,9 @@ MetaMkdir::start()
     if (! CheckCreatePerms(*this, kDirFlag)) {
         return false;
     }
+    if (IsNamespaceV2RpcEnabled()) {
+        namespaceV2LogFlag = true;
+    }
     if (0 == status) {
         mtime = microseconds();
     }
@@ -1084,6 +1454,15 @@ MetaMkdir::start()
 MetaMkdir::handle()
 {
     if (IsHandled()) {
+        return;
+    }
+    if (namespaceV2AppliedFlag) {
+        return;
+    }
+    if (UseNamespaceV2RpcPath(*this)) {
+        status = NamespaceV2ApplyCreateEdit(dir, name,
+            NamespaceV2::kInodeTypeDir, fid, namespaceV2TxnId,
+            user, group, mode, 0, mtime, true);
         return;
     }
     fid = 0;
@@ -1150,6 +1529,9 @@ MetaRemove::start()
     if (0 == status) {
         mtime = microseconds();
     }
+    if (IsNamespaceV2RpcEnabled()) {
+        namespaceV2LogFlag = true;
+    }
     return (0 == status);
 }
 
@@ -1157,6 +1539,18 @@ MetaRemove::start()
 MetaRemove::handle()
 {
     if (IsHandled()) {
+        return;
+    }
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::NamespaceStore& store = GetNamespaceV2StoreLocked();
+        status = NamespaceV2ResolveAbsPathLocked(store, dir, name);
+        if (status == 0) {
+            NamespaceV2::TxnId txnId = 0;
+            status = store.RemoveFile(dir, name, &txnId);
+            if (status == 0) {
+                store.CommitThrough(txnId);
+            }
+        }
         return;
     }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
@@ -1184,6 +1578,9 @@ MetaRmdir::start()
     if (0 == status) {
         mtime = microseconds();
     }
+    if (IsNamespaceV2RpcEnabled()) {
+        namespaceV2LogFlag = true;
+    }
     return (0 == status);
 }
 
@@ -1191,6 +1588,18 @@ MetaRmdir::start()
 MetaRmdir::handle()
 {
     if (IsHandled()) {
+        return;
+    }
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::NamespaceStore& store = GetNamespaceV2StoreLocked();
+        status = NamespaceV2ResolveAbsPathLocked(store, dir, name);
+        if (status == 0) {
+            NamespaceV2::TxnId txnId = 0;
+            status = store.Rmdir(dir, name, &txnId);
+            if (status == 0) {
+                store.CommitThrough(txnId);
+            }
+        }
         return;
     }
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
@@ -1243,6 +1652,71 @@ MetaReaddir::handle()
     }
     numEntries = 0;
     resp.Clear();
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::NamespaceStore& store = GetNamespaceV2StoreLocked();
+        NamespaceV2::LookupResult dirAttr;
+        status = store.GetAttr(dir, dirAttr);
+        if (status != 0) {
+            return;
+        }
+        if (dirAttr.type != NamespaceV2::kInodeTypeDir) {
+            status = -ENOTDIR;
+            return;
+        }
+        SetEUserAndEGroup(*this);
+        NamespaceV2RpcFattr dirFattr;
+        dirFattr.Set(dirAttr);
+        if (! dirFattr.CanRead(euser, egroup)) {
+            status = -EACCES;
+            return;
+        }
+        NamespaceV2::ReaddirResult result;
+        const size_t v2MaxEntries = 0 < maxEntries ? (size_t)maxEntries :
+            numeric_limits<size_t>::max();
+        status = fnameStart.empty() ? store.Readdir(dir, 0,
+            v2MaxEntries, result) : store.ReaddirFromName(dir, fnameStart,
+            v2MaxEntries, result);
+        if (status != 0) {
+            return;
+        }
+        hasMoreEntriesFlag = result.moreEntriesFlag;
+        if (oldFormatFlag && hasMoreEntriesFlag) {
+            status     = -ENOMEM;
+            statusMsg  = "response exceeds max. allowed number of entries"
+                " consider updating kfs client lib";
+            return;
+        }
+        const int extSize = IOBufferData::GetDefaultBufferSize() +
+            int(MAX_FILE_NAME_LENGTH);
+        int maxSize = gLayoutManager.GetMaxResponseSize();
+        if (! oldFormatFlag && extSize * 2 < maxSize) {
+            maxSize -= extSize;
+        }
+        IOBufferWriter writer(resp);
+        size_t i = 0;
+        for (; i < result.entries.size() && writer.GetSize() <= maxSize;
+                ++i) {
+            const string& entryName = result.entries[i].key.name;
+            if (dir == ROOTFID && entryName == "/") {
+                continue;
+            }
+            writer.Write(entryName);
+            writer.Write("\n", 1);
+            ++numEntries;
+        }
+        writer.Close();
+        if (resp.BytesConsumable() > maxSize) {
+            if (oldFormatFlag) {
+                resp.Clear();
+                numEntries = 0;
+                status     = -ENOMEM;
+                statusMsg  = "response exceeds max. size";
+            } else if (i < result.entries.size()) {
+                hasMoreEntriesFlag = true;
+            }
+        }
+        return;
+    }
     vector<MetaDentry*>& v = GetReadDirTmpVec();
     if ((status = fnameStart.empty() ?
             metatree.readdir(dir, v,
@@ -1806,6 +2280,91 @@ MetaReaddirPlus::handle()
             (maxEntries <= 0 || numEntries < maxEntries)) {
         maxEntries = numEntries;
     }
+    if (UseNamespaceV2RpcPath(*this)) {
+        NamespaceV2::NamespaceStore& store = GetNamespaceV2StoreLocked();
+        NamespaceV2::LookupResult dirAttr;
+        status = store.GetAttr(dir, dirAttr);
+        if (status != 0) {
+            return;
+        }
+        if (dirAttr.type != NamespaceV2::kInodeTypeDir) {
+            status = -ENOTDIR;
+            return;
+        }
+        SetEUserAndEGroup(*this);
+        NamespaceV2RpcFattr dirFattr;
+        dirFattr.Set(dirAttr);
+        if (! dirFattr.CanRead(euser, egroup)) {
+            status = -EACCES;
+            return;
+        }
+        noAttrsFlag = ! dirFattr.CanSearch(euser, egroup);
+        NamespaceV2::ReaddirResult result;
+        const size_t v2MaxEntries = 0 < maxEntries ? (size_t)maxEntries :
+            numeric_limits<size_t>::max();
+        status = fnameStart.empty() ? store.Readdir(dir, 0,
+            v2MaxEntries, result) : store.ReaddirFromName(dir, fnameStart,
+            v2MaxEntries, result);
+        if (status != 0) {
+            return;
+        }
+        hasMoreEntriesFlag = result.moreEntriesFlag;
+        if (numEntries < 0 && hasMoreEntriesFlag) {
+            status     = -ENOMEM;
+            statusMsg  = "response exceeds max. allowed number of entries"
+                " consider updating kfs client lib";
+            return;
+        }
+        maxRespSize = max(0, gLayoutManager.GetMaxResponseSize());
+        const int extSize = IOBufferData::GetDefaultBufferSize() +
+            int(MAX_FILE_NAME_LENGTH);
+        const size_t maxSize = (size_t)((numEntries >= 0 &&
+            extSize * 2 < maxRespSize) ? maxRespSize - extSize :
+            maxRespSize);
+        dentries.reserve(result.entries.size() + (fnameStart.empty() ? 2 : 0));
+        omitLastChunkInfoFlag = true;
+        size_t responseSize = 0;
+        if (fnameStart.empty()) {
+            dentries.push_back(DEntry(dirFattr, "."));
+            dentries.push_back(DEntry(dirFattr, ".."));
+            responseSize += 2 * 148 + 3;
+        }
+        size_t i = 0;
+        for (; i < result.entries.size() && responseSize <= maxSize; ++i) {
+            const NamespaceV2::ReaddirResult::Entry& entry =
+                result.entries[i];
+            NamespaceV2::LookupResult attr;
+            if (store.GetAttr(entry.childFid, attr) != 0) {
+                continue;
+            }
+            NamespaceV2RpcFattr fa;
+            fa.Set(attr);
+            const string& entryName = entry.key.name;
+            if (fa.id() == ROOTFID && entryName == "/") {
+                continue;
+            }
+            responseSize += entryName.length() +
+                (fa.type == KFS_DIR ? 148 : 272);
+            dentries.push_back(DEntry(fa, entryName));
+        }
+        if (maxSize < responseSize) {
+            if (numEntries < 0) {
+                status    = -ENOMEM;
+                statusMsg = "response exceeds max. size";
+                dentries.clear();
+                responseSize = 0;
+            } else if (i < result.entries.size()) {
+                hasMoreEntriesFlag = true;
+            }
+        }
+        ioBufPending = (int64_t)responseSize;
+        if (ioBufPending > 0) {
+            gLayoutManager.ChangeIoBufPending(ioBufPending);
+            maxRespSize = (int)max((int64_t)maxRespSize, ioBufPending +
+                IOBufferData::GetDefaultBufferSize());
+        }
+        return;
+    }
     vector<MetaDentry*>& res = GetReadDirTmpVec();
     if ((status = fnameStart.empty() ?
             metatree.readdir(dir, res,
@@ -2011,6 +2570,13 @@ MetaGetalloc::handle()
         return;
     }
     if (err) {
+        if (gLayoutManager.ScheduleTruncateToLastRecoverableChunk(
+                fid, chunkId, chunkOff_t(-1))) {
+            status    = -EAGAIN;
+            statusMsg = "truncating unrecoverable tail chunk: ";
+            AppendDecIntToString(statusMsg, chunkId);
+            return;
+        }
         status    = -EAGAIN;
         statusMsg = "no replicas available chunk: ";
         AppendDecIntToString(statusMsg, chunkId);
@@ -2111,6 +2677,13 @@ MetaGetlayout::handle()
             assert(! fa || cfa == fa);
             if (err && ! continueIfNoReplicasFlag) {
                 resp.Clear();
+                if (gLayoutManager.ScheduleTruncateToLastRecoverableChunk(
+                        fid, l.chunkId, chunkOff_t(-1))) {
+                    status    = -EAGAIN;
+                    statusMsg = "truncating unrecoverable tail chunk: ";
+                    AppendDecIntToString(statusMsg, l.chunkId);
+                    break;
+                }
                 status    = -EHOSTUNREACH;
                 statusMsg = "no replicas available chunk: ";
                 AppendDecIntToString(statusMsg, l.chunkId);
@@ -2182,6 +2755,9 @@ MetaAllocate::dispatch(ClientSM& sm)
 MetaAllocate::handle()
 {
     assert(! MetaRequest::next);
+    if (debugStartUsec <= 0) {
+        debugStartUsec = microseconds();
+    }
     suspended = false;
     if (startedFlag) {
         return;
@@ -2330,8 +2906,10 @@ MetaAllocate::handle()
         }
         return;
     }
+    debugBeforeLayoutUsec = microseconds();
     suspended = true;
     const int ret = gLayoutManager.AllocateChunk(*this, chunkBlock);
+    debugAfterLayoutUsec = microseconds();
     if (0 == ret) {
         return;
     }
@@ -2343,6 +2921,7 @@ MetaAllocate::handle()
 void
 MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
 {
+    debugLayoutDoneUsec = microseconds();
     suspended = false;
     if (0 == status) {
         // Check if all servers are still up, and didn't go down
@@ -2385,8 +2964,12 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     }
     if (0 == status) {
         assert(! MetaRequest::next);
+        debugLogStartUsec = microseconds();
         suspended = true;
         submit_request(new MetaLogChunkAllocate(this));
+        // This log request is submitted while processing another request, so it
+        // can bypass the client thread's end-of-batch log flush trigger.
+        GetLogWriter().ScheduleFlush();
         return;
     }
     const bool kCountAllocTimeFlag = true;
@@ -2609,6 +3192,30 @@ MetaAllocate::Done(bool countAllocTimeFlag, int64_t chunkAllocProcessTime)
         processTime += microseconds() - chunkAllocProcessTime;
     }
     if (! next) {
+        const int64_t now = microseconds();
+        const int64_t totalUsec = debugStartUsec > 0 ? now - debugStartUsec : 0;
+        if (100000 <= totalUsec) {
+            KFS_LOG_STREAM_INFO <<
+                "allocate timing:"
+                " seq: " << opSeqno <<
+                " fid: " << fid <<
+                " chunk: " << chunkId <<
+                " status: " << status <<
+                " total-usec: " << totalUsec <<
+                " pre-layout-usec: " <<
+                    (debugBeforeLayoutUsec > debugStartUsec ?
+                        debugBeforeLayoutUsec - debugStartUsec : 0) <<
+                " layout-call-usec: " <<
+                    (debugAfterLayoutUsec > debugBeforeLayoutUsec ?
+                        debugAfterLayoutUsec - debugBeforeLayoutUsec : 0) <<
+                " wait-chunk-usec: " <<
+                    (debugLayoutDoneUsec > debugAfterLayoutUsec ?
+                        debugLayoutDoneUsec - debugAfterLayoutUsec : 0) <<
+                " log-wait-usec: " <<
+                    (debugLogStartUsec > 0 ? now - debugLogStartUsec : 0) <<
+                " servers: " << servers.size() <<
+            KFS_LOG_EOM;
+        }
         submit_request(this);
         return;
     }
@@ -2938,6 +3545,9 @@ MetaRename::start()
     }
     if (0 == status) {
         mtime = microseconds();
+        if (IsNamespaceV2RpcEnabled()) {
+            namespaceV2LogFlag = true;
+        }
     }
     return (0 == status);
 }
@@ -2952,10 +3562,19 @@ MetaRename::handle()
         // renames are disabled in WORM mode: otherwise, we
         // ocould overwrite an existing file
         srcFid = -1;
-        bool const kToDumpsterFlag = true;
-        status = metatree.rename(dir, oldname, newname,
-            oldpath, overwrite && ! wormModeFlag, euser, egroup,
-            mtime, &srcFid, kToDumpsterFlag);
+        if (UseNamespaceV2RpcPath(*this)) {
+            NamespaceV2::TxnId txnId = 0;
+            status = GetNamespaceV2StoreLocked().Rename(dir, oldname,
+                newname, overwrite && ! wormModeFlag, &txnId, &srcFid);
+            if (status == 0 && txnId != 0) {
+                GetNamespaceV2StoreLocked().CommitThrough(txnId);
+            }
+        } else {
+            bool const kToDumpsterFlag = true;
+            status = metatree.rename(dir, oldname, newname,
+                oldpath, overwrite && ! wormModeFlag, euser, egroup,
+                mtime, &srcFid, kToDumpsterFlag);
+        }
         if (wormModeFlag && -EEXIST == status) {
             statusMsg = "worm mode";
             status    = -EPERM;
@@ -5050,6 +5669,9 @@ MetaAllocate::responseSelf(ReqOstream& os)
         (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
         (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << (0 == numReplicas ?
             -chunkVersion - 1 : chunkVersion) << "\r\n";
+    if (0 <= leaseId) {
+        os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") << leaseId << "\r\n";
+    }
     if (appendChunk) {
         os << (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
             offset << "\r\n";

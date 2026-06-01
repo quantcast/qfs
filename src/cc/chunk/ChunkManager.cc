@@ -102,7 +102,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     ChunkDirInfo()
         : ITimeout(),
           dirname(),
-          bufferedIoFlag(false),
+          bufferedIoFlag(true),
           storageTier(kKfsSTierUndef),
           usedSpace(0),
           availableSpace(-1),
@@ -1792,7 +1792,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     if (! IsStable()) {
         UpdateDirStableCount();
     }
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM_DEBUG <<
         "closing chunk " << chunkInfo.chunkId <<
         " version: "     << chunkInfo.chunkVersion <<
         " file handle: " << logFH <<
@@ -2126,7 +2126,7 @@ ChunkManager::ChunkManager()
       mMinPendingIoThreshold(8 << 20),
       mPlacementMaxWaitingAvgUsecsThreshold(5 * 60 * 1000 * 1000),
       mAllowSparseChunksFlag(true),
-      mBufferedIoFlag(false),
+      mBufferedIoFlag(true),
       mSyncChunkHeaderFlag(false),
       mCheckDirWritableFlag(true),
       mCheckDirTestWriteSize(16 << 10),
@@ -2156,6 +2156,8 @@ ChunkManager::ChunkManager()
       mDiskBufferManagerEnabledFlag(true),
       mForceVerifyDiskReadChecksumFlag(false),
       mWritePrepareReplyFlag(true),
+      mSkipWritePrepareChecksumVerifyFlag(false),
+      mLazyCreateOnWriteFlag(false),
       mCryptoKeys(globalNetManager(), 0),
       mFileSystemId(-1),
       mFileSystemIdSuffix(),
@@ -2577,6 +2579,12 @@ ChunkManager::SetParameters(const Properties& prop)
     mWritePrepareReplyFlag = prop.getValue(
         "chunkServer.debugTestWriteSync",
         mWritePrepareReplyFlag ? 0 : 1) == 0;
+    mSkipWritePrepareChecksumVerifyFlag = prop.getValue(
+        "chunkServer.skipWritePrepareChecksumVerify",
+        mSkipWritePrepareChecksumVerifyFlag ? 1 : 0) != 0;
+    mLazyCreateOnWriteFlag = prop.getValue(
+        "chunkServer.writeFlow.lazyCreateOnWrite",
+        mLazyCreateOnWriteFlag ? 1 : 0) != 0;
     mFsIdFileNamePrefix = prop.getValue(
         "chunkServer.fsIdFileNamePrefix", mFsIdFileNamePrefix);
     mDirCheckerIoTimeoutSec = prop.getValue(
@@ -2806,7 +2814,8 @@ ChunkManager::SetBufferedIo(const Properties& props)
                 break;
             }
         }
-        const bool bufferedIoFlag = pit != prefixes.end();
+        const bool bufferedIoFlag =
+            mBufferedIoFlag || (pit != prefixes.end());
         if (bufferedIoFlag != it->bufferedIoFlag) {
             it->bufferedIoFlag = bufferedIoFlag;
             if (it->availableSpace < 0 && ! it->dirLock) {
@@ -3176,7 +3185,7 @@ ChunkManager::AllocChunk(
         cih->Delete(mChunkInfoLists);
         return -EFAULT;
     }
-    KFS_LOG_STREAM_INFO << "creating chunk: " << MakeChunkPathname(cih) <<
+    KFS_LOG_STREAM_DEBUG << "creating chunk: " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
     int ret = OpenChunk(cih, O_RDWR | O_CREAT);
     if (ret < 0) {
@@ -3320,8 +3329,17 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
             return -EINVAL;
         }
     } else if (chunkVersion != cih->chunkInfo.chunkVersion) {
-        statusMsg = "version mismatch";
-        return -EINVAL;
+        if (! (mLazyCreateOnWriteFlag && ! appendFlag && ! cih->IsStable() &&
+                cih->chunkInfo.chunkVersion == 0 && chunkVersion > 0)) {
+            statusMsg = "version mismatch";
+            return -EINVAL;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "make stable lazy dirty chunk version remap:"
+            " chunk: " << chunkId <<
+            " local: " << cih->chunkInfo.chunkVersion <<
+            " target: " << chunkVersion <<
+        KFS_LOG_EOM;
     }
     if (cih->IsBeingReplicated()) {
         statusMsg = "chunk replication is in progress";
@@ -3598,9 +3616,21 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                     " " << op->Show() <<
                 KFS_LOG_EOM;
             } else {
+                const int64_t lazyDirtyRecoveredSize =
+                    (mLazyCreateOnWriteFlag && ! cih->IsStable() &&
+                        cih->chunkInfo.chunkVersion == 0 &&
+                        dci.chunkSize == 0 && cih->chunkInfo.chunkSize > 0) ?
+                    cih->chunkInfo.chunkSize : int64_t(-1);
                 cih->chunkInfo.SetChecksums(dci);
                 cih->chunkInfo.chunkFlags = dci.flags;
-                if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
+                if (0 <= lazyDirtyRecoveredSize) {
+                    KFS_LOG_STREAM_INFO <<
+                        "using dirty lazy-created chunk file size:"
+                        " chunk: " << cih->chunkInfo.chunkId <<
+                        " size: "  << lazyDirtyRecoveredSize <<
+                    KFS_LOG_EOM;
+                    cih->chunkInfo.chunkSize = lazyDirtyRecoveredSize;
+                } else if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
                     const int64_t extra =
                         cih->chunkInfo.chunkSize - dci.chunkSize;
                     if (0 <= cih->chunkInfo.chunkVersion) {
@@ -4442,7 +4472,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
         cih->UpdateDirStableCount();
     }
     KFS_LOG_STREAM(openFlag ?
-            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
+            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelDEBUG) <<
         (openFlag ? "open" : "create") <<
         " chunk file: "  << fn <<
         " file handle: " << reinterpret_cast<const void*>(cih->dataFH.get()) <<
@@ -4540,7 +4570,7 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
             ! cih->SyncMeta()) {
         Release(*cih);
     } else {
-        KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM_DEBUG <<
             "chunk: " << cih->chunkInfo.chunkId <<
             " version: " << cih->chunkInfo.chunkVersion <<
             " not released on close; might give up lease" <<
@@ -5659,13 +5689,37 @@ ChunkManager::RemoveDirtyChunks()
                     fileSystemId,
                     ioTimeSec,
                     readFlag)) {
-                const bool kStableFlag      = false;
-                const bool kForceDeleteFlag = true;
-                ScheduleCleanup(
-                    *it, fileId, chunkId, chunkVers,
-                    (int64_t)buf.st_size - (int64_t)KFS_CHUNK_HEADER_SIZE,
-                    kStableFlag, kForceDeleteFlag);
-                InsertLastInFlight(chunkId);
+                const int64_t dataSize =
+                    (int64_t)buf.st_size - (int64_t)KFS_CHUNK_HEADER_SIZE;
+                if (mLazyCreateOnWriteFlag) {
+                    const bool kStableFlag = false;
+                    ChunkInfoHandle* const cih =
+                        new ChunkInfoHandle(*it, kStableFlag);
+                    cih->chunkInfo.fileId       = fileId;
+                    cih->chunkInfo.chunkId      = chunkId;
+                    cih->chunkInfo.chunkVersion = chunkVers;
+                    cih->chunkInfo.chunkSize    = max(int64_t(0), dataSize);
+                    if (AddMapping(cih) == cih) {
+                        KFS_LOG_STREAM_INFO <<
+                            "preserving dirty lazy-created chunk:"
+                            " file: "    << fileId <<
+                            " chunk: "   << chunkId <<
+                            " version: " << chunkVers <<
+                            " size: "    << cih->chunkInfo.chunkSize <<
+                        KFS_LOG_EOM;
+                    } else {
+                        const bool kForceDeleteFlag = true;
+                        const bool kEvacuatedFlag   = false;
+                        MakeStale(*cih, kForceDeleteFlag, kEvacuatedFlag);
+                    }
+                } else {
+                    const bool kStableFlag      = false;
+                    const bool kForceDeleteFlag = true;
+                    ScheduleCleanup(
+                        *it, fileId, chunkId, chunkVers, dataSize,
+                        kStableFlag, kForceDeleteFlag);
+                    InsertLastInFlight(chunkId);
+                }
             } else {
                 KFS_LOG_STREAM_INFO <<
                     "cleaning out dirty chunk: " << name <<
@@ -6340,9 +6394,37 @@ ChunkManager::AllocateWriteId(
     const ServerLocation& peerLoc)
 {
     const bool kAddObjectBlockMappingFlag = false;
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(
+    ChunkInfoHandle* cih = GetChunkInfoHandle(
         wi->chunkId, wi->chunkVersion, kAddObjectBlockMappingFlag);
-    if (! cih) {
+    if (! cih && mLazyCreateOnWriteFlag && ! wi->isForRecordAppend &&
+            0 <= wi->fileId && 0 <= wi->chunkVersion) {
+        const bool kIsBeingReplicatedFlag = false;
+        const bool kMustExistFlag = false;
+        const int ret = AllocChunk(
+            wi->fileId,
+            wi->chunkId,
+            wi->chunkVersion,
+            kKfsSTierUndef,
+            kKfsSTierUndef,
+            kIsBeingReplicatedFlag,
+            &cih,
+            kMustExistFlag
+        );
+        if (ret < 0) {
+            wi->statusMsg = "lazy chunk create failed";
+            wi->status = ret;
+        } else {
+            wi->lazyChunkCreatedFlag = true;
+            KFS_LOG_STREAM_DEBUG <<
+                "lazy chunk create:"
+                " file: "    << wi->fileId <<
+                " chunk: "   << wi->chunkId <<
+                " version: " << wi->chunkVersion <<
+            KFS_LOG_EOM;
+        }
+    }
+    if (0 != wi->status) {
+    } else if (! cih) {
         wi->statusMsg = "no such chunk";
         wi->status = -EBADF;
     } else if (wi->chunkVersion != cih->chunkInfo.chunkVersion) {

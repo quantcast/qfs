@@ -41,6 +41,7 @@
 #include "MetaVrSM.h"
 #include "MetaVrLogSeq.h"
 #include "util.h"
+#include "NamespaceV2.h"
 
 #include "common/MdStream.h"
 #include "common/FdWriter.h"
@@ -168,6 +169,9 @@ Checkpoint::write(
         }
         if (status == 0 && os) {
             status = gNetDispatch.CheckpointCryptoKeys(os);
+        }
+        if (status == 0 && os && NamespaceV2::GetConfig().enabledFlag) {
+            status = NamespaceV2::GetStore().SaveCheckpointDiskEntry(os);
         }
         if (status == 0) {
             os << "worm/" << (getWORMMode() ? 1 : 0) << '\n';

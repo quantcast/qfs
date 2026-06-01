@@ -785,6 +785,16 @@ private:
     int                            mFileAttributeRevalidateTime;
     unsigned int                   mFileAttributeRevalidateScan;
     unsigned int                   mFAttrCacheGeneration;
+    size_t                         mMaxFAttrCacheSize;
+    int64_t                        mLookupRpcCount;
+    int64_t                        mLookupPathCacheQueryCount;
+    int64_t                        mLookupPathCacheHitCount;
+    int64_t                        mLookupPathCacheStaleCount;
+    int64_t                        mLookupPathCacheMissCount;
+    int64_t                        mLookupFidNameCacheQueryCount;
+    int64_t                        mLookupFidNameCacheHitCount;
+    int64_t                        mLookupFidNameCacheStaleCount;
+    int64_t                        mLookupFidNameCacheMissCount;
     TmpPath                        mTmpPath;
     string                         mTmpAbsPathStr;
     Path                           mTmpAbsPath;
@@ -855,7 +865,8 @@ private:
     bool IsValid(const FAttr& fa, time_t now) const
     {
         return (fa.generation == mFAttrCacheGeneration &&
-            now <= fa.validatedTime + mFileAttributeRevalidateTime);
+            (mFileAttributeRevalidateTime < 0 ||
+                now <= fa.validatedTime + mFileAttributeRevalidateTime));
     }
 
     void Shutdown();
@@ -887,6 +898,11 @@ private:
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
         bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier);
+    int CreateSelfResolved(const char *pathname, kfsFileId_t parentFid,
+        const string& filename, const string& path, int numReplicas,
+        bool exclusive, int numStripes, int numRecoveryStripes,
+        int stripeSize, int stripedType, bool forceTypeFlag, kfsMode_t mode,
+        kfsSTier_t minSTier, kfsSTier_t maxSTier);
     ssize_t SetReadAheadSize(FileTableEntry& inEntry, size_t inSize, bool optimalFlag = false);
     ssize_t SetIoBufferSize(FileTableEntry& entry, size_t size, bool optimalFlag = false);
     ssize_t SetOptimalIoBufferSize(FileTableEntry& entry, size_t size) {
@@ -978,6 +994,13 @@ private:
         kfsFileId_t parentFid, const string& name, FAttr*& fa,
         time_t now, const string& path);
     FAttr* LookupFattr(kfsFileId_t parentFid, const string& name);
+    void CacheCreatedEntry(
+        kfsFileId_t            parentFid,
+        const string&          name,
+        const string&          fullPath,
+        kfsFileId_t            fileId,
+        const Permissions&     perms,
+        bool                   isDirectory);
 
     // name -- is the last component of the pathname
     int AllocFileTableEntry(

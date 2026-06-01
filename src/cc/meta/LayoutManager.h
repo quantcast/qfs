@@ -1110,6 +1110,10 @@ public:
     void BeginMakeChunkStableDone(const MetaBeginMakeChunkStable& req);
     void LogMakeChunkStableDone(MetaLogMakeChunkStable& req);
     void MakeChunkStableDone(const MetaChunkMakeStable& req);
+    bool ScheduleTruncateToLastRecoverableChunk(
+        fid_t      fid,
+        chunkId_t  chunkId,
+        chunkOff_t chunkSize);
     void Handle(MetaLogMakeChunkStableDone& req);
     void ReplayPendingMakeStable(
         chunkId_t  chunkId,
@@ -2369,6 +2373,7 @@ protected:
 
     double        mMaxSpaceUtilizationThreshold;
     bool          mUseFsTotalSpaceFlag;
+    bool          mHdfsLikeAllocateFlag;
     int64_t       mChunkAllocMinAvailSpace;
 
     int64_t       mCompleteReplicationCheckInterval;

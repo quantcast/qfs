@@ -1041,6 +1041,8 @@ private:
         QCASSERT(mAllocOp.chunkId > 0 && ! mAllocOp.chunkServers.empty());
         Reset(mWriteIdAllocOp);
         mWriteIdAllocOp.chunkId           = mAllocOp.chunkId;
+        mWriteIdAllocOp.fileId            = mAllocOp.fid;
+        mWriteIdAllocOp.leaseId          = mAllocOp.leaseId;
         mWriteIdAllocOp.chunkVersion      = mAllocOp.chunkVersion;
         mWriteIdAllocOp.isForRecordAppend = true;
         mWriteIdAllocOp.chunkServerLoc    = mAllocOp.chunkServers;

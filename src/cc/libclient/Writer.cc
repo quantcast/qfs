@@ -31,6 +31,8 @@
 #include <sstream>
 #include <bitset>
 #include <string.h>
+#include <vector>
+#include <sys/time.h>
 
 #include "kfsio/IOBuffer.h"
 #include "kfsio/NetManager.h"
@@ -47,6 +49,7 @@
 #include "KfsOps.h"
 #include "KfsClient.h"
 #include "Monitor.h"
+#include "ClientPool.h"
 
 namespace KFS
 {
@@ -58,6 +61,13 @@ using std::max;
 using std::string;
 using std::ostream;
 using std::ostringstream;
+
+static int64_t WriterNowUsec()
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return int64_t(tv.tv_sec) * 1000000 + int64_t(tv.tv_usec);
+}
 
 // Kfs client write state machine implementation.
 class Writer::Impl :
@@ -92,7 +102,9 @@ public:
         int           inIdleTimeoutSec,
         int           inMaxWriteSize,
         const string& inLogPrefix,
-        int64_t       inChunkServerInitialSeqNum)
+        int64_t       inChunkServerInitialSeqNum,
+        ClientPool*   inClientPoolPtr,
+        bool          inParallelReplicaWriteFlag)
         : QCRefCountedObj(),
           ITimeout(),
           KfsNetClient::OpOwner(),
@@ -121,6 +133,8 @@ public:
           mOffset(0),
           mOpenChunkBlockSize(CHUNKSIZE),
           mChunkServerInitialSeqNum(inChunkServerInitialSeqNum),
+          mClientPoolPtr(inClientPoolPtr),
+          mParallelReplicaWriteFlag(inParallelReplicaWriteFlag),
           mCompletionPtr(inCompletionPtr),
           mBuffer(),
           mLogPrefix(inLogPrefix),
@@ -130,7 +144,9 @@ public:
           mOpStartTime(0),
           mCompletionDepthCount(0),
           mStriperProcessCount(0),
-          mStriperPtr(0)
+          mStriperPtr(0),
+          mCloseStartUsec(0),
+          mSetSizeStartUsec(0)
         { Writers::Init(mWriters); }
     int Open(
         kfsFileId_t inFileId,
@@ -214,6 +230,7 @@ public:
             return kErrorTryAgain;
         }
         mClosingFlag = true;
+        mCloseStartUsec = WriterNowUsec();
         return StartWrite();
     }
     Offset Write(
@@ -381,7 +398,29 @@ private:
             size_t         mBeginBlock;
             size_t         mEndBlock;
             time_t         mOpStartTime;
+            int64_t        mEnqueueUsec;
             bool           mChecksumValidFlag;
+            struct ParallelReplica
+            {
+                WritePrepareOp mPrepareOp;
+                IOBuffer       mBuffer;
+                KfsNetClient*  mClientPtr;
+                bool           mDoneFlag;
+                ParallelReplica()
+                    : mPrepareOp(0, 0, 0),
+                      mBuffer(),
+                      mClientPtr(0),
+                      mDoneFlag(false)
+                    {}
+            private:
+                ParallelReplica(const ParallelReplica&);
+                ParallelReplica& operator=(const ParallelReplica&);
+            };
+            typedef std::vector<ParallelReplica*> ParallelReplicas;
+            ParallelReplicas mParallelReplicas;
+            int            mParallelDoneCount;
+            int            mParallelStatus;
+            string         mParallelStatusMsg;
             WriteOp*       mPrevPtr[1];
             WriteOp*       mNextPtr[1];
 
@@ -393,8 +432,25 @@ private:
                   mBeginBlock(0),
                   mEndBlock(0),
                   mOpStartTime(0),
-                  mChecksumValidFlag(false)
+                  mEnqueueUsec(0),
+                  mChecksumValidFlag(false),
+                  mParallelReplicas(),
+                  mParallelDoneCount(0),
+                  mParallelStatus(0),
+                  mParallelStatusMsg()
                 { Queue::Init(*this); }
+            void ClearParallelReplicas()
+            {
+                for (ParallelReplicas::iterator it = mParallelReplicas.begin();
+                        it != mParallelReplicas.end();
+                        ++it) {
+                    delete *it;
+                }
+                mParallelReplicas.clear();
+                mParallelDoneCount = 0;
+                mParallelStatus = 0;
+                mParallelStatusMsg.clear();
+            }
             void Delete(
                 WriteOp** inListPtr)
             {
@@ -471,7 +527,7 @@ private:
             }
         private:
             virtual ~WriteOp()
-                {}
+                { ClearParallelReplicas(); }
             WriteOp(
                 const WriteOp& inWriteOp);
             WriteOp& operator=(
@@ -499,6 +555,7 @@ private:
                 // cancel all pending ops by calling Stop()
                 false // inResetConnectionOnOpTimeoutFlag
               ),
+              mChunkServerPtr(0),
               mErrorCode(0),
               mRetryCount(0),
               mPendingCount(0),
@@ -509,6 +566,16 @@ private:
               mAllocOp(0, 0, ""),
               mWriteIdAllocOp(0, 0, 0, 0, 0),
               mCloseOp(0, 0),
+              mParallelWriteIdReplicas(),
+              mParallelWriteIdDoneCount(0),
+              mParallelWriteIdStatus(0),
+              mParallelWriteIdStatusMsg(),
+              mParallelWriteIdStr(),
+              mParallelWritePrepReplySupportedFlag(true),
+              mParallelCloseReplicas(),
+              mParallelCloseDoneCount(0),
+              mParallelCloseStatus(0),
+              mParallelCloseStatusMsg(),
               mLastOpPtr(0),
               mSleepingFlag(false),
               mClosingFlag(false),
@@ -524,7 +591,10 @@ private:
               mChunkAccessExpireTime(0),
               mCSAccessExpireTime(0),
               mUpdateLeaseOp(0, -1, 0),
-              mSleepTimer(inOuter.mNetManager, *this)
+              mSleepTimer(inOuter.mNetManager, *this),
+              mChunkCloseStartUsec(0),
+              mWriteIdAllocStartUsec(0),
+              mAllocateStartUsec(0)
         {
             SET_HANDLER(this, &ChunkWriter::EventHandler);
             Queue::Init(mPendingQueue);
@@ -693,7 +763,7 @@ private:
                     }
                     return;
                 }
-                mChunkServer.Stop();
+                StopChunkServer();
                 if (mLastOpPtr == &mAllocOp) {
                     mOuter.mMetaServer.Cancel(mLastOpPtr, this);
                 }
@@ -713,7 +783,7 @@ private:
                 // Start from the beginning -- chunk allocation.
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "write lease expired: " <<
-                        mChunkServer.GetServerLocation() <<
+                        GetChunkServer().GetServerLocation() <<
                     " starting from chunk allocation, pending:" <<
                     " queue: " << (Queue::IsEmpty(mPendingQueue) ? "" : "not") <<
                         " empty" <<
@@ -798,9 +868,40 @@ private:
         typedef std::bitset<CHUNKSIZE / CHECKSUM_BLOCKSIZE> ChecksumBlocks;
         typedef NetManager::Timer                           Timer;
         enum { kLeaseRenewTime = LEASE_INTERVAL_SECS / 3 };
+        struct ParallelWriteIdReplica
+        {
+            WriteIdAllocOp mOp;
+            KfsNetClient*  mClientPtr;
+            bool           mDoneFlag;
+            ParallelWriteIdReplica()
+                : mOp(0, 0, 0, 0, 0),
+                  mClientPtr(0),
+                  mDoneFlag(false)
+                {}
+        private:
+            ParallelWriteIdReplica(const ParallelWriteIdReplica&);
+            ParallelWriteIdReplica& operator=(const ParallelWriteIdReplica&);
+        };
+        typedef std::vector<ParallelWriteIdReplica*> ParallelWriteIdReplicas;
+        struct ParallelCloseReplica
+        {
+            CloseOp       mOp;
+            KfsNetClient* mClientPtr;
+            bool          mDoneFlag;
+            ParallelCloseReplica()
+                : mOp(0, 0),
+                  mClientPtr(0),
+                  mDoneFlag(false)
+                {}
+        private:
+            ParallelCloseReplica(const ParallelCloseReplica&);
+            ParallelCloseReplica& operator=(const ParallelCloseReplica&);
+        };
+        typedef std::vector<ParallelCloseReplica*> ParallelCloseReplicas;
 
         Impl&          mOuter;
         ChunkServer    mChunkServer;
+        ChunkServer*   mChunkServerPtr;
         int            mErrorCode;
         int            mRetryCount;
         Offset         mPendingCount;
@@ -811,6 +912,16 @@ private:
         AllocateOp     mAllocOp;
         WriteIdAllocOp mWriteIdAllocOp;
         CloseOp        mCloseOp;
+        ParallelWriteIdReplicas mParallelWriteIdReplicas;
+        int            mParallelWriteIdDoneCount;
+        int            mParallelWriteIdStatus;
+        string         mParallelWriteIdStatusMsg;
+        string         mParallelWriteIdStr;
+        bool           mParallelWritePrepReplySupportedFlag;
+        ParallelCloseReplicas mParallelCloseReplicas;
+        int            mParallelCloseDoneCount;
+        int            mParallelCloseStatus;
+        string         mParallelCloseStatusMsg;
         KfsOp*         mLastOpPtr;
         bool           mSleepingFlag;
         bool           mClosingFlag;
@@ -829,12 +940,43 @@ private:
         Timer          mSleepTimer;
         WriteOp*       mPendingQueue[1];
         WriteOp*       mInFlightQueue[1];
+        int64_t        mChunkCloseStartUsec;
+        int64_t        mWriteIdAllocStartUsec;
+        int64_t        mAllocateStartUsec;
         ChunkWriter*   mPrevPtr[1];
         ChunkWriter*   mNextPtr[1];
 
         friend class QCDLListOp<ChunkWriter, 0>;
         typedef QCDLListOp<ChunkWriter, 0> ChunkWritersListOp;
 
+        void ClearParallelWriteIdReplicas()
+        {
+            for (ParallelWriteIdReplicas::iterator it =
+                        mParallelWriteIdReplicas.begin();
+                    it != mParallelWriteIdReplicas.end();
+                    ++it) {
+                delete *it;
+            }
+            mParallelWriteIdReplicas.clear();
+            mParallelWriteIdDoneCount = 0;
+            mParallelWriteIdStatus = 0;
+            mParallelWriteIdStatusMsg.clear();
+            mParallelWriteIdStr.clear();
+            mParallelWritePrepReplySupportedFlag = true;
+        }
+        void ClearParallelCloseReplicas()
+        {
+            for (ParallelCloseReplicas::iterator it =
+                        mParallelCloseReplicas.begin();
+                    it != mParallelCloseReplicas.end();
+                    ++it) {
+                delete *it;
+            }
+            mParallelCloseReplicas.clear();
+            mParallelCloseDoneCount = 0;
+            mParallelCloseStatus = 0;
+            mParallelCloseStatusMsg.clear();
+        }
         void UpdateLeaseExpirationTime()
         {
             mLeaseExpireTime = min(mLeaseEndTime,
@@ -875,6 +1017,7 @@ private:
             mOuter.mStats.mChunkAllocCount++;
             // Use 5x chunk op timeout for "allocation" that can require
             // chunk version change.
+            mAllocateStartUsec = WriterNowUsec();
             const int theMetaOpTimeout = mOuter.mMetaServer.GetOpTimeoutSec();
             EnqueueMeta(mAllocOp, 0, max(0, max(mOuter.mOpTimeoutSec,
                     5 * theMetaOpTimeout) - theMetaOpTimeout));
@@ -885,6 +1028,12 @@ private:
             IOBuffer*   inBufferPtr)
         {
             QCASSERT(&mAllocOp == &inOp && ! inBufferPtr);
+            if (0 < mAllocateStartUsec) {
+                mOuter.mStats.mAllocateUsec +=
+                    WriterNowUsec() - mAllocateStartUsec;
+                mOuter.mStats.mAllocateCount++;
+                mAllocateStartUsec = 0;
+            }
             if (inCanceledFlag) {
                 return;
             }
@@ -952,11 +1101,175 @@ private:
                 mAllocOp.invalidateAllFlag
             );
         }
+        bool CanParallelReplicaChunkOps() const
+        {
+            return (
+                mOuter.mParallelReplicaWriteFlag &&
+                mOuter.mClientPoolPtr &&
+                mAllocOp.chunkServers.size() > 1 &&
+                mAllocOp.chunkServerAccessToken.empty() &&
+                mAllocOp.chunkAccess.empty()
+            );
+        }
+        void CopyWriteIdAllocRequest(
+            WriteIdAllocOp& outOp,
+            const WriteIdAllocOp& inOp)
+        {
+            Reset(outOp);
+            outOp.chunkId                     = inOp.chunkId;
+            outOp.fileId                      = inOp.fileId;
+            outOp.leaseId                     = inOp.leaseId;
+            outOp.chunkVersion                = inOp.chunkVersion;
+            outOp.isForRecordAppend           = inOp.isForRecordAppend;
+            outOp.chunkServerLoc              = inOp.chunkServerLoc;
+            outOp.offset                      = inOp.offset;
+            outOp.numBytes                    = inOp.numBytes;
+            outOp.writePrepReplySupportedFlag = false;
+            outOp.noForwardFlag               = true;
+        }
+        bool TryParallelWriteIdAlloc()
+        {
+            if (! CanParallelReplicaChunkOps()) {
+                return false;
+            }
+            ClearParallelWriteIdReplicas();
+            mParallelWriteIdReplicas.reserve(mAllocOp.chunkServers.size());
+            for (vector<ServerLocation>::const_iterator it =
+                        mAllocOp.chunkServers.begin();
+                    it != mAllocOp.chunkServers.end();
+                    ++it) {
+                ParallelWriteIdReplica* const theReplicaPtr =
+                    new ParallelWriteIdReplica();
+                CopyWriteIdAllocRequest(theReplicaPtr->mOp, mWriteIdAllocOp);
+                theReplicaPtr->mClientPtr = &mOuter.mClientPoolPtr->Get(
+                    *it, mAllocOp.allCSShortRpcFlag);
+                mParallelWriteIdReplicas.push_back(theReplicaPtr);
+            }
+            mLastOpPtr = &mWriteIdAllocOp;
+            mWriteIdAllocStartUsec = WriterNowUsec();
+            for (ParallelWriteIdReplicas::iterator it =
+                        mParallelWriteIdReplicas.begin();
+                    it != mParallelWriteIdReplicas.end();
+                    ++it) {
+                EnqueueParallelWriteId(**it);
+            }
+            if (mParallelWriteIdDoneCount >=
+                    (int)mParallelWriteIdReplicas.size()) {
+                DoneParallelWriteIdAlloc();
+            }
+            return true;
+        }
+        void EnqueueParallelWriteId(
+            ParallelWriteIdReplica& inReplica)
+        {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "+> parallel " << inReplica.mOp.Show() <<
+            KFS_LOG_EOM;
+            mOuter.mStats.mChunkOpsQueuedCount++;
+            if (! inReplica.mClientPtr->Enqueue(&inReplica.mOp, this, 0)) {
+                inReplica.mOp.status = kErrorFault;
+                inReplica.mDoneFlag = true;
+                mParallelWriteIdDoneCount++;
+                if (mParallelWriteIdStatus == 0) {
+                    mParallelWriteIdStatus = kErrorFault;
+                    mParallelWriteIdStatusMsg =
+                        "parallel write id enqueue failure";
+                }
+            }
+        }
+        bool DoneParallelWriteIdAlloc(
+            KfsOp*    inOpPtr,
+            bool      inCanceledFlag,
+            IOBuffer* inBufferPtr)
+        {
+            if (mParallelWriteIdReplicas.empty()) {
+                return false;
+            }
+            for (ParallelWriteIdReplicas::iterator it =
+                        mParallelWriteIdReplicas.begin();
+                    it != mParallelWriteIdReplicas.end();
+                    ++it) {
+                if (&(*it)->mOp == inOpPtr) {
+                    return DoneParallelWriteIdAlloc(
+                        **it, inCanceledFlag, inBufferPtr);
+                }
+            }
+            return false;
+        }
+        bool DoneParallelWriteIdAlloc(
+            ParallelWriteIdReplica& inReplica,
+            bool                    inCanceledFlag,
+            IOBuffer*               inBufferPtr)
+        {
+            QCASSERT(! inBufferPtr);
+            if (inReplica.mDoneFlag) {
+                return false;
+            }
+            inReplica.mDoneFlag = true;
+            mParallelWriteIdDoneCount++;
+            if ((inCanceledFlag || inReplica.mOp.status < 0) &&
+                    mParallelWriteIdStatus == 0) {
+                mParallelWriteIdStatus =
+                    inCanceledFlag ? kErrorIo : inReplica.mOp.status;
+                mParallelWriteIdStatusMsg =
+                    inCanceledFlag ? "parallel write id canceled" :
+                        inReplica.mOp.statusMsg;
+            } else if (inReplica.mOp.status == 0) {
+                if (mWriteIdAllocOp.chunkAccessResponse.empty()) {
+                    mWriteIdAllocOp.chunkAccessResponse =
+                        inReplica.mOp.chunkAccessResponse;
+                    mWriteIdAllocOp.chunkServerAccessId =
+                        inReplica.mOp.chunkServerAccessId;
+                    mWriteIdAllocOp.chunkServerAccessKey =
+                        inReplica.mOp.chunkServerAccessKey;
+                    mWriteIdAllocOp.accessResponseIssued =
+                        inReplica.mOp.accessResponseIssued;
+                    mWriteIdAllocOp.accessResponseValidForSec =
+                        inReplica.mOp.accessResponseValidForSec;
+                }
+            }
+            if (mParallelWriteIdDoneCount <
+                    (int)mParallelWriteIdReplicas.size()) {
+                return true;
+            }
+            DoneParallelWriteIdAlloc();
+            return true;
+        }
+        void DoneParallelWriteIdAlloc()
+        {
+            if (mLastOpPtr == &mWriteIdAllocOp) {
+                mLastOpPtr = 0;
+            }
+            mWriteIdAllocOp.shortRpcFormatFlag = mAllocOp.allCSShortRpcFlag;
+            mWriteIdAllocOp.status = mParallelWriteIdStatus;
+            mWriteIdAllocOp.statusMsg = mParallelWriteIdStatusMsg;
+            mParallelWriteIdStr.clear();
+            mParallelWritePrepReplySupportedFlag = true;
+            for (ParallelWriteIdReplicas::const_iterator it =
+                        mParallelWriteIdReplicas.begin();
+                    it != mParallelWriteIdReplicas.end();
+                    ++it) {
+                if (! mParallelWriteIdStr.empty()) {
+                    mParallelWriteIdStr.append(" ");
+                }
+                mParallelWriteIdStr.append((*it)->mOp.writeIdStr);
+                mParallelWritePrepReplySupportedFlag =
+                    mParallelWritePrepReplySupportedFlag &&
+                    (*it)->mOp.writePrepReplySupportedFlag;
+            }
+            mWriteIdAllocOp.writeIdStr = mParallelWriteIdStr;
+            mWriteIdAllocOp.writePrepReplySupportedFlag =
+                mParallelWritePrepReplySupportedFlag;
+            Done(mWriteIdAllocOp, false, 0);
+        }
         void AllocateWriteId()
         {
             QCASSERT(mAllocOp.chunkId > 0 && ! mAllocOp.chunkServers.empty());
             Reset(mWriteIdAllocOp);
+            ClearParallelWriteIdReplicas();
             mWriteIdAllocOp.chunkId                     = mAllocOp.chunkId;
+            mWriteIdAllocOp.fileId                      = mOuter.mFileId;
+            mWriteIdAllocOp.leaseId                    = mAllocOp.leaseId;
             mWriteIdAllocOp.chunkVersion                = mAllocOp.chunkVersion;
             mWriteIdAllocOp.isForRecordAppend           = false;
             mWriteIdAllocOp.chunkServerLoc              = mAllocOp.chunkServers;
@@ -964,22 +1277,34 @@ private:
             mWriteIdAllocOp.numBytes                    = 0;
             mWriteIdAllocOp.writePrepReplySupportedFlag = false;
 
+            const ServerLocation& theMaster = mAllocOp.chunkServers.front();
+            if (mOuter.mClientPoolPtr) {
+                mChunkServerPtr = &mOuter.mClientPoolPtr->Get(
+                    theMaster, mAllocOp.allCSShortRpcFlag);
+            } else {
+                mChunkServerPtr = 0;
+                const ServerLocation theCurLoc = mChunkServer.GetServerLocation();
+                if (theCurLoc.IsValid() && theCurLoc != theMaster) {
+                    mChunkServer.Stop();
+                }
+                mChunkServer.SetRpcFormat(mAllocOp.allCSShortRpcFlag ?
+                    ChunkServer::kRpcFormatShort : ChunkServer::kRpcFormatLong);
+            }
+
             const time_t theNow = Now();
             mHasSubjectIdFlag = false;
             mChunkAccess.clear();
 
             const bool theCSClearTextAllowedFlag =
                 mOuter.IsChunkServerClearTextAllowed();
-            mChunkServer.SetShutdownSsl(
+            GetChunkServer().SetShutdownSsl(
                 mAllocOp.allowCSClearTextFlag &&
                 theCSClearTextAllowedFlag
             );
-            mChunkServer.SetRpcFormat(mAllocOp.allCSShortRpcFlag ?
-                ChunkServer::kRpcFormatShort : ChunkServer::kRpcFormatLong);
             if (mAllocOp.chunkServerAccessToken.empty() ||
                     mAllocOp.chunkAccess.empty()) {
-                mChunkServer.SetKey(0, 0, 0, 0);
-                mChunkServer.SetAuthContext(0);
+                GetChunkServer().SetKey(0, 0, 0, 0);
+                GetChunkServer().SetAuthContext(0);
                 if (! mAllocOp.chunkServerAccessToken.empty()) {
                     mWriteIdAllocOp.status    = -EINVAL;
                     mWriteIdAllocOp.statusMsg = "no chunk access";
@@ -995,7 +1320,7 @@ private:
                     mCSAccessExpireTime    = mChunkAccessExpireTime;
                 }
             } else {
-                mChunkServer.SetKey(
+                GetChunkServer().SetKey(
                     mAllocOp.chunkServerAccessToken.data(),
                     mAllocOp.chunkServerAccessToken.size(),
                     mAllocOp.chunkServerAccessKey.GetPtr(),
@@ -1019,19 +1344,23 @@ private:
                 if (mAllocOp.allowCSClearTextFlag &&
                         theCSClearTextAllowedFlag &&
                         mWriteIdAllocOp.createChunkServerAccessFlag) {
-                    mWriteIdAllocOp.decryptKey = &mChunkServer.GetSessionKey();
+                    mWriteIdAllocOp.decryptKey = &GetChunkServer().GetSessionKey();
                 }
-                if (! mChunkServer.GetAuthContext()) {
-                    mChunkServer.SetAuthContext(
+                if (! GetChunkServer().GetAuthContext()) {
+                    GetChunkServer().SetAuthContext(
                         mOuter.mMetaServer.GetAuthContext());
                 }
             }
             if (mWriteIdAllocOp.status == 0) {
                 const bool kCancelPendingOpsFlag = true;
-                if (mChunkServer.SetServer(
-                        mAllocOp.chunkServers[0],
+                if (mChunkServerPtr || mChunkServer.SetServer(
+                        theMaster,
                         kCancelPendingOpsFlag,
                         &mWriteIdAllocOp.statusMsg)) {
+                    if (TryParallelWriteIdAlloc()) {
+                        return;
+                    }
+                    mWriteIdAllocStartUsec = WriterNowUsec();
                     Enqueue(mWriteIdAllocOp);
                     return;
                 }
@@ -1068,7 +1397,7 @@ private:
             }
             if (0 < inOp.accessResponseValidForSec &&
                     ! inOp.chunkServerAccessId.empty()) {
-                mChunkServer.SetKey(
+                GetChunkServer().SetKey(
                     inOp.chunkServerAccessId.data(),
                     inOp.chunkServerAccessId.size(),
                     inOp.chunkServerAccessKey.GetPtr(),
@@ -1101,8 +1430,8 @@ private:
                 inOp.subjectId = mWriteIds.front().writeId;
             }
             if (inOp.createChunkServerAccessFlag &&
-                    mChunkServer.IsShutdownSsl()) {
-                inOp.decryptKey = &mChunkServer.GetSessionKey();
+                    GetChunkServer().IsShutdownSsl()) {
+                inOp.decryptKey = &GetChunkServer().GetSessionKey();
             }
             // Roll forward access time to indicate the request is in flight.
             // If op fails or times out, then write restarts from write id
@@ -1114,12 +1443,28 @@ private:
                 mCSAccessExpireTime = theNow + LEASE_INTERVAL_SECS * 3 / 2;
             }
         }
+        void SetAccess(
+            ChunkAccessOp&   inOp,
+            const WriteInfo& inWriteInfo,
+            bool             inCanRequestAccessFlag = true)
+        {
+            SetAccess(inOp, inCanRequestAccessFlag);
+            if (inOp.hasSubjectIdFlag) {
+                inOp.subjectId = inWriteInfo.writeId;
+            }
+        }
         void Done(
             WriteIdAllocOp& inOp,
             bool            inCanceledFlag,
             IOBuffer*       inBufferPtr)
         {
             QCASSERT(&mWriteIdAllocOp == &inOp && ! inBufferPtr);
+            if (0 < mWriteIdAllocStartUsec) {
+                mOuter.mStats.mWriteIdAllocUsec +=
+                    WriterNowUsec() - mWriteIdAllocStartUsec;
+                mOuter.mStats.mWriteIdAllocCount++;
+                mWriteIdAllocStartUsec = 0;
+            }
             mWriteIds.clear();
             if (inCanceledFlag) {
                 return;
@@ -1224,14 +1569,20 @@ private:
                 inWriteOp.mWritePrepareOp.replyRequestedFlag
             );
             if (inWriteOp.mWritePrepareOp.replyRequestedFlag) {
-                if (! inWriteOp.mChecksumValidFlag) {
+                if (inWriteOp.mWritePrepareOp.checksums.empty()) {
+                    inWriteOp.mWritePrepareOp.checksums = ComputeChecksums(
+                        &inWriteOp.mBuffer,
+                        inWriteOp.mWritePrepareOp.numBytes,
+                        &inWriteOp.mWritePrepareOp.checksum
+                    );
+                    inWriteOp.mChecksumValidFlag = true;
+                } else if (! inWriteOp.mChecksumValidFlag) {
                     inWriteOp.mWritePrepareOp.checksum = ComputeBlockChecksum(
                         &inWriteOp.mBuffer,
                         inWriteOp.mWritePrepareOp.numBytes
                     );
                     inWriteOp.mChecksumValidFlag = true;
                 }
-                inWriteOp.mWritePrepareOp.checksums.clear();
             } else {
                 if (inWriteOp.mWritePrepareOp.checksums.empty()) {
                     inWriteOp.mWritePrepareOp.checksums = ComputeChecksums(
@@ -1256,11 +1607,158 @@ private:
                 SetAccess(inWriteOp.mWriteSyncOp);
             }
             inWriteOp.mOpStartTime = Now();
+            inWriteOp.mEnqueueUsec = WriterNowUsec();
             Queue::Remove(mPendingQueue, inWriteOp);
             Queue::PushBack(mInFlightQueue, inWriteOp);
             mOuter.mStats.mOpsWriteCount++;
             mOuter.mStats.mOpsWriteByteCount += inWriteOp.contentLength;
+            if (TryParallelReplicaWrite(inWriteOp)) {
+                return;
+            }
             Enqueue(inWriteOp, &inWriteOp.mBuffer);
+        }
+        bool CanParallelReplicaWrite() const
+        {
+            return (
+                mOuter.mParallelReplicaWriteFlag &&
+                mOuter.mClientPoolPtr &&
+                mWriteIdAllocOp.writePrepReplySupportedFlag &&
+                mWriteIds.size() > 1 &&
+                mAllocOp.chunkServerAccessToken.empty() &&
+                mAllocOp.chunkAccess.empty()
+            );
+        }
+        bool TryParallelReplicaWrite(
+            WriteOp& inWriteOp)
+        {
+            if (! CanParallelReplicaWrite()) {
+                return false;
+            }
+            inWriteOp.ClearParallelReplicas();
+            inWriteOp.mParallelReplicas.reserve(mWriteIds.size());
+            for (WriteIds::const_iterator it = mWriteIds.begin();
+                    it != mWriteIds.end();
+                    ++it) {
+                WriteOp::ParallelReplica* const theReplicaPtr =
+                    new WriteOp::ParallelReplica();
+                WritePrepareOp& theOp = theReplicaPtr->mPrepareOp;
+                Reset(theOp);
+                theOp.chunkId            = inWriteOp.mWritePrepareOp.chunkId;
+                theOp.chunkVersion       =
+                    inWriteOp.mWritePrepareOp.chunkVersion;
+                theOp.offset             = inWriteOp.mWritePrepareOp.offset;
+                theOp.numBytes           = inWriteOp.mWritePrepareOp.numBytes;
+                theOp.contentLength      = inWriteOp.contentLength;
+                theOp.checksum           = inWriteOp.mWritePrepareOp.checksum;
+                theOp.checksums          = inWriteOp.mWritePrepareOp.checksums;
+                theOp.replyRequestedFlag = true;
+                theOp.noForwardFlag      = true;
+                theOp.writeInfo = mWriteIds;
+                SetAccess(theOp, *it, true);
+                theReplicaPtr->mBuffer.AppendShared(inWriteOp.mBuffer);
+                theReplicaPtr->mClientPtr = &mOuter.mClientPoolPtr->Get(
+                    it->serverLoc, mAllocOp.allCSShortRpcFlag);
+                inWriteOp.mParallelReplicas.push_back(theReplicaPtr);
+            }
+            for (WriteOp::ParallelReplicas::iterator it =
+                        inWriteOp.mParallelReplicas.begin();
+                    it != inWriteOp.mParallelReplicas.end();
+                    ++it) {
+                EnqueueParallelReplica(inWriteOp, **it);
+            }
+            if (inWriteOp.mParallelDoneCount >=
+                    (int)inWriteOp.mParallelReplicas.size()) {
+                inWriteOp.status = inWriteOp.mParallelStatus;
+                inWriteOp.statusMsg = inWriteOp.mParallelStatusMsg;
+                Done(inWriteOp, false, &inWriteOp.mBuffer);
+            }
+            return true;
+        }
+        void EnqueueParallelReplica(
+            WriteOp&                  inWriteOp,
+            WriteOp::ParallelReplica& inReplica)
+        {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "+> parallel " << inReplica.mPrepareOp.Show() <<
+                " buffer: " << static_cast<void*>(&inReplica.mBuffer) <<
+                "/" << inReplica.mBuffer.BytesConsumable() <<
+            KFS_LOG_EOM;
+            mOuter.mStats.mChunkOpsQueuedCount++;
+            if (! inReplica.mClientPtr->Enqueue(
+                    &inReplica.mPrepareOp,
+                    this,
+                    &inReplica.mBuffer)) {
+                inReplica.mPrepareOp.status = kErrorFault;
+                inReplica.mDoneFlag = true;
+                inWriteOp.mParallelDoneCount++;
+                if (inWriteOp.mParallelStatus == 0) {
+                    inWriteOp.mParallelStatus = kErrorFault;
+                    inWriteOp.mParallelStatusMsg = "parallel write enqueue failure";
+                }
+            }
+        }
+        bool DoneParallelReplica(
+            WriteOp&                  inWriteOp,
+            WriteOp::ParallelReplica& inReplica,
+            bool                      inCanceledFlag,
+            IOBuffer*                 inBufferPtr)
+        {
+            if (inReplica.mDoneFlag) {
+                return false;
+            }
+            QCASSERT(inBufferPtr == &inReplica.mBuffer);
+            inReplica.mDoneFlag = true;
+            inWriteOp.mParallelDoneCount++;
+            if ((inCanceledFlag || inReplica.mPrepareOp.status < 0) &&
+                    inWriteOp.mParallelStatus == 0) {
+                inWriteOp.mParallelStatus =
+                    inCanceledFlag ? kErrorIo :
+                        inReplica.mPrepareOp.status;
+                inWriteOp.mParallelStatusMsg =
+                    inCanceledFlag ? "parallel write canceled" :
+                        inReplica.mPrepareOp.statusMsg;
+            } else if (inReplica.mPrepareOp.status == 0 &&
+                    inWriteOp.mWritePrepareOp.chunkAccessResponse.empty()) {
+                inWriteOp.mWritePrepareOp.chunkAccessResponse =
+                    inReplica.mPrepareOp.chunkAccessResponse;
+                inWriteOp.mWritePrepareOp.chunkServerAccessId =
+                    inReplica.mPrepareOp.chunkServerAccessId;
+                inWriteOp.mWritePrepareOp.chunkServerAccessKey =
+                    inReplica.mPrepareOp.chunkServerAccessKey;
+                inWriteOp.mWritePrepareOp.accessResponseIssued =
+                    inReplica.mPrepareOp.accessResponseIssued;
+                inWriteOp.mWritePrepareOp.accessResponseValidForSec =
+                    inReplica.mPrepareOp.accessResponseValidForSec;
+            }
+            if (inWriteOp.mParallelDoneCount <
+                    (int)inWriteOp.mParallelReplicas.size()) {
+                return true;
+            }
+            inWriteOp.status = inWriteOp.mParallelStatus;
+            inWriteOp.statusMsg = inWriteOp.mParallelStatusMsg;
+            Done(inWriteOp, false, &inWriteOp.mBuffer);
+            return true;
+        }
+        bool DoneParallelReplica(
+            KfsOp*    inOpPtr,
+            bool      inCanceledFlag,
+            IOBuffer* inBufferPtr)
+        {
+            Queue::Iterator theIt(mInFlightQueue);
+            WriteOp* theWriteOpPtr;
+            while ((theWriteOpPtr = theIt.Next())) {
+                for (WriteOp::ParallelReplicas::iterator it =
+                            theWriteOpPtr->mParallelReplicas.begin();
+                        it != theWriteOpPtr->mParallelReplicas.end();
+                        ++it) {
+                    if (&(*it)->mPrepareOp == inOpPtr) {
+                        return DoneParallelReplica(
+                            *theWriteOpPtr, **it,
+                            inCanceledFlag, inBufferPtr);
+                    }
+                }
+            }
+            return false;
         }
         void Done(
             WriteOp&  inOp,
@@ -1282,12 +1780,18 @@ private:
                     Monitor::ReportError(
                             Monitor::kWriteOpError,
                             mOuter.mMetaServer.GetMetaServerLocation(),
-                            mChunkServer.GetServerLocation(),
+                            GetChunkServer().GetServerLocation(),
                             inOp.status);
                     mOpStartTime = inOp.mOpStartTime;
                     HandleError(inOp);
                 }
                 return;
+            }
+            if (0 < inOp.mEnqueueUsec) {
+                mOuter.mStats.mChunkWriteUsec +=
+                    WriterNowUsec() - inOp.mEnqueueUsec;
+                mOuter.mStats.mChunkWriteCount++;
+                inOp.mEnqueueUsec = 0;
             }
             const Offset theOffset    = inOp.mWritePrepareOp.offset;
             const Offset theDoneCount = inOp.mBuffer.BytesConsumable();
@@ -1349,10 +1853,121 @@ private:
             UpdateLeaseExpirationTime();
             StartWrite();
         }
+        bool TryParallelCloseChunk()
+        {
+            if (! CanParallelReplicaChunkOps() || mCloseOp.chunkVersion < 0 ||
+                    mCloseOp.writeInfo.empty()) {
+                return false;
+            }
+            ClearParallelCloseReplicas();
+            mParallelCloseReplicas.reserve(mCloseOp.writeInfo.size());
+            for (WriteIds::const_iterator it = mCloseOp.writeInfo.begin();
+                    it != mCloseOp.writeInfo.end();
+                    ++it) {
+                ParallelCloseReplica* const theReplicaPtr =
+                    new ParallelCloseReplica();
+                CloseOp& theOp = theReplicaPtr->mOp;
+                Reset(theOp);
+                theOp.chunkId       = mCloseOp.chunkId;
+                theOp.chunkVersion  = mCloseOp.chunkVersion;
+                theOp.writeInfo     = mCloseOp.writeInfo;
+                theOp.noForwardFlag = true;
+                SetAccess(theOp, *it, true);
+                theReplicaPtr->mClientPtr = &mOuter.mClientPoolPtr->Get(
+                    it->serverLoc, mAllocOp.allCSShortRpcFlag);
+                mParallelCloseReplicas.push_back(theReplicaPtr);
+            }
+            mLastOpPtr = &mCloseOp;
+            mChunkCloseStartUsec = WriterNowUsec();
+            for (ParallelCloseReplicas::iterator it =
+                        mParallelCloseReplicas.begin();
+                    it != mParallelCloseReplicas.end();
+                    ++it) {
+                EnqueueParallelClose(**it);
+            }
+            if (mParallelCloseDoneCount >=
+                    (int)mParallelCloseReplicas.size()) {
+                DoneParallelClose();
+            }
+            return true;
+        }
+        void EnqueueParallelClose(
+            ParallelCloseReplica& inReplica)
+        {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "+> parallel " << inReplica.mOp.Show() <<
+            KFS_LOG_EOM;
+            mOuter.mStats.mChunkOpsQueuedCount++;
+            if (! inReplica.mClientPtr->Enqueue(&inReplica.mOp, this, 0)) {
+                inReplica.mOp.status = kErrorFault;
+                inReplica.mDoneFlag = true;
+                mParallelCloseDoneCount++;
+                if (mParallelCloseStatus == 0) {
+                    mParallelCloseStatus = kErrorFault;
+                    mParallelCloseStatusMsg =
+                        "parallel close enqueue failure";
+                }
+            }
+        }
+        bool DoneParallelClose(
+            KfsOp*    inOpPtr,
+            bool      inCanceledFlag,
+            IOBuffer* inBufferPtr)
+        {
+            if (mParallelCloseReplicas.empty()) {
+                return false;
+            }
+            for (ParallelCloseReplicas::iterator it =
+                        mParallelCloseReplicas.begin();
+                    it != mParallelCloseReplicas.end();
+                    ++it) {
+                if (&(*it)->mOp == inOpPtr) {
+                    return DoneParallelClose(
+                        **it, inCanceledFlag, inBufferPtr);
+                }
+            }
+            return false;
+        }
+        bool DoneParallelClose(
+            ParallelCloseReplica& inReplica,
+            bool                  inCanceledFlag,
+            IOBuffer*             inBufferPtr)
+        {
+            QCASSERT(! inBufferPtr);
+            if (inReplica.mDoneFlag) {
+                return false;
+            }
+            inReplica.mDoneFlag = true;
+            mParallelCloseDoneCount++;
+            if ((inCanceledFlag || inReplica.mOp.status < 0) &&
+                    mParallelCloseStatus == 0) {
+                mParallelCloseStatus =
+                    inCanceledFlag ? kErrorIo : inReplica.mOp.status;
+                mParallelCloseStatusMsg =
+                    inCanceledFlag ? "parallel close canceled" :
+                        inReplica.mOp.statusMsg;
+            }
+            if (mParallelCloseDoneCount <
+                    (int)mParallelCloseReplicas.size()) {
+                return true;
+            }
+            DoneParallelClose();
+            return true;
+        }
+        void DoneParallelClose()
+        {
+            if (mLastOpPtr == &mCloseOp) {
+                mLastOpPtr = 0;
+            }
+            mCloseOp.status = mParallelCloseStatus;
+            mCloseOp.statusMsg = mParallelCloseStatusMsg;
+            Done(mCloseOp, false, 0);
+        }
         void CloseChunk()
         {
             QCASSERT(mAllocOp.chunkId > 0);
             Reset(mCloseOp);
+            ClearParallelCloseReplicas();
             mCloseOp.chunkId      = mAllocOp.chunkId;
             mCloseOp.chunkVersion = mAllocOp.chunkVersion;
             mCloseOp.writeInfo    = mWriteIds;
@@ -1362,6 +1977,9 @@ private:
                 mCloseOp.chunkServerLoc.clear();
             }
             SetAccess(mCloseOp);
+            if (TryParallelCloseChunk()) {
+                return;
+            }
             if (mCloseOp.chunkVersion < 0) {
                 // Extend timeout to accommodate object commit, possibly single
                 // atomic 64MB "object" write.
@@ -1377,10 +1995,11 @@ private:
                     " version: "             << mCloseOp.chunkVersion <<
                     " chunk close timeout: " << theTimeout << " sec." <<
                 KFS_LOG_EOM;
-                mChunkServer.SetOpTimeoutSec(theTimeout);
+                GetChunkServer().SetOpTimeoutSec(theTimeout);
             }
             mWriteIds.clear();
             mAllocOp.chunkId = -1;
+            mChunkCloseStartUsec = WriterNowUsec();
             Enqueue(mCloseOp);
         }
         void Done(
@@ -1389,9 +2008,15 @@ private:
             IOBuffer* inBufferPtr)
         {
             QCASSERT(&mCloseOp == &inOp && ! inBufferPtr);
+            if (0 < mChunkCloseStartUsec) {
+                mOuter.mStats.mChunkCloseUsec +=
+                    WriterNowUsec() - mChunkCloseStartUsec;
+                mOuter.mStats.mChunkCloseCount++;
+                mChunkCloseStartUsec = 0;
+            }
             if (mCloseOp.chunkVersion < 0) {
                 // Restore timeout, changed by CloseChunk().
-                mChunkServer.SetOpTimeoutSec(mOuter.mOpTimeoutSec);
+                GetChunkServer().SetOpTimeoutSec(mOuter.mOpTimeoutSec);
             }
             if (inCanceledFlag) {
                 return;
@@ -1408,7 +2033,10 @@ private:
             }
             mKeepLeaseFlag = false;
             mCloseOp.chunkId = -1;
+            const int64_t resetStartUsec = WriterNowUsec();
             Reset();
+            mOuter.mStats.mChunkResetUsec += WriterNowUsec() - resetStartUsec;
+            mOuter.mStats.mChunkResetCount++;
             StartWrite();
         }
         virtual void OpDone(
@@ -1449,12 +2077,21 @@ private:
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mWriteIdAllocOp == inOpPtr) {
                 Done(mWriteIdAllocOp, inCanceledFlag, inBufferPtr);
+            } else if (DoneParallelWriteIdAlloc(
+                    inOpPtr, inCanceledFlag, inBufferPtr)) {
+                return;
             } else if (&mAllocOp == inOpPtr) {
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mCloseOp == inOpPtr) {
                 Done(mCloseOp, inCanceledFlag, inBufferPtr);
+            } else if (DoneParallelClose(
+                    inOpPtr, inCanceledFlag, inBufferPtr)) {
+                return;
             } else if (&mUpdateLeaseOp == inOpPtr) {
                 Done(mUpdateLeaseOp, inCanceledFlag, inBufferPtr);
+            } else if (DoneParallelReplica(
+                    inOpPtr, inCanceledFlag, inBufferPtr)) {
+                return;
             } else if (inOpPtr && inOpPtr->op == CMD_WRITE) {
                 Done(*static_cast<WriteOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
@@ -1462,10 +2099,22 @@ private:
                 mOuter.InternalError("unexpected operation completion");
             }
         }
+        void StopChunkServer()
+        {
+            if (mChunkServerPtr) {
+                mChunkServerPtr->CancelAllWithOwner(this);
+                mChunkServerPtr = 0;
+            }
+            mChunkServer.Stop();
+        }
+        ChunkServer& GetChunkServer()
+            { return (mChunkServerPtr ? *mChunkServerPtr : mChunkServer); }
+        const ChunkServer& GetChunkServer() const
+            { return (mChunkServerPtr ? *mChunkServerPtr : mChunkServer); }
         void Enqueue(
             KfsOp&    inOp,
             IOBuffer* inBufferPtr = 0)
-            { EnqueueSelf(inOp, inBufferPtr, &mChunkServer, 0); }
+            { EnqueueSelf(inOp, inBufferPtr, &GetChunkServer(), 0); }
         void EnqueueMeta(
             KfsOp&    inOp,
             IOBuffer* inBufferPtr    = 0,
@@ -1480,7 +2129,9 @@ private:
             mWriteIds.clear();
             mAllocOp.chunkId = 0;
             mLastOpPtr       = 0;
-            mChunkServer.Stop();
+            StopChunkServer();
+            ClearParallelWriteIdReplicas();
+            ClearParallelCloseReplicas();
             QCASSERT(Queue::IsEmpty(mInFlightQueue));
             if (mSleepingFlag) {
                 mSleepTimer.RemoveTimeout();
@@ -1532,9 +2183,9 @@ private:
                 " status: "               << inOp.status    <<
                 " msg: "                  << inOp.statusMsg <<
                 " op: "                   << inOp.Show()    <<
-                " current chunk server: " << mChunkServer.GetServerLocation() <<
-                " chunkserver: "          << (mChunkServer.IsDataSent() ?
-                    (mChunkServer.IsAllDataSent() ? "all" : "partial") :
+                " current chunk server: " << GetChunkServer().GetServerLocation() <<
+                " chunkserver: "          << (GetChunkServer().IsDataSent() ?
+                    (GetChunkServer().IsAllDataSent() ? "all" : "partial") :
                     "no") << " data sent" <<
                 " retry: "                << mRetryCount <<
                 "\nRequest:\n"            << theOStream.str() <<
@@ -1757,6 +2408,8 @@ private:
     Offset              mOffset;
     Offset              mOpenChunkBlockSize;
     int64_t             mChunkServerInitialSeqNum;
+    ClientPool* const   mClientPoolPtr;
+    const bool          mParallelReplicaWriteFlag;
     Completion*         mCompletionPtr;
     IOBuffer            mBuffer;
     string const        mLogPrefix;
@@ -1768,6 +2421,8 @@ private:
     int                 mCompletionDepthCount;
     int                 mStriperProcessCount;
     Striper*            mStriperPtr;
+    int64_t             mCloseStartUsec;
+    int64_t             mSetSizeStartUsec;
     ChunkWriter*        mWriters[1];
 
     void InternalError(
@@ -1872,6 +2527,7 @@ private:
         mTruncateOp.fid        = mFileId;
         mTruncateOp.fileOffset = theSize;
         mTruncateOp.status     = 0;
+        mSetSizeStartUsec   = WriterNowUsec();
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "meta +> " << mTruncateOp.Show() <<
         KFS_LOG_EOM;
@@ -1895,6 +2551,11 @@ private:
         QCASSERT(inOpPtr == &mTruncateOp);
         if (inOpPtr != &mTruncateOp) {
             return;
+        }
+        if (0 < mSetSizeStartUsec) {
+            mStats.mSetSizeUsec += WriterNowUsec() - mSetSizeStartUsec;
+            mStats.mSetSizeCount++;
+            mSetSizeStartUsec = 0;
         }
         mTruncateOp.pathname = 0;
         mTruncateOp.fid      = -1;
@@ -2121,6 +2782,11 @@ private:
             if (mClosingFlag && Writers::IsEmpty(mWriters) && ! mSleepingFlag) {
                 SetFileSize();
                 if (mTruncateOp.fid < 0 && ! mSleepingFlag) {
+                    if (0 < mCloseStartUsec) {
+                        mStats.mCloseUsec += WriterNowUsec() - mCloseStartUsec;
+                        mStats.mCloseCount++;
+                        mCloseStartUsec = 0;
+                    }
                     mClosingFlag = false;
                     mFileId = -1;
                     Striper* const theStriperPtr = mStriperPtr;
@@ -2214,7 +2880,9 @@ Writer::Writer(
     int                 inIdleTimeoutSec,
     int                 inMaxWriteSize,
     const char*         inLogPrefixPtr,
-    int64_t             inChunkServerInitialSeqNum)
+    int64_t             inChunkServerInitialSeqNum,
+    ClientPool*         inClientPoolPtr,
+    bool                inParallelReplicaWriteFlag)
     : mImpl(*new Writer::Impl(
         *this,
         inMetaServer,
@@ -2228,7 +2896,9 @@ Writer::Writer(
         inMaxWriteSize,
         (inLogPrefixPtr && inLogPrefixPtr[0]) ?
             (inLogPrefixPtr + string(" ")) : string(),
-        inChunkServerInitialSeqNum
+        inChunkServerInitialSeqNum,
+        inClientPoolPtr,
+        inParallelReplicaWriteFlag
     ))
 {
     mImpl.Ref();

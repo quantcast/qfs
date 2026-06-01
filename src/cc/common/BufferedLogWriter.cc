@@ -316,7 +316,7 @@ public:
             return;
         }
         mRunFlag = true;
-        const int kStackSize = 64 << 10;
+        const int kStackSize = 256 << 10;
         mThread.Start(this, kStackSize, 0,
             QCThread::CpuAffinity(mCpuAffinityIndex));
     }

@@ -125,12 +125,7 @@ QCThread::~QCThread()
     QCThread::Join();
 }
 
-const int kMinThreadStackSize =
-#ifdef PTHREAD_STACK_MIN
-    PTHREAD_STACK_MIN + (4 << 10);
-#else
-    (8 << 10);
-#endif
+const int kMinThreadStackSize = 256 << 10;
 
     int
 QCThread::TryToStart(

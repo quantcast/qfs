@@ -290,6 +290,7 @@ int ChunkServer::sMakeStableTimeout        = 330;
 int ChunkServer::sReplicationTimeout       = 510;
 int ChunkServer::sRequestTimeout           = 600;
 int ChunkServer::sMetaClientPort           = 0;
+bool ChunkServer::sSkipChunkAllocateInFlightLogFlag = false;
 int ChunkServer::sTimedoutExpireTime       = 10;
 size_t ChunkServer::sMaxChunksToEvacuate  = 2 << 10; // Max queue size
 // sHeartbeatInterval * sSrvLoadSamplerSampleCount -- boxcar FIR filter
@@ -399,6 +400,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sMaxPendingOpsCount = max(8, prop.getValue(
         "metaServer.chunkServer.maxPendingOpsCount",
         sMaxPendingOpsCount));
+    sSkipChunkAllocateInFlightLogFlag = prop.getValue(
+        "metaServer.chunkServer.skipChunkAllocateInFlightLog",
+        sSkipChunkAllocateInFlightLogFlag ? 1 : 0) != 0;
     if (clientPort > 0) {
         sMetaClientPort = clientPort;
     }
@@ -2203,6 +2207,30 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         op->status = -KfsToSysErrno(-op->status);
     }
     op->handleReply(prop);
+    if (op->op == META_CHUNK_ALLOCATE) {
+        const int64_t nowUsec = microseconds();
+        const int64_t submitUsec = op->submitTime;
+        const int64_t elapsedUsec = submitUsec > 0 ?
+            nowUsec - submitUsec : 0;
+        const MetaChunkAllocate* const allocOp =
+            static_cast<const MetaChunkAllocate*>(op);
+        const int64_t allocWaitUsec = allocOp->req &&
+                allocOp->req->debugAfterLayoutUsec > 0 ?
+            nowUsec - allocOp->req->debugAfterLayoutUsec : 0;
+        if (100000 <= allocWaitUsec || 100000 <= elapsedUsec) {
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
+                " meta-chunk-allocate reply timing:"
+                " seq: " << op->opSeqno <<
+                " chunk: " << op->chunkId <<
+                " status: " << op->status <<
+                " submit-to-reply-usec: " << elapsedUsec <<
+                " layout-to-reply-usec: " << allocWaitUsec <<
+                " process-usec: " << op->processTime <<
+                " msg-len: " << msgLen <<
+                " recursion: " << mRecursionCount <<
+            KFS_LOG_EOM;
+        }
+    }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " cs-reply:"
         " -seq: "   << op->opSeqno <<
@@ -2663,7 +2691,9 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
             req.inFlightIt = sChunkOpsInFlight.insert(
                 make_pair(chunkIdInFlight, &req));
         }
-        if (! req.replayFlag) {
+        if (! req.replayFlag &&
+                (! sSkipChunkAllocateInFlightLogFlag ||
+                    META_CHUNK_ALLOCATE != req.op)) {
             mLogInFlightCount++;
             if (MetaChunkLogInFlight::Log(req, timeout, removeReplicaFlag)) {
                 return;

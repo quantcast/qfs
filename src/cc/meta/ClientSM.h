@@ -105,6 +105,8 @@ public:
     bool Handle(MetaAllocate& op);
     int& GetLogQueueCounter()
         { return mLogQueueCounter; }
+    ClientManager::ClientThread* GetClientThread() const
+        { return mClientThread; }
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;

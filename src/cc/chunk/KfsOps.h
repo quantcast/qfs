@@ -510,6 +510,10 @@ struct AllocChunkOp : public KfsOp {
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
     DiskIoPtr             diskIo;
+    int64_t               debugStartUsec;
+    int64_t               debugBeforeAllocUsec;
+    int64_t               debugAfterAllocUsec;
+    int64_t               debugDiskWaitStartUsec;
 
     AllocChunkOp()
         : KfsOp(CMD_ALLOC_CHUNK),
@@ -530,7 +534,11 @@ struct AllocChunkOp : public KfsOp {
           contentLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
-          diskIo()
+          diskIo(),
+          debugStartUsec(0),
+          debugBeforeAllocUsec(0),
+          debugAfterAllocUsec(0),
+          debugDiskWaitStartUsec(0)
         {}
     void Execute();
     // handlers for reading/writing out the chunk meta-data
@@ -1012,6 +1020,7 @@ struct RetireOp : public KfsOp {
 struct CloseOp : public KfsClientChunkOp {
     uint32_t              numServers;      // input
     bool                  needAck;         // input: when set, this RPC is ack'ed
+    bool                  noForwardFlag;   // input: do not forward to peer
     bool                  hasWriteId;      // input
     int64_t               masterCommitted; // input
     StringBufT<256>       servers;         // input: set of servers on which to chunk is to be closed
@@ -1024,6 +1033,7 @@ struct CloseOp : public KfsClientChunkOp {
         : KfsClientChunkOp(CMD_CLOSE),
           numServers           (0u),
           needAck              (true),
+          noForwardFlag        (false),
           hasWriteId           (false),
           masterCommitted      ((int64_t)-1),
           servers              (),
@@ -1036,6 +1046,7 @@ struct CloseOp : public KfsClientChunkOp {
         : KfsClientChunkOp(CMD_CLOSE),
           numServers           (op.numServers),
           needAck              (op.needAck),
+          noForwardFlag        (op.noForwardFlag),
           hasWriteId           (op.hasWriteId),
           masterCommitted      (op.masterCommitted),
           servers              (op.servers),
@@ -1089,6 +1100,7 @@ struct CloseOp : public KfsClientChunkOp {
         .Def2("Num-servers",      "R",  &CloseOp::numServers)
         .Def2("Servers",          "S",  &CloseOp::servers)
         .Def2("Need-ack",         "A",  &CloseOp::needAck,         true)
+        .Def2("No-forward",       "NF", &CloseOp::noForwardFlag,  false)
         .Def2("Has-write-id",     "W",  &CloseOp::hasWriteId,      false)
         .Def2("Master-committed", "M",  &CloseOp::masterCommitted, int64_t(-1))
         .Def2("C-access-length",  "AL", &CloseOp::chunkAccessLength)
@@ -1238,6 +1250,8 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
 };
 
 struct WriteIdAllocOp : public ChunkAccessRequestOp {
+    kfsFileId_t           fileId;
+    int64_t               leaseId;
     kfsSeq_t              clientSeq;         /* input */
     int64_t               offset;            /* input */
     size_t                numBytes;          /* input */
@@ -1246,15 +1260,19 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     StringBufT<256>       servers;           /* input: set of servers on which to write */
     WriteIdAllocOp*       fwdedOp;           /* if we did any fwd'ing, this is the op that tracks it */
     bool                  isForRecordAppend; /* set if the write-id-alloc is for a record append that will follow */
-    bool                  writePrepareReplyFlag; /* write prepare reply supported */
+    bool                  writePrepareReplyFlag;
+    bool                  noForwardFlag;
     bool                  peerShortRpcFormatFlag;
     int                   contentLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
     RemoteSyncSMPtr       appendPeer;
+    bool                  lazyChunkCreatedFlag;
 
     WriteIdAllocOp()
         : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC),
+          fileId(-1),
+          leaseId(-1),
           clientSeq(-1),
           offset(0),
           numBytes(0),
@@ -1264,14 +1282,18 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           fwdedOp(0),
           isForRecordAppend(false),
           writePrepareReplyFlag(true),
+          noForwardFlag(false),
           peerShortRpcFormatFlag(false),
           contentLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
-          appendPeer()
+          appendPeer(),
+          lazyChunkCreatedFlag(false)
         { SET_HANDLER(this, &WriteIdAllocOp::Done); }
     WriteIdAllocOp(const WriteIdAllocOp& other)
         : ChunkAccessRequestOp(CMD_WRITE_ID_ALLOC),
+          fileId(other.fileId),
+          leaseId(other.leaseId),
           clientSeq(other.clientSeq),
           offset(other.offset),
           numBytes(other.numBytes),
@@ -1280,11 +1302,13 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
           fwdedOp(0),
           isForRecordAppend(other.isForRecordAppend),
           writePrepareReplyFlag(other.writePrepareReplyFlag),
+          noForwardFlag(other.noForwardFlag),
           peerShortRpcFormatFlag(false),
           contentLength(other.contentLength),
           chunkAccessLength(other.chunkAccessLength),
           syncReplicationAccess(other.syncReplicationAccess),
-          appendPeer()
+          appendPeer(),
+          lazyChunkCreatedFlag(false)
     {
         chunkId                   = other.chunkId;
         chunkVersion              = other.chunkVersion;
@@ -1306,6 +1330,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     // write-id alloc op as a hint to page the data back in---writes
     // are coming.
     void ReadChunkMetadata();
+    int WriteLazyCreatedChunkMetadata();
 
     void ForwardToPeer(
         const ServerLocation& loc,
@@ -1349,6 +1374,8 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return ChunkAccessRequestOp::ParserDef(parser)
+        .Def2("File-handle",         "P",  &WriteIdAllocOp::fileId, kfsFileId_t(-1))
+        .Def2("Lease-id",            "L",  &WriteIdAllocOp::leaseId, int64_t(-1))
         .Def2("Offset",              "O",  &WriteIdAllocOp::offset)
         .Def2("Num-bytes",           "B",  &WriteIdAllocOp::numBytes)
         .Def2("Num-servers",         "R",  &WriteIdAllocOp::numServers)
@@ -1356,6 +1383,7 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
         .Def2("For-record-append",   "A",  &WriteIdAllocOp::isForRecordAppend, false)
         .Def2("Client-cseq",         "Cc", &WriteIdAllocOp::clientSeq)
         .Def2("Write-prepare-reply", "WR", &WriteIdAllocOp::writePrepareReplyFlag)
+        .Def2("No-forward",          "NF", &WriteIdAllocOp::noForwardFlag, false)
         .Def2("Content-length",      "l",  &WriteIdAllocOp::contentLength, 0)
         .Def2("C-access-length",     "AL", &WriteIdAllocOp::chunkAccessLength)
         ;
@@ -1369,6 +1397,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     uint32_t              checksum;   /* input: as computed by the sender; 0 means sender didn't send */
     StringBufT<256>       servers;    /* input: set of servers on which to write */
     bool                  replyRequestedFlag;
+    bool                  noForwardFlag;
     int                   accessFwdLength;
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
@@ -1378,6 +1407,8 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     uint32_t              numDone;    // sub/forwarding ops count
     BufferManager*        devBufMgr;
     uint32_t              receivedChecksum;
+    int                   checksumsCnt;
+    TokenValue            checksumsVal;
     vector<uint32_t>      blocksChecksums;
 
     WritePrepareOp()
@@ -1388,6 +1419,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
           checksum(0),
           servers(),
           replyRequestedFlag(false),
+          noForwardFlag(false),
           accessFwdLength(0),
           chunkAccessLength(0),
           syncReplicationAccess(),
@@ -1397,6 +1429,8 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
           numDone(0),
           devBufMgr(0),
           receivedChecksum(0),
+          checksumsCnt(0),
+          checksumsVal(),
           blocksChecksums()
         { SET_HANDLER(this, &WritePrepareOp::Done); }
     ~WritePrepareOp();
@@ -1407,6 +1441,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         return syncReplicationAccess.Parse(
             is, chunkAccessLength, accessFwdLength);
     }
+    bool Validate();
     void Response(ReqOstream& os);
     void Execute();
     void ForwardToPeer(
@@ -1439,7 +1474,10 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         .Def2("Num-servers",       "R",  &WritePrepareOp::numServers)
         .Def2("Servers",           "S",  &WritePrepareOp::servers)
         .Def2("Checksum",          "K",  &WritePrepareOp::checksum)
+        .Def2("Checksum-entries", "KC", &WritePrepareOp::checksumsCnt)
+        .Def2("Checksums",        "Ks", &WritePrepareOp::checksumsVal)
         .Def2("Reply",             "RR", &WritePrepareOp::replyRequestedFlag)
+        .Def2("No-forward",        "NF", &WritePrepareOp::noForwardFlag, false)
         .Def2("Access-fwd-length", "AF", &WritePrepareOp::accessFwdLength, 0)
         .Def2("C-access-length",   "AL", &WritePrepareOp::chunkAccessLength)
         ;
@@ -1583,6 +1621,7 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
     uint32_t                  numServers;
     StringBufT<256>           servers;
     WriteSyncOp*              fwdedOp;
+    bool                      noForwardFlag;
     WriteOp*                  writeOp; // the underlying write that needs to be pushed to disk
     uint32_t                  numDone; // if we did forwarding, we wait for
                                        // local/remote to be done; otherwise, we only
@@ -1650,6 +1689,7 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
         .Def2("Servers",          "S",  &WriteSyncOp::servers)
         .Def2("Checksum-entries", "KC", &WriteSyncOp::checksumsCnt)
         .Def2("Checksums",        "K",  &WriteSyncOp::checksumsVal)
+        .Def2("No-forward",       "NF", &WriteSyncOp::noForwardFlag, false)
         .Def2("Content-length",   "l",  &WriteSyncOp::contentLength, 0)
         .Def2("C-access-length",  "AL", &WriteSyncOp::chunkAccessLength)
         ;

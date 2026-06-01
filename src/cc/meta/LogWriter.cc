@@ -28,6 +28,7 @@
 #include "LogWriter.h"
 #include "LogTransmitter.h"
 #include "MetaRequest.h"
+#include "NetDispatch.h"
 #include "MetaDataStore.h"
 #include "MetaVrSM.h"
 #include "MetaVrLogSeq.h"
@@ -47,6 +48,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
 #include "kfsio/checksum.h"
+#include "kfsio/Base64.h"
 #include "kfsio/PrngIsaac64.h"
 #include "kfsio/NetErrorSimulator.h"
 #include "kfsio/NetManagerWatcher.h"
@@ -1322,6 +1324,236 @@ private:
             mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
         }
     }
+    void SubmitDoneRequest(
+        MetaRequest& inReq,
+        int64_t      inStartTime,
+        bool&        ioFirstItemFlag)
+    {
+        const int64_t theUsecsNow = ioFirstItemFlag ?
+            inStartTime : microseconds();
+        ioFirstItemFlag = false;
+        if (META_LOG_WRITER_CONTROL != inReq.op) {
+            if (0 == inReq.status) {
+                mLogTimeUsec += inStartTime - inReq.submitTime;
+                mLogTimeOpsCount++;
+            } else {
+                mLogErrorOpsCount++;
+            }
+        }
+        inReq.Submit(theUsecsNow);
+    }
+    void SubmitDoneBatch(
+        vector<MetaRequest*>& inBatch,
+        int64_t               inStartTime,
+        bool&                 ioFirstItemFlag)
+    {
+        if (inBatch.empty()) {
+            return;
+        }
+        const int64_t theUsecsNow = ioFirstItemFlag ?
+            inStartTime : microseconds();
+        ioFirstItemFlag = false;
+        for (vector<MetaRequest*>::iterator it = inBatch.begin();
+                it != inBatch.end();
+                ++it) {
+            MetaRequest& req = **it;
+            if (META_LOG_WRITER_CONTROL != req.op) {
+                if (0 == req.status) {
+                    mLogTimeUsec += inStartTime - req.submitTime;
+                    mLogTimeOpsCount++;
+                } else {
+                    mLogErrorOpsCount++;
+                }
+            }
+            (void)theUsecsNow;
+            if (req.commitPendingFlag) {
+                RequestCommitted(req, fileID.getseed());
+            }
+        }
+        gNetDispatch.DispatchBatch(
+            &inBatch.front(), inBatch.size());
+    }
+    bool IsNamespaceV2CreateIdsLoggable(
+        const MetaRequest& inReq) const
+    {
+        return inReq.NeedsNamespaceV2CreateIds() &&
+            ((MetaRequest::kLogIfOk == inReq.logAction &&
+                0 == inReq.status) ||
+            MetaRequest::kLogAlways == inReq.logAction);
+    }
+    void ReserveNamespaceV2CreateIdsBatch(
+        MetaRequest& inReq)
+    {
+        if (! IsNamespaceV2CreateIdsLoggable(inReq)) {
+            return;
+        }
+        size_t count = 0;
+        for (MetaRequest* ptr = &inReq; ptr &&
+                count < (size_t)mMaxBlockSize &&
+                IsNamespaceV2CreateIdsLoggable(*ptr);
+                ptr = ptr->next) {
+            ++count;
+        }
+        fid_t firstFid = -1;
+        uint64_t firstTxnId = 0;
+        MetaRequest::ReserveNamespaceV2CreateIdsBatch(
+            count, firstFid, firstTxnId);
+        for (MetaRequest* ptr = &inReq; count > 0;
+                ptr = ptr->next, --count, ++firstFid, ++firstTxnId) {
+            if (! ptr || ! ptr->SetNamespaceV2CreateIds(
+                    firstFid, firstTxnId)) {
+                panic("namespace v2 create id batch reserve failed");
+            }
+        }
+    }
+    void FlushNamespaceV2Batch(
+        vector<MetaRequest*>& inBatch,
+        int64_t               inStartTime,
+        bool&                 ioFirstItemFlag)
+    {
+        if (inBatch.empty()) {
+            return;
+        }
+        uint64_t firstTxnId = 0;
+        uint64_t lastTxnId = 0;
+        for (vector<MetaRequest*>::iterator it = inBatch.begin();
+                it != inBatch.end();
+                ++it) {
+            MetaRequest& req = **it;
+            req.ApplyNamespaceV2Batch(false);
+            if (firstTxnId == 0) {
+                firstTxnId = req.GetNamespaceV2BatchTxnId();
+            }
+            lastTxnId = req.GetNamespaceV2BatchTxnId();
+        }
+        MetaRequest::CommitNamespaceV2Batch(firstTxnId, lastTxnId);
+        SubmitDoneBatch(inBatch, inStartTime, ioFirstItemFlag);
+        inBatch.clear();
+    }
+
+    enum { kNamespaceV2WalBatchMaxCount = 64 };
+
+    bool IsNamespaceV2WalBatchable(
+        const MetaRequest& inReq) const
+    {
+        // Only batch create / mkdir with pre-reserved namespace v2 ids.
+        // Other ops keep the per-record format.
+        return IsNamespaceV2CreateIdsLoggable(inReq) &&
+            (META_CREATE == inReq.op || META_MKDIR == inReq.op);
+    }
+
+    template<typename T>
+    static void AppendLe(std::string& out, T v)
+    {
+        for (size_t i = 0; i < sizeof(T); i++) {
+            out.push_back((char)((uint64_t)v >> (i * 8)));
+        }
+    }
+
+    static void AppendBytes(std::string& out, const char* data, size_t len)
+    {
+        out.append(data, len);
+    }
+
+    bool WriteNamespaceV2WalBatchRecord(
+        ostream&                os,
+        const vector<MetaRequest*>& batch) const
+    {
+        if (batch.empty()) {
+            return true;
+        }
+        // Record format: nv2batch/c/<count>/b/<base64_payload>
+        // The payload is raw bytes in little-endian encoding, base64 encoded.
+        std::string payload;
+        payload.reserve(batch.size() * 64);
+        for (vector<MetaRequest*>::const_iterator it = batch.begin();
+                it != batch.end();
+                ++it) {
+            const MetaRequest& req = **it;
+            if (META_CREATE == req.op) {
+                const MetaCreate& c = static_cast<const MetaCreate&>(req);
+                AppendLe<uint8_t>(payload, 1); // create file
+                AppendLe<int64_t>(payload, (int64_t)c.dir);
+                AppendLe<int64_t>(payload, (int64_t)c.fid);
+                AppendLe<uint64_t>(payload, c.namespaceV2TxnId);
+                AppendLe<uint32_t>(payload, (uint32_t)c.user);
+                AppendLe<uint32_t>(payload, (uint32_t)c.group);
+                AppendLe<uint16_t>(payload, (uint16_t)c.mode);
+                AppendLe<int16_t>(payload, c.numReplicas);
+                AppendLe<int64_t>(payload, c.mtime);
+                const uint16_t nlen = (uint16_t)std::min<size_t>(
+                    0xFFFFu, c.name.size());
+                AppendLe<uint16_t>(payload, nlen);
+                AppendBytes(payload, c.name.data(), nlen);
+            } else if (META_MKDIR == req.op) {
+                const MetaMkdir& m = static_cast<const MetaMkdir&>(req);
+                AppendLe<uint8_t>(payload, 2); // mkdir dir
+                AppendLe<int64_t>(payload, (int64_t)m.dir);
+                AppendLe<int64_t>(payload, (int64_t)m.fid);
+                AppendLe<uint64_t>(payload, m.namespaceV2TxnId);
+                AppendLe<uint32_t>(payload, (uint32_t)m.user);
+                AppendLe<uint32_t>(payload, (uint32_t)m.group);
+                AppendLe<uint16_t>(payload, (uint16_t)m.mode);
+                AppendLe<int16_t>(payload, (int16_t)0);
+                AppendLe<int64_t>(payload, m.mtime);
+                const uint16_t nlen = (uint16_t)std::min<size_t>(
+                    0xFFFFu, m.name.size());
+                AppendLe<uint16_t>(payload, nlen);
+                AppendBytes(payload, m.name.data(), nlen);
+            } else {
+                return false;
+            }
+        }
+        StBufferT<char, 4096> b64Buf;
+        char* const bufPtr = b64Buf.Resize(
+            Base64::GetEncodedMaxBufSize((int)payload.size()));
+        const int b64Len = Base64::Encode(
+            payload.data(), (int)payload.size(), bufPtr, true);
+        if (b64Len <= 0) {
+            return false;
+        }
+        // Bound the record length to avoid exceeding block bytes.
+        const size_t kOverhead = 64;
+        if ((size_t)b64Len + kOverhead > (size_t)std::max(0, mMaxBlockBytes)) {
+            return false;
+        }
+        os << "nv2batch/c/" << batch.size() << "/b/" <<
+            std::string(bufPtr, b64Len) << "\n";
+        return bool(os);
+    }
+
+    bool WriteNamespaceV2WalBatchContRecord(
+        ostream& os) const
+    {
+        // Placeholder record to preserve per-op log sequence numbering.
+        os << "nv2batchc\n";
+        return bool(os);
+    }
+    void SubmitDoneOrBatch(
+        MetaRequest&          inReq,
+        vector<MetaRequest*>& ioBatch,
+        uint64_t&             ioNextBatchTxnId,
+        int64_t               inStartTime,
+        bool&                 ioFirstItemFlag)
+    {
+        const bool batchFlag = inReq.CanBatchApplyNamespaceV2();
+        const uint64_t txnId = batchFlag ?
+            inReq.GetNamespaceV2BatchTxnId() : uint64_t(0);
+        if (batchFlag &&
+                (ioBatch.empty() || txnId == ioNextBatchTxnId)) {
+            ioBatch.push_back(&inReq);
+            ioNextBatchTxnId = txnId + 1;
+            return;
+        }
+        FlushNamespaceV2Batch(ioBatch, inStartTime, ioFirstItemFlag);
+        ioNextBatchTxnId = 0;
+        if (batchFlag) {
+            ioBatch.push_back(&inReq);
+            ioNextBatchTxnId = txnId + 1;
+        } else {
+            SubmitDoneRequest(inReq, inStartTime, ioFirstItemFlag);
+        }
+    }
     virtual void Timeout()
     {
         mDebugHistoryCommittedRing.Process(
@@ -1354,6 +1586,9 @@ private:
             mNetManager.Wakeup();
         }
         Queue theReplayQueue;
+        vector<MetaRequest*> theNamespaceV2Batch;
+        theNamespaceV2Batch.reserve(mMaxBlockSize);
+        uint64_t      theNextBatchTxnId = 0;
         MetaRequest*  thePtr;
         int64_t const theStartTime     = microseconds();
         bool          theFirstItemFlag = true;
@@ -1374,25 +1609,28 @@ private:
                     0 == thePtr->status &&
                     MetaLogWriterControl::kWriteBlock ==
                         static_cast<MetaLogWriterControl*>(thePtr)->type) {
+                FlushNamespaceV2Batch(theNamespaceV2Batch, theStartTime,
+                    theFirstItemFlag);
+                theNextBatchTxnId = 0;
                 // Run after setting replay state.
                 theReplayQueue.PushBack(*thePtr);
             } else if (IsMetaLogWriteOrVrError(thePtr->status) ||
                     thePtr->replayBypassFlag ||
-                    ! mReplayerPtr->submit(*thePtr)) {
-                const int64_t theUsecsNow = theFirstItemFlag ?
-                    theStartTime : microseconds();
-                theFirstItemFlag = false;
-                if (META_LOG_WRITER_CONTROL != thePtr->op) {
-                    if (0 == thePtr->status) {
-                        mLogTimeUsec += theStartTime - theReq.submitTime;
-                        mLogTimeOpsCount++;
-                    } else {
-                        mLogErrorOpsCount++;
-                    }
+                    ! mReplayerPtr->isSubmitQueueEnabled()) {
+                SubmitDoneOrBatch(theReq, theNamespaceV2Batch,
+                    theNextBatchTxnId, theStartTime, theFirstItemFlag);
+            } else {
+                FlushNamespaceV2Batch(theNamespaceV2Batch, theStartTime,
+                    theFirstItemFlag);
+                theNextBatchTxnId = 0;
+                if (! mReplayerPtr->submit(*thePtr)) {
+                    SubmitDoneOrBatch(theReq, theNamespaceV2Batch,
+                        theNextBatchTxnId, theStartTime, theFirstItemFlag);
                 }
-                theReq.Submit(theUsecsNow);
             }
         }
+        FlushNamespaceV2Batch(theNamespaceV2Batch, theStartTime,
+            theFirstItemFlag);
         UpdateLogAvg(theStartTime);
         if (theSetReplayStateFlag) {
             thePtr = theReplayCommitHeadPtr;
@@ -1730,14 +1968,73 @@ private:
                         theFailureInjectedFlag = true;
                         break;
                     }
-                    ++mLastLogSeq.mLogSeq;
-                    thePtr->logseq = mLastLogSeq;
-                    if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
-                        panic("log writer: invalid request");
-                    }
-                    if (! theStream) {
-                        --mLastLogSeq.mLogSeq;
-                        LogError(*thePtr);
+                    if (IsNamespaceV2WalBatchable(*thePtr)) {
+                        vector<MetaRequest*> batch;
+                        batch.reserve(kNamespaceV2WalBatchMaxCount);
+                        for (MetaRequest* ptr = thePtr;
+                                ptr && batch.size() < kNamespaceV2WalBatchMaxCount &&
+                                    IsNamespaceV2WalBatchable(*ptr) &&
+                                    (size_t)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq +
+                                        batch.size() + 1) < (size_t)mMaxBlockSize;
+                                ptr = ptr->next) {
+                            batch.push_back(ptr);
+                        }
+                        if (batch.size() <= 1) {
+                            // Let the non-batch path handle it.
+                            batch.clear();
+                        }
+                        if (! batch.empty() && ! theStream) {
+                            batch.clear();
+                        }
+                        if (! batch.empty()) {
+                        // Reserve create ids for the whole contiguous batch.
+                        ReserveNamespaceV2CreateIdsBatch(*thePtr);
+                        // Assign a unique log sequence to each op as usual.
+                        for (vector<MetaRequest*>::iterator it = batch.begin();
+                                it != batch.end();
+                                ++it) {
+                            ++mLastLogSeq.mLogSeq;
+                            (*it)->logseq = mLastLogSeq;
+                            if (! (*it)->PrepareLog()) {
+                                panic("log writer: invalid request");
+                            }
+                        }
+                        if (! WriteNamespaceV2WalBatchRecord(theStream, batch)) {
+                            panic("log writer: invalid namespace v2 WAL batch record");
+                        }
+                        for (size_t i = 1; i < batch.size(); i++) {
+                            if (! WriteNamespaceV2WalBatchContRecord(theStream)) {
+                                panic("log writer: invalid namespace v2 WAL batch cont record");
+                            }
+                        }
+                        // Skip the rest of the batch: the for-loop will ++thePtr,
+                        // so stop at the last element.
+                        thePtr = batch.back();
+                        } else {
+                            ++mLastLogSeq.mLogSeq;
+                            thePtr->logseq = mLastLogSeq;
+                            ReserveNamespaceV2CreateIdsBatch(*thePtr);
+                            if (! thePtr->PrepareLog() ||
+                                    ! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
+                                panic("log writer: invalid request");
+                            }
+                            if (! theStream) {
+                                --mLastLogSeq.mLogSeq;
+                                LogError(*thePtr);
+                            }
+                        }
+                    } else {
+                        ++mLastLogSeq.mLogSeq;
+                        thePtr->logseq = mLastLogSeq;
+                        ReserveNamespaceV2CreateIdsBatch(*thePtr);
+                        if (! thePtr->PrepareLog() ||
+                                ! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
+                            panic("log writer: invalid request");
+                        }
+                        if (! theStream) {
+                            --mLastLogSeq.mLogSeq;
+                            LogError(*thePtr);
+                        }
                     }
                 }
                 if (theEndBlockSeq <= mLastLogSeq.mLogSeq ||

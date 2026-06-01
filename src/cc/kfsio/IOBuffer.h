@@ -283,6 +283,10 @@ public:
     /// Append the contents of ioBuf to this buffer.
     BufPos Append(IOBuffer *ioBuf);
 
+    // Append shared references to the consumable blocks in other.
+    // This does not modify other and does not copy payload bytes.
+    BufPos AppendShared(const IOBuffer& other);
+
     /// Move data buffers with space available at the end of ioBuf.
     /// @param[in] other  Buffer from which the available space to move
     /// @param[in] numBytes  # of bytes of available space to be used

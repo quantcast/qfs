@@ -753,7 +753,8 @@ ClientSM::GetWriteOp(KfsOp& op, int align, int numBytes,
     }
     if (nAvail < numBytes) {
         mNetConnection->SetMaxReadAhead(numBytes - nAvail);
-        SetReceiveContent(numBytes, op.op == CMD_WRITE_PREPARE);
+        SetReceiveContent(numBytes, op.op == CMD_WRITE_PREPARE &&
+            ! gChunkManager.IsWritePrepareChecksumVerifySkipped());
         // we couldn't process the command...so, wait
         return false;
     }
@@ -944,7 +945,9 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
         bufferBytes = 0 <= op->status ? IoRequestBytes(wop->numBytes) : 0;
         if (GetReceiveByteCount() == (int)wop->numBytes) {
             wop->receivedChecksum = GetChecksum();
-            wop->blocksChecksums.swap(GetBlockChecksums());
+            if (! gChunkManager.IsWritePrepareChecksumVerifySkipped()) {
+                wop->blocksChecksums.swap(GetBlockChecksums());
+            }
         }
         ReceiveClear();
     } else if (op->op == CMD_RECORD_APPEND) {

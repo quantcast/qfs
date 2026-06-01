@@ -34,6 +34,7 @@
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
 #include "MetaDataStore.h"
+#include "NamespaceV2.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
@@ -44,6 +45,7 @@
 #include "common/StBuffer.h"
 
 #include "kfsio/checksum.h"
+#include "kfsio/Base64.h"
 
 #include "qcdio/QCUtils.h"
 
@@ -937,6 +939,191 @@ replay_mkdir(DETokenizer& c)
         " id: "   << me <<
     KFS_LOG_EOM;
     return (ok && 0 == status);
+}
+
+static int
+HexNibble(
+    char ch)
+{
+    if ('0' <= ch && ch <= '9') {
+        return ch - '0';
+    }
+    if ('a' <= ch && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if ('A' <= ch && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+static bool
+DecodeHexBytes(
+    const string& hex,
+    string&       out)
+{
+    out.clear();
+    if ((hex.size() & 1) != 0) {
+        return false;
+    }
+    out.reserve(hex.size() / 2);
+    for (size_t i = 0; i < hex.size(); i += 2) {
+        const int hi = HexNibble(hex[i]);
+        const int lo = HexNibble(hex[i + 1]);
+        if (hi < 0 || lo < 0) {
+            return false;
+        }
+        out.push_back(char((hi << 4) | lo));
+    }
+    return true;
+}
+
+static bool
+DecodeBase64Bytes(
+    const string& b64,
+    string&       out)
+{
+    StBufferT<char, 64> buf;
+    char* const ptr = buf.Resize(Base64::GetMaxDecodedLength((int)b64.size()));
+    const int len = Base64::Decode(b64.data(), (int)b64.size(), ptr, true);
+    if (len <= 0) {
+        out.clear();
+        return false;
+    }
+    out.assign(ptr, len);
+    return true;
+}
+
+class NamespaceV2WalBatchReader
+{
+public:
+    explicit NamespaceV2WalBatchReader(
+        const string& buf)
+        : mBuf(buf),
+          mPos(0)
+        {}
+
+    template<typename T>
+    bool ReadLe(T& out)
+    {
+        if (mPos + sizeof(T) > mBuf.size()) {
+            return false;
+        }
+        uint64_t v = 0;
+        for (size_t i = 0; i < sizeof(T); i++) {
+            v |= (uint64_t)(unsigned char)mBuf[mPos++] << (i * 8);
+        }
+        out = (T)v;
+        return true;
+    }
+
+    bool ReadBytes(string& out, size_t len)
+    {
+        if (mPos + len > mBuf.size()) {
+            return false;
+        }
+        out.assign(mBuf.data() + mPos, len);
+        mPos += len;
+        return true;
+    }
+
+    bool Done() const { return mPos == mBuf.size(); }
+
+private:
+    const string& mBuf;
+    size_t        mPos;
+};
+
+static bool
+replay_nv2batch(DETokenizer& c)
+{
+    c.pop_front(); // record type
+    int64_t count = 0;
+    string  enc;
+    bool    b64Flag = false;
+    bool ok = pop_num(count, "c", c, true);
+    if (ok) {
+        // New format: /b/<base64>
+        if (pop_name(enc, "b", c, ok)) {
+            b64Flag = true;
+        } else {
+            // Legacy format: /h/<hex>
+            ok = pop_name(enc, "h", c, ok);
+        }
+    }
+    if (! ok || count <= 0) {
+        return false;
+    }
+    string bytes;
+    if (! (b64Flag ? DecodeBase64Bytes(enc, bytes) : DecodeHexBytes(enc, bytes))) {
+        return false;
+    }
+    NamespaceV2WalBatchReader r(bytes);
+    NamespaceV2::NamespaceStore& store = NamespaceV2::GetStore();
+    NamespaceV2::TxnId firstTxn = 0;
+    NamespaceV2::TxnId lastTxn  = 0;
+    for (int64_t i = 0; i < count; i++) {
+        uint8_t  opType = 0;
+        int64_t  parentFid = -1;
+        int64_t  fid = -1;
+        uint64_t txnId = 0;
+        uint32_t user = 0;
+        uint32_t group = 0;
+        uint16_t mode = 0;
+        int16_t  numReplicas = 0;
+        int64_t  mtime = 0;
+        uint16_t nameLen = 0;
+        string   name;
+        if (! r.ReadLe(opType) ||
+                ! r.ReadLe(parentFid) ||
+                ! r.ReadLe(fid) ||
+                ! r.ReadLe(txnId) ||
+                ! r.ReadLe(user) ||
+                ! r.ReadLe(group) ||
+                ! r.ReadLe(mode) ||
+                ! r.ReadLe(numReplicas) ||
+                ! r.ReadLe(mtime) ||
+                ! r.ReadLe(nameLen) ||
+                ! r.ReadBytes(name, nameLen)) {
+            return false;
+        }
+        const NamespaceV2::InodeType type =
+            opType == 2 ? NamespaceV2::kInodeTypeDir :
+            NamespaceV2::kInodeTypeFile;
+        const int status = store.ApplyCreate(
+            (fid_t)parentFid,
+            name,
+            type,
+            (fid_t)fid,
+            (NamespaceV2::TxnId)txnId,
+            (kfsUid_t)user,
+            (kfsGid_t)group,
+            (kfsMode_t)mode,
+            numReplicas,
+            mtime,
+            false, // commitFlag
+            true   // advanceSeedsFlag
+        );
+        if (status != 0) {
+            return false;
+        }
+        if (firstTxn == 0) {
+            firstTxn = (NamespaceV2::TxnId)txnId;
+        }
+        lastTxn = (NamespaceV2::TxnId)txnId;
+    }
+    if (! r.Done()) {
+        return false;
+    }
+    store.CommitThroughRange(firstTxn, lastTxn);
+    return true;
+}
+
+static bool
+replay_nv2batchc(DETokenizer& c)
+{
+    c.pop_front(); // record type
+    return true;
 }
 
 /*!
@@ -2158,6 +2345,8 @@ get_entry_map()
     e.add_parser("version",                 &replay_version);
     e.add_parser("create",                  &replay_create);
     e.add_parser("mkdir",                   &replay_mkdir);
+    e.add_parser("nv2batch",                &replay_nv2batch);
+    e.add_parser("nv2batchc",               &replay_nv2batchc);
     e.add_parser("remove",                  &replay_remove);
     e.add_parser("rmdir",                   &replay_rmdir);
     e.add_parser("rename",                  &replay_rename);

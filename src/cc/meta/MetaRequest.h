@@ -283,6 +283,7 @@ struct MetaRequest {
     bool            replayFlag;
     bool            commitPendingFlag;
     bool            replayBypassFlag;
+    bool            namespaceV2LogFlag;
     string          clientIp;
     string          clientReportedIp;
     string          nodeId;
@@ -317,6 +318,7 @@ struct MetaRequest {
           replayFlag(false),
           commitPendingFlag(false),
           replayBypassFlag(false),
+          namespaceV2LogFlag(false),
           clientIp(),
           clientReportedIp(),
           nodeId(),
@@ -344,6 +346,16 @@ struct MetaRequest {
     //!< response to be sent back as per the KFS protocol.
     virtual void response(ReqOstream& os, IOBuffer& /* buf */) { response(os); }
     virtual bool log(ostream& file) const;
+    virtual bool PrepareLog() { return true; }
+    virtual bool NeedsNamespaceV2CreateIds() const { return false; }
+    virtual bool SetNamespaceV2CreateIds(
+        fid_t /* fid */, uint64_t /* txnId */) { return false; }
+    static void ReserveNamespaceV2CreateIdsBatch(
+        size_t count, fid_t& firstFid, uint64_t& firstTxnId);
+    virtual bool CanBatchApplyNamespaceV2() const { return false; }
+    virtual uint64_t GetNamespaceV2BatchTxnId() const { return 0; }
+    virtual void ApplyNamespaceV2Batch(bool /* commitFlag */) {}
+    static void CommitNamespaceV2Batch(uint64_t firstTxnId, uint64_t lastTxnId);
     Display Show() const { return Display(*this); }
     virtual void setChunkServer(const ChunkServerPtr& /* cs */) {};
     bool ValidateRequestHeader(
@@ -395,6 +407,7 @@ struct MetaRequest {
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
+        .Def("V2", &MetaRequest::namespaceV2LogFlag, false)
         .Def("z", &MetaRequest::logseq)
         .Def("x", &MetaRequest::shortRpcFormatFlag,  true)
         ;
@@ -468,6 +481,7 @@ protected:
         replayFlag          = false;
         commitPendingFlag   = false;
         replayBypassFlag    = false;
+        namespaceV2LogFlag = false;
         clientIp = string();
         nodeId = string();
         reqHeaders.Clear();
@@ -695,6 +709,8 @@ struct MetaCreate: public MetaIdempotentRequest {
     string     name;                //!< name to create
     string     ownerName;
     string     groupName;
+    uint64_t   namespaceV2TxnId;
+    bool       namespaceV2AppliedFlag;
     int64_t    mtime;
     MetaCreate()
         : MetaIdempotentRequest(META_CREATE, kLogIfOk),
@@ -714,10 +730,18 @@ struct MetaCreate: public MetaIdempotentRequest {
           name(),
           ownerName(),
           groupName(),
+          namespaceV2TxnId(0),
+          namespaceV2AppliedFlag(false),
           mtime()
         {}
     virtual bool start();
     virtual void handle();
+    virtual bool PrepareLog();
+    virtual bool NeedsNamespaceV2CreateIds() const;
+    virtual bool SetNamespaceV2CreateIds(fid_t fid, uint64_t txnId);
+    virtual bool CanBatchApplyNamespaceV2() const;
+    virtual uint64_t GetNamespaceV2BatchTxnId() const;
+    virtual void ApplyNamespaceV2Batch(bool commitFlag);
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -784,6 +808,8 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def("SS", &MetaCreate::stripeSize,         int32_t(0))
         .Def("E",  &MetaCreate::exclusive,          false)
         .Def("N",  &MetaCreate::name)
+        .Def("H",  &MetaCreate::fid,                fid_t(-1))
+        .Def("VT", &MetaCreate::namespaceV2TxnId,   uint64_t(0))
         .Def("O",  &MetaCreate::user,               kKfsUserNone)
         .Def("G",  &MetaCreate::group,              kKfsGroupNone)
         .Def("M",  &MetaCreate::mode,               kKfsModeUndef)
@@ -809,6 +835,8 @@ struct MetaMkdir: public MetaIdempotentRequest {
     string     ownerName;
     string     groupName;
     int64_t    mtime;
+    uint64_t   namespaceV2TxnId;
+    bool       namespaceV2AppliedFlag;
     MetaMkdir()
         : MetaIdempotentRequest(META_MKDIR, kLogIfOk),
           dir(-1),
@@ -821,10 +849,18 @@ struct MetaMkdir: public MetaIdempotentRequest {
           name(),
           ownerName(),
           groupName(),
-          mtime()
+          mtime(),
+          namespaceV2TxnId(0),
+          namespaceV2AppliedFlag(false)
         {}
     virtual bool start();
     virtual void handle();
+    virtual bool PrepareLog();
+    virtual bool NeedsNamespaceV2CreateIds() const;
+    virtual bool SetNamespaceV2CreateIds(fid_t fid, uint64_t txnId);
+    virtual bool CanBatchApplyNamespaceV2() const;
+    virtual uint64_t GetNamespaceV2BatchTxnId() const;
+    virtual void ApplyNamespaceV2Batch(bool commitFlag);
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -875,6 +911,8 @@ struct MetaMkdir: public MetaIdempotentRequest {
         return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P",  &MetaMkdir::dir,         fid_t(-1))
         .Def("N",  &MetaMkdir::name                  )
+        .Def("H",  &MetaMkdir::fid,         fid_t(-1))
+        .Def("VT", &MetaMkdir::namespaceV2TxnId, uint64_t(0))
         .Def("U",  &MetaMkdir::user,     kKfsUserNone)
         .Def("G",  &MetaMkdir::group,   kKfsGroupNone)
         .Def("M",  &MetaMkdir::mode,    kKfsModeUndef)
@@ -1358,6 +1396,11 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     bool                 allChunkServersShortRpcFlag;
     bool                 logChunkVersionChangeFailedFlag;
     bool                 stoppedServicingFlag;
+    int64_t              debugStartUsec;
+    int64_t              debugBeforeLayoutUsec;
+    int64_t              debugAfterLayoutUsec;
+    int64_t              debugLayoutDoneUsec;
+    int64_t              debugLogStartUsec;
     TokenSeq             tokenSeq;
     time_t               issuedTime;
     int                  validForTime;
@@ -1404,6 +1447,11 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           allChunkServersShortRpcFlag(false),
           logChunkVersionChangeFailedFlag(false),
           stoppedServicingFlag(false),
+          debugStartUsec(0),
+          debugBeforeLayoutUsec(0),
+          debugAfterLayoutUsec(0),
+          debugLayoutDoneUsec(0),
+          debugLogStartUsec(0),
           tokenSeq(),
           issuedTime(),
           validForTime(0),

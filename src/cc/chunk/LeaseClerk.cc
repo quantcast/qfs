@@ -367,7 +367,7 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVersion,
     const LeaseInfo_t& lease = *it;
     LeaseRelinquishOp* const op = new LeaseRelinquishOp(
         chunkId, chunkVersion, lease.leaseId, kWriteLease);
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM_DEBUG <<
         "sending lease relinquish for:"
         " chunk: "      << chunkId <<
         " version: "    << chunkVersion <<

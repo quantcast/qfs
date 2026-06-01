@@ -45,7 +45,7 @@ class Params:
             Params.INODES_PER_LEVEL**Params.PATH_LEVELS
             * Params.CLIENTS_PER_HOST
             * len(Params.CLIENT_HOSTS.split(","))
-            / 2
+            // 2
         )
 
     NumFiles2Stat = staticmethod(NumFiles2Stat)
@@ -136,33 +136,30 @@ def Execute(type, args):
         % type
     )
 
-    result = ""
+    result = []
     proc = subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+        args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        universal_newlines=True
     )
-    while proc.poll() is None:
-        output = proc.stdout.read(1)
-        result += output
+    for output in iter(proc.stdout.readline, ""):
+        result.append(output)
         sys.stdout.write(output)
         sys.stdout.flush()
-
-    output = proc.stdout.read()
-    result += output
-    sys.stdout.write(output)
-    sys.stdout.flush()
     proc.wait()
 
-    return result
+    return "".join(result)
 
 
 def PrintResult(type, result):
     PrintMsg("\nBenchmark results for '%s':" % type)
     for m in re.findall(r"(\w+) test took (\S+) sec", result):
         PrintMsg("%-10s: %s sec" % (m[0], m[1]))
-    PrintMsg(
-        "\n%s\n=========================================="
-        % re.search(r"Memory usage .*$", result, re.MULTILINE).group(0)
-    )
+    memory = re.search(r"Memory usage .*", result, re.MULTILINE)
+    if memory:
+        PrintMsg(
+            "\n%s\n=========================================="
+            % memory.group(0)
+        )
 
 
 def ParseArgs():

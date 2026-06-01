@@ -36,6 +36,7 @@
 #include "NetDispatch.h"
 #include "LogWriter.h"
 #include "MetaVrSM.h"
+#include "NamespaceV2.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
@@ -47,16 +48,167 @@
 #include <cerrno>
 #include <cstring>
 #include <fstream>
+#include <sstream>
 
 namespace KFS
 {
 using std::cerr;
 using std::string;
 using std::ifstream;
+using std::stringstream;
 
 static int16_t sMinReplicasPerFile     = 0;
 static bool    sHasVrSequenceFlag      = false;
 static bool    sVrSequenceRequiredFlag = false;
+static stringstream sNamespaceV2CheckpointImage;
+static bool         sNamespaceV2CheckpointStartedFlag = false;
+
+static void
+reset_namespace_v2_checkpoint_image()
+{
+    sNamespaceV2CheckpointImage.str(string());
+    sNamespaceV2CheckpointImage.clear();
+    sNamespaceV2CheckpointStartedFlag = false;
+}
+
+static bool
+pop_namespace_v2_number(
+    DETokenizer& c,
+    int64_t&     value)
+{
+    if (c.empty()) {
+        return false;
+    }
+    value = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    return true;
+}
+
+static bool
+pop_namespace_v2_token(
+    DETokenizer& c,
+    string&      value)
+{
+    if (c.empty() || c.front().empty()) {
+        return false;
+    }
+    value = c.front();
+    c.pop_front();
+    return true;
+}
+
+static bool
+restore_namespace_v2(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token tag = c.front();
+    c.pop_front();
+    if (tag == "state") {
+        int64_t rootFid = -1;
+        int64_t nextFid = -1;
+        int64_t nextTxn = -1;
+        int64_t committedTxn = -1;
+        int64_t largeThreshold = -1;
+        if (! pop_namespace_v2_number(c, rootFid) ||
+                ! pop_namespace_v2_number(c, nextFid) ||
+                ! pop_namespace_v2_number(c, nextTxn) ||
+                ! pop_namespace_v2_number(c, committedTxn) ||
+                ! pop_namespace_v2_number(c, largeThreshold) ||
+                ! c.empty()) {
+            return false;
+        }
+        reset_namespace_v2_checkpoint_image();
+        sNamespaceV2CheckpointStartedFlag = true;
+        sNamespaceV2CheckpointImage << "namespacev2_checkpoint 1\n" <<
+            "state " << rootFid << " " << nextFid << " " <<
+            nextTxn << " " << committedTxn << " " <<
+            largeThreshold << "\n";
+        return true;
+    }
+    if (! sNamespaceV2CheckpointStartedFlag) {
+        return false;
+    }
+    if (tag == "inode") {
+        int64_t fid = -1;
+        int64_t parentFid = -1;
+        int64_t type = -1;
+        int64_t generation = -1;
+        int64_t user = -1;
+        int64_t group = -1;
+        int64_t mode = -1;
+        int64_t numReplicas = -1;
+        int64_t mtime = -1;
+        int64_t ctime = -1;
+        int64_t atime = -1;
+        if (! pop_namespace_v2_number(c, fid) ||
+                ! pop_namespace_v2_number(c, parentFid) ||
+                ! pop_namespace_v2_number(c, type) ||
+                ! pop_namespace_v2_number(c, generation) ||
+                ! pop_namespace_v2_number(c, user) ||
+                ! pop_namespace_v2_number(c, group) ||
+                ! pop_namespace_v2_number(c, mode) ||
+                ! pop_namespace_v2_number(c, numReplicas) ||
+                ! pop_namespace_v2_number(c, mtime) ||
+                ! pop_namespace_v2_number(c, ctime) ||
+                ! pop_namespace_v2_number(c, atime) ||
+                ! c.empty()) {
+            return false;
+        }
+        sNamespaceV2CheckpointImage << "inode " << fid << " " <<
+            parentFid << " " << type << " " << generation << " " <<
+            user << " " << group << " " << mode << " " <<
+            numReplicas << " " << mtime << " " << ctime << " " <<
+            atime << "\n";
+        return true;
+    }
+    if (tag == "dirgen") {
+        int64_t dirFid = -1;
+        int64_t generation = -1;
+        if (! pop_namespace_v2_number(c, dirFid) ||
+                ! pop_namespace_v2_number(c, generation) || ! c.empty()) {
+            return false;
+        }
+        sNamespaceV2CheckpointImage << "dirgen " << dirFid << " " <<
+            generation << "\n";
+        return true;
+    }
+    if (tag == "dentry") {
+        int64_t parentFid = -1;
+        int64_t childFid = -1;
+        string encodedName;
+        if (! pop_namespace_v2_number(c, parentFid) ||
+                ! pop_namespace_v2_number(c, childFid) ||
+                ! pop_namespace_v2_token(c, encodedName) || ! c.empty()) {
+            return false;
+        }
+        sNamespaceV2CheckpointImage << "dentry " << parentFid << " " <<
+            childFid << " " << encodedName << "\n";
+        return true;
+    }
+    if (tag != "end" || ! c.empty()) {
+        return false;
+    }
+    sNamespaceV2CheckpointImage << "end\n";
+    sNamespaceV2CheckpointImage.clear();
+    sNamespaceV2CheckpointImage.seekg(0);
+    const int status = NamespaceV2::GetStore().LoadCheckpoint(
+        sNamespaceV2CheckpointImage);
+    if (status != 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "namespace v2 checkpoint restore failure: " << status <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    reset_namespace_v2_checkpoint_image();
+    return true;
+}
+
 
 static bool
 checkpoint_seq(DETokenizer& c)
@@ -933,6 +1085,7 @@ get_entry_map()
     e.add_parser("worm",                    &restore_worm_mode);
     e.add_parser("ckey",                    &restore_crypto_key);
     e.add_parser("shortnames",              &restore_short_names);
+    e.add_parser("nv2",                     &restore_namespace_v2);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;
@@ -970,6 +1123,7 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
     }
     sMinReplicasPerFile     = minReplicas;
     sVrSequenceRequiredFlag = mVrSequenceRequiredFlag;
+    reset_namespace_v2_checkpoint_image();
     ifstream file;
     file.open(cpname.c_str(), ifstream::binary | ifstream::in);
     if (file.fail()) {
@@ -1015,6 +1169,13 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
         is_ok = false;
     }
     file.close();
+    if (is_ok && sNamespaceV2CheckpointStartedFlag) {
+        KFS_LOG_STREAM_FATAL <<
+            cpname << ": incomplete namespace v2 checkpoint image" <<
+        KFS_LOG_EOM;
+        is_ok = false;
+    }
+    reset_namespace_v2_checkpoint_image();
     if (is_ok && lastLineChecksumFlag) {
         const string md = mds.GetMd();
         if (restoreChecksum != md) {

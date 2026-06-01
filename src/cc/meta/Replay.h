@@ -127,6 +127,7 @@ public:
     bool commitAll();
     bool submit(MetaRequest& req)
         { return (enqueueFlag && enqueue(req)); }
+    bool isSubmitQueueEnabled() const { return enqueueFlag; }
     vrNodeId_t getPrimaryNodeId() const
         { return primaryNodeId; }
     void handle(
