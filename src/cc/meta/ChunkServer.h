@@ -1060,6 +1060,7 @@ protected:
     static int    sReplicationTimeout;
     static int    sRequestTimeout;
     static int    sMetaClientPort;
+    static bool   sSkipChunkAllocateInFlightLogFlag;
     static bool   sRestartCSOnInvalidClusterKeyFlag;
     static int    sSrvLoadSamplerSampleCount;
     static size_t sMaxChunksToEvacuate;

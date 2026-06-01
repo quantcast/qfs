@@ -138,6 +138,7 @@ public:
           mStopRequest(),
           mWorker(this, "KfsProtocolWorker"),
           mMutex(),
+          mParallelReplicaWriteFlag(inParameters.mParallelReplicaWriteFlag),
           mClientPoolPtr(inParameters.mUseClientPoolFlag ?
             new ClientPool(
                 mNetManager,
@@ -154,7 +155,7 @@ public:
                     int64_t(std::numeric_limits<int>::max())
                 ), // inMaxContentLength
                 false,                       // inFailAllOpsOnOpTimeoutFlag
-                false,                       // inMaxOneOutstandingOpFlag
+                true,                        // inMaxOneOutstandingOpFlag
                 0                            // inAuthContextPtr
             ) : 0
         ),
@@ -1149,7 +1150,9 @@ private:
                 min(max(4 << 20, inOwner.mMaxWriteSize),
                     max(inOwner.mMaxWriteSize, inMaxWriteSize)),
                 inLogPrefixPtr,
-                inOwner.mChunkServerInitialSeqNum
+                inOwner.mChunkServerInitialSeqNum,
+                inOwner.mClientPoolPtr,
+                inOwner.mParallelReplicaWriteFlag
               ),
               mCurRequestPtr(0),
               mAsyncStatus(0)
@@ -1716,6 +1719,7 @@ private:
     StopRequest          mStopRequest;
     QCThread             mWorker;
     QCMutex              mMutex;
+    const bool            mParallelReplicaWriteFlag;
     ClientPool* const    mClientPoolPtr;
     FileReader::Stats    mReadStats;
     FileWriter::Stats    mWriteStats;

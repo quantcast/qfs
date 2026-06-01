@@ -58,7 +58,7 @@ main(int argc, char **argv)
     const char* config         = 0;
     ssize_t     numBytes;
 
-    while ((optchar = getopt(argc, argv, "hs:p:f:v")) != -1) {
+    while ((optchar = getopt(argc, argv, "hs:p:f:c:v")) != -1) {
         switch (optchar) {
             case 'f':
                 kfspathname = optarg;
@@ -105,9 +105,7 @@ main(int argc, char **argv)
     }
 
     numBytes = doPut(kfspathname);
-    if (numBytes <= 0) {
-        cout << "Wrote " << numBytes << " to " << kfspathname << "\n";
-    }
+    cout << "Wrote " << numBytes << " to " << kfspathname << "\n";
     delete gKfsClient;
 
     return (numBytes < 0 ? 1 : 0);
@@ -124,12 +122,13 @@ doPut(const string &filename)
         cout << "Create failed: " << ErrorCodeToStr(fd) << "\n";
         return fd;
     }
-    while(cin.read(dataBuf, sizeof(dataBuf))) {
+    while(cin.read(dataBuf, sizeof(dataBuf)) || cin.gcount() > 0) {
         const size_t cnt = cin.gcount();
         const int    res = gKfsClient->Write(fd, dataBuf, cnt);
         if (res != (int)cnt) {
             cout << "Write failed...expect to write: " << cnt <<
                 " but only wrote: " << res << "\n";
+            gKfsClient->Close(fd);
             return -1;
         }
         bytesWritten += res;

@@ -63,6 +63,9 @@ public:
     bool Start(MetaDataSync& metaDataSync);
     //!< Dispatch completed request.
     void Dispatch(MetaRequest* r);
+    //!< Dispatch multiple completed requests with one client-thread wakeup when
+    //!< they share the same ClientThread.
+    void DispatchBatch(MetaRequest* const* reqs, size_t count);
     int SetParameters(const Properties& props);
     void GetStatsCsv(ostream& os);
     void GetStatsCsv(IOBuffer& buf);

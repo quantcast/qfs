@@ -1043,6 +1043,7 @@ struct AllocateOp : public KfsOp {
     bool                   invalidateAllFlag;
     bool                   allowCSClearTextFlag;
     bool                   allCSShortRpcFlag;
+    int64_t                leaseId;
     int64_t                chunkLeaseDuration;
     int64_t                chunkServerAccessValidForTime;
     int64_t                chunkServerAccessIssuedTime;
@@ -1063,6 +1064,7 @@ struct AllocateOp : public KfsOp {
           invalidateAllFlag(false),
           allowCSClearTextFlag(false),
           allCSShortRpcFlag(false),
+          leaseId(-1),
           chunkLeaseDuration(-1),
           chunkServerAccessValidForTime(0),
           chunkServerAccessIssuedTime(0),
@@ -1084,6 +1086,7 @@ struct AllocateOp : public KfsOp {
         invalidateAllFlag             = false;
         allowCSClearTextFlag          = false;
         allCSShortRpcFlag             = false;
+        leaseId                       = -1;
         chunkLeaseDuration            = -1;
         chunkServerAccessValidForTime = 0;
         chunkServerAccessIssuedTime   = 0;
@@ -1188,14 +1191,17 @@ public:
 struct CloseOp : public ChunkAccessOp {
     vector<ServerLocation> chunkServerLoc;
     vector<WriteInfo>      writeInfo;
+    bool                   noForwardFlag;
 
     CloseOp(kfsSeq_t s, kfsChunkId_t c)
         : ChunkAccessOp(CMD_CLOSE, s, c),
-          writeInfo()
+          writeInfo(),
+          noForwardFlag(false)
         {}
     CloseOp(kfsSeq_t s, kfsChunkId_t c, const vector<WriteInfo>& wi)
         : ChunkAccessOp(CMD_CLOSE, s, c),
-          writeInfo(wi)
+          writeInfo(wi),
+          noForwardFlag(false)
         {}
     void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1262,19 +1268,25 @@ struct ReadOp : public ChunkAccessOp {
 
 // op that defines the write that is going to happen
 struct WriteIdAllocOp : public ChunkAccessOp {
+    kfsFileId_t  fileId;      /* input, optional for lazy chunk create */
+    int64_t      leaseId;     /* input, optional for lazy chunk create */
     chunkOff_t   offset;       /* input */
     size_t       numBytes;     /* input */
     bool         isForRecordAppend; /* set if this is for a record append that is coming */
     bool         writePrepReplySupportedFlag;
+    bool         noForwardFlag;
     string       writeIdStr;   /* output */
     vector<ServerLocation> chunkServerLoc;
 
     WriteIdAllocOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, chunkOff_t o, size_t n)
         : ChunkAccessOp(CMD_WRITE_ID_ALLOC, s, c),
+          fileId(-1),
+          leaseId(-1),
           offset(o),
           numBytes(n),
           isForRecordAppend(false),
-          writePrepReplySupportedFlag(false)
+          writePrepReplySupportedFlag(false),
+          noForwardFlag(false)
         { chunkVersion = v; }
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -1290,6 +1302,7 @@ struct WritePrepareOp : public ChunkAccessOp {
     chunkOff_t        offset;       /* input */
     size_t            numBytes;     /* input */
     bool              replyRequestedFlag;
+    bool              noForwardFlag;
     vector<uint32_t>  checksums;    /* checksum for each 64KB block */
     vector<WriteInfo> writeInfo;    /* input */
 
@@ -1298,6 +1311,7 @@ struct WritePrepareOp : public ChunkAccessOp {
           offset(0),
           numBytes(0),
           replyRequestedFlag(false),
+          noForwardFlag(false),
           checksums(),
           writeInfo()
         { chunkVersion = v; }
@@ -1319,6 +1333,7 @@ struct WriteSyncOp : public ChunkAccessOp {
     chunkOff_t        offset; /* input */
     size_t            numBytes; /* input */
     vector<WriteInfo> writeInfo;
+    bool              noForwardFlag;
     // The checksums that cover the region.
     vector<uint32_t>  checksums;
 
@@ -1326,7 +1341,8 @@ struct WriteSyncOp : public ChunkAccessOp {
         : ChunkAccessOp(CMD_WRITE_SYNC, 0, 0),
           offset(0),
           numBytes(0),
-          writeInfo()
+          writeInfo(),
+          noForwardFlag(false)
         {}
     void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {

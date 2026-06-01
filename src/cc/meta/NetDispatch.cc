@@ -1177,6 +1177,50 @@ NetDispatch::Dispatch(MetaRequest *r)
     }
 }
 
+void
+NetDispatch::DispatchBatch(MetaRequest* const* reqs, size_t count)
+{
+    if (! reqs || count == 0) {
+        return;
+    }
+    ClientManager::ClientThread* thread    = 0;
+    bool                         batchFlag = true;
+    for (size_t i = 0; i < count; ++i) {
+        MetaRequest* const r = reqs[i];
+        if (! r || ! r->clnt) {
+            continue;
+        }
+        ClientManager::ClientThread* const reqThread =
+            static_cast<ClientSM*>(r->clnt)->GetClientThread();
+        if (! thread) {
+            thread = reqThread;
+        } else if (thread != reqThread) {
+            batchFlag = false;
+            break;
+        }
+    }
+    if (batchFlag && thread) {
+        for (size_t i = 0; i < count; ++i) {
+            MetaRequest* const r = reqs[i];
+            if (! r) {
+                continue;
+            }
+            sReqStatsGatherer.OpDone(*r);
+            r->submitCount = 0;
+            if (! r->clnt) {
+                MetaRequest::Release(r);
+            }
+        }
+        mClientManager.EnqueueBatch(thread, reqs, count);
+        return;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (reqs[i]) {
+            Dispatch(reqs[i]);
+        }
+    }
+}
+
 void NetDispatch::SetMaxClientSockets(int count)
 {
     mClientManager.SetMaxClientSockets(count);
@@ -1627,10 +1671,16 @@ public:
         assert(mReqPendingQueue.IsEmpty());
         // Dispatch requests.
         MetaRequest* op;
+        bool         needLogFlushFlag = false;
         while ((op = reqPendingQueue.PopFront())) {
             submit_request(op);
+            if (op->commitPendingFlag) {
+                needLogFlushFlag = true;
+            }
         }
-        MetaRequest::GetLogWriter().ScheduleFlush();
+        if (needLogFlushFlag) {
+            MetaRequest::GetLogWriter().ScheduleFlush();
+        }
         gNetDispatch.ForkDone();
         mPrimaryFlag = gLayoutManager.IsPrimary() &&
             MetaRequest::GetLogWriter().IsPrimary(mNetManager.NowUsec());
@@ -1706,6 +1756,28 @@ public:
         const bool wasEmptyFlag = mReqQueue.IsEmpty();
         op.next = 0;
         mReqQueue.PushBack(op);
+        locker.Unlock();
+        if (wasEmptyFlag) {
+            mNetManager.Wakeup();
+        }
+    }
+    void EnqueueBatch(
+        MetaRequest* const* reqs,
+        size_t              count)
+    {
+        if (! reqs || count == 0) {
+            return;
+        }
+        QCStMutexLocker locker(mMutex);
+        const bool wasEmptyFlag = mReqQueue.IsEmpty();
+        for (size_t i = 0; i < count; ++i) {
+            MetaRequest* const op = reqs[i];
+            if (! op || ! op->clnt) {
+                continue;
+            }
+            op->next = 0;
+            mReqQueue.PushBack(*op);
+        }
         locker.Unlock();
         if (wasEmptyFlag) {
             mNetManager.Wakeup();
@@ -1964,6 +2036,37 @@ QCMutex&
 ClientManager::GetMutex()
 {
     return mImpl.GetMutex();
+}
+
+void
+ClientManager::EnqueueBatch(
+    ClientManager::ClientThread* thread,
+    MetaRequest* const*          reqs,
+    size_t                       count)
+{
+    if (! thread) {
+        for (size_t i = 0; i < count; ++i) {
+            if (reqs[i]) {
+                gNetDispatch.Dispatch(reqs[i]);
+            }
+        }
+        return;
+    }
+    if (! thread->IsStarted()) {
+        for (size_t i = 0; i < count; ++i) {
+            MetaRequest* const op = reqs[i];
+            if (! op || ! op->clnt) {
+                if (op) {
+                    MetaRequest::Release(op);
+                }
+                continue;
+            }
+            op->next = &(*op);
+            op->clnt->HandleEvent(EVENT_CMD_DONE, op);
+        }
+        return;
+    }
+    thread->EnqueueBatch(reqs, count);
 }
 
 /* static */ bool

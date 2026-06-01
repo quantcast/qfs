@@ -614,6 +614,9 @@ CloseOp::Request(ReqOstream& os)
             chunkVersion << "\r\n"
         << Access()
     ;
+    if (noForwardFlag) {
+        os << (shortRpcFormatFlag ? "NF:1\r\n" : "No-forward: 1\r\n");
+    }
     if (! writeInfo.empty()) {
         os <<
             (shortRpcFormatFlag ? "W:1\r\n" : "Has-write-id: 1\r\n") <<
@@ -663,12 +666,22 @@ WriteIdAllocOp::Request(ReqOstream& os)
 {
     os <<
     "WRITE_ID_ALLOC\r\n"  << ReqHeaders(*this)           <<
-    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n";
+    if (fileId >= 0) {
+        os << (shortRpcFormatFlag ? "P:" : "File-handle: ") <<
+            fileId << "\r\n";
+    }
+    if (leaseId >= 0) {
+        os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") <<
+            leaseId << "\r\n";
+    }
+    os <<
     (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
     (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
     (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<
     (shortRpcFormatFlag ? "A:" : "For-record-append: ") <<
         (isForRecordAppend ? 1 : 0) << "\r\n" <<
+    (noForwardFlag ? (shortRpcFormatFlag ? "NF:1\r\n" : "No-forward: 1\r\n") : "") <<
     (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
         chunkServerLoc.size() << "\r\n" <<
     Access() <<
@@ -737,10 +750,16 @@ WritePrepareOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "K:"  : "Checksum: ")     << checksum     << "\r\n" <<
     Access()
     ;
+    if (noForwardFlag) {
+        os << (shortRpcFormatFlag ? "NF:1\r\n" : "No-forward: 1\r\n");
+    }
     if (! checksums.empty()) {
         os << (shortRpcFormatFlag ? "KC:" : "Checksum-entries: ") <<
             checksums.size()  << "\r\n" <<
             (shortRpcFormatFlag ? "Ks:" : "Checksums: ");
+        if (shortRpcFormatFlag) {
+            os << std::hex;
+        }
         for (size_t i = 0; i < checksums.size(); i++) {
             os << checksums[i] << ' ';
         }
@@ -775,8 +794,14 @@ WriteSyncOp::Request(ReqOstream& os)
         checksums.size() << "\r\n" <<
     Access()
     ;
+    if (noForwardFlag) {
+        os << (shortRpcFormatFlag ? "NF:1\r\n" : "No-forward: 1\r\n");
+    }
     if (! checksums.empty()) {
         os << (shortRpcFormatFlag ? "K:" : "Checksums: ");
+        if (shortRpcFormatFlag) {
+            os << std::hex;
+        }
         for (size_t i = 0; i < checksums.size(); i++) {
             os << checksums[i] << ' ';
         }
@@ -1413,6 +1438,8 @@ AllocateOp::ParseResponseHeaderSelf(const Properties& prop)
     if (status < 0) {
         return;
     }
+    leaseId = prop.getValue(
+        shortRpcFormatFlag ? "L" : "Lease-id", int64_t(-1));
     chunkLeaseDuration = prop.getValue(
         shortRpcFormatFlag ? "LD" : "Lease-duration", int64_t(-1));
     if (ParseChunkServerAccess(*this, prop.getValue(

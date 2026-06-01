@@ -863,6 +863,33 @@ KfsOp::GetClientSM()
 }
 
 bool
+WritePrepareOp::Validate()
+{
+    if (checksumsCnt <= 0) {
+        checksumsVal.clear();
+        return ChunkAccessRequestOp::Validate();
+    }
+    const char*       ptr = checksumsVal.mPtr;
+    const char* const end = ptr + checksumsVal.mLen;
+    blocksChecksums.clear();
+    blocksChecksums.reserve(checksumsCnt);
+    for (int i = 0; i < checksumsCnt; i++) {
+        uint32_t cksum = 0;
+        if (! (initialShortRpcFormatFlag ?
+                ValueParserT<HexIntParser>::ParseInt(ptr, end - ptr, cksum) :
+                ValueParserT<DecIntParser>::ParseInt(ptr, end - ptr, cksum))) {
+            return false;
+        }
+        blocksChecksums.push_back(cksum);
+        while (ptr < end && (*ptr & 0xFF) > ' ') {
+            ++ptr;
+        }
+    }
+    checksumsVal.clear();
+    return ChunkAccessRequestOp::Validate();
+}
+
+bool
 WriteSyncOp::Validate()
 {
     if (checksumsCnt <= 0) {
@@ -1187,7 +1214,7 @@ WriteOp::HandleWriteDone(int code, void* data)
 void
 CloseOp::Execute()
 {
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM_DEBUG <<
         "closing"
         " chunk: "   << chunkId <<
         " version: " << chunkVersion <<
@@ -1199,6 +1226,7 @@ CloseOp::Execute()
     int64_t        writeId       = -1;
     bool           needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
+    needToForward = ! noForwardFlag && needToForward;
     if (chunkVersion < 0 && needToForward && hasWriteId) {
         status    = -EINVAL;
         statusMsg = "invalid object store file block close";
@@ -1253,8 +1281,12 @@ CloseOp::Execute()
                         waitReadableFlag ? &readMetaFlag : 0
                 );
                 if (ret < 0) {
-                    status    = ret;
-                    statusMsg = "invalid write or chunk id";
+                    if (! needAck && ret == -EBADF) {
+                        status = 0;
+                    } else {
+                        status    = ret;
+                        statusMsg = "invalid write or chunk id";
+                    }
                 }
                 if (waitReadableFlag && 0 <= ret) {
                     return;
@@ -1329,6 +1361,7 @@ CloseOp::HandleDone(int code, void* data)
 void
 AllocChunkOp::Execute()
 {
+    debugStartUsec = microseconds();
     int            myPos   = -1;
     int64_t        writeId = -1;
     ServerLocation peerLoc;
@@ -1427,6 +1460,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void* data)
         }
         if (! diskIo) {
             SET_HANDLER(this, &AllocChunkOp::HandleChunkAllocDone);
+            debugBeforeAllocUsec = microseconds();
             if (appendFlag) {
                 int            myPos   = -1;
                 int64_t        writeId = -1;
@@ -1449,9 +1483,11 @@ AllocChunkOp::HandleChunkAllocDone(int code, void* data)
                     this
                 );
             }
+            debugAfterAllocUsec = microseconds();
             if (diskIo) {
                 // File create is in progress. This method will be called again
                 // when create / open completes.
+                debugDiskWaitStartUsec = microseconds();
                 assert(status == 0);
                 return 0;
             }
@@ -1459,6 +1495,32 @@ AllocChunkOp::HandleChunkAllocDone(int code, void* data)
         if (0 <= status && 0 <= leaseId) {
             gLeaseClerk.RegisterLease(*this);
         }
+    }
+    const int64_t nowUsec = microseconds();
+    const int64_t totalUsec = debugStartUsec > 0 ?
+        nowUsec - debugStartUsec : 0;
+    if (100000 <= totalUsec) {
+        KFS_LOG_STREAM_INFO <<
+            "alloc-chunk timing:"
+            " seq: " << seq <<
+            " file: " << fileId <<
+            " chunk: " << chunkId <<
+            " version: " << chunkVersion <<
+            " status: " << status <<
+            " total-usec: " << totalUsec <<
+            " pre-alloc-usec: " <<
+                (debugBeforeAllocUsec > debugStartUsec ?
+                    debugBeforeAllocUsec - debugStartUsec : 0) <<
+            " alloc-call-usec: " <<
+                (debugAfterAllocUsec > debugBeforeAllocUsec ?
+                    debugAfterAllocUsec - debugBeforeAllocUsec : 0) <<
+            " disk-wait-usec: " <<
+                (debugDiskWaitStartUsec > 0 ?
+                    nowUsec - debugDiskWaitStartUsec : 0) <<
+            " post-alloc-usec: " <<
+                (debugAfterAllocUsec > 0 ?
+                    nowUsec - debugAfterAllocUsec : 0) <<
+        KFS_LOG_EOM;
     }
     diskIo.reset();
     Submit();
@@ -2331,8 +2393,9 @@ WriteIdAllocOp::Execute()
     int64_t        dummyWriteId  = -1;
     int            myPos         = -1;
     ServerLocation peerLoc;
-    const bool     needToForward = needToForwardToPeer(shortRpcFormatFlag,
+    bool           needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, false, dummyWriteId);
+    needToForward = ! noForwardFlag && needToForward;
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status    = -EINVAL;
@@ -2342,6 +2405,19 @@ WriteIdAllocOp::Execute()
     const bool writeMaster          = myPos == 0;
     bool       allowCSClearTextFlag = chunkAccessTokenValidFlag &&
         (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
+    if (writeMaster && gChunkManager.IsLazyCreateOnWriteEnabled() &&
+            0 <= leaseId && 0 <= fileId && ! gLeaseClerk.IsLeaseValid(
+            chunkId, chunkVersion, 0, 0)) {
+        AllocChunkOp leaseOp;
+        leaseOp.fileId               = fileId;
+        leaseOp.chunkId              = chunkId;
+        leaseOp.chunkVersion         = chunkVersion;
+        leaseOp.leaseId              = leaseId;
+        leaseOp.appendFlag           = false;
+        leaseOp.allowCSClearTextFlag = allowCSClearTextFlag;
+        leaseOp.shortRpcFormatFlag   = shortRpcFormatFlag;
+        gLeaseClerk.RegisterLease(leaseOp);
+    }
     if (writeMaster && ! gLeaseClerk.IsLeaseValid(
             chunkId, chunkVersion,
             &syncReplicationAccess, &allowCSClearTextFlag)) {
@@ -2375,6 +2451,8 @@ WriteIdAllocOp::Execute()
     }
     if (needToForward) {
         ForwardToPeer(peerLoc, writeMaster, allowCSClearTextFlag);
+    } else if (lazyChunkCreatedFlag) {
+        WriteLazyCreatedChunkMetadata();
     } else {
         ReadChunkMetadata();
     }
@@ -2427,8 +2505,27 @@ WriteIdAllocOp::HandlePeerReply(int code, void* data)
         initialShortRpcFormatFlag, peerShortRpcFormatFlag);
     writePrepareReplyFlag =
         writePrepareReplyFlag && fwdedOp->writePrepareReplyFlag;
+    if (lazyChunkCreatedFlag) {
+        return WriteLazyCreatedChunkMetadata();
+    }
     ReadChunkMetadata();
     return 0;
+}
+
+int
+WriteIdAllocOp::WriteLazyCreatedChunkMetadata()
+{
+    assert(status == 0);
+    SET_HANDLER(this, &WriteIdAllocOp::Done);
+    const int ret = gChunkManager.WriteChunkMetadata(
+        chunkId, chunkVersion, this);
+    if (0 <= ret) {
+        return 0;
+    }
+    if (0 <= status) {
+        status = ret;
+    }
+    return Done(EVENT_CMD_DONE, this);
 }
 
 void
@@ -2474,7 +2571,7 @@ WriteIdAllocOp::Done(int code, void* data)
         }
     }
     KFS_LOG_STREAM(
-        status == 0 ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+        status == 0 ? MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         (status == 0 ? "done: " : "failed: ") << Show() <<
     KFS_LOG_EOM;
     Submit();
@@ -2489,8 +2586,9 @@ WritePrepareOp::Execute()
     // check if we need to forward anywhere
     ServerLocation peerLoc;
     int            myPos         = -1;
-    const bool     needToForward = needToForwardToPeer(shortRpcFormatFlag,
+    bool           needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, true, writeId);
+    needToForward = ! noForwardFlag && needToForward;
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status = -EINVAL;
@@ -2542,9 +2640,22 @@ WritePrepareOp::Execute()
     }
 
     if (blocksChecksums.empty()) {
-        blocksChecksums = ComputeChecksums(&dataBuf, numBytes, &receivedChecksum);
+        blocksChecksums = ComputeChecksums(
+            &dataBuf, numBytes, &receivedChecksum);
+    } else if (! gChunkManager.IsWritePrepareChecksumVerifySkipped()) {
+        receivedChecksum = ComputeBlockChecksum(&dataBuf, numBytes);
     }
-    if (receivedChecksum != checksum) {
+    if (gChunkManager.IsWritePrepareChecksumVerifySkipped() &&
+            (offset % CHECKSUM_BLOCKSIZE != 0 ||
+            numBytes % CHECKSUM_BLOCKSIZE != 0 ||
+            blocksChecksums.size() != numBytes / CHECKSUM_BLOCKSIZE)) {
+        statusMsg = "invalid write checksum vector";
+        status = -EINVAL;
+        Done(EVENT_CMD_DONE, this);
+        return;
+    }
+    if (! gChunkManager.IsWritePrepareChecksumVerifySkipped() &&
+            receivedChecksum != checksum) {
         statusMsg = "checksum mismatch";
         KFS_LOG_STREAM_ERROR <<
             "checksum mismatch: sent: " << checksum <<
@@ -2649,7 +2760,7 @@ WritePrepareOp::Done(int code, void* data)
         return 0;
     }
     KFS_LOG_STREAM(
-        status >= 0 ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+        status >= 0 ? MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         (status >= 0 ? "done: " : "failed: ") << Show() <<
         " status: " << status <<
         (statusMsg.empty() ? "" : " msg: ") << statusMsg <<
@@ -2669,8 +2780,9 @@ WriteSyncOp::Execute()
     ServerLocation peerLoc;
     int            myPos = -1;
     // check if we need to forward anywhere
-    const bool needToForward = needToForwardToPeer(shortRpcFormatFlag,
+    bool needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, true, writeId);
+    needToForward = ! noForwardFlag && needToForward;
     if (myPos < 0) {
         statusMsg = "invalid or missing Servers: field";
         status = -EINVAL;
@@ -2890,7 +3002,7 @@ WriteSyncOp::Done(int code, void* data)
         return 0;
     }
     KFS_LOG_STREAM(
-        status >= 0 ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+        status >= 0 ? MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         (status >= 0 ? "done: " : "failed: ") << Show() <<
         " status: " << status <<
         (statusMsg.empty() ? "" : " msg: ") << statusMsg <<
@@ -3598,7 +3710,16 @@ WriteIdAllocOp::Request(ReqOstream& os)
         os << "Version: "       << KFS_VERSION_STR << "\r\n";
     }
     os <<
-    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n" <<
+    (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId      << "\r\n";
+    if (fileId >= 0) {
+        os << (shortRpcFormatFlag ? "P:" : "File-handle: ") <<
+            fileId << "\r\n";
+    }
+    if (leaseId >= 0) {
+        os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") <<
+            leaseId << "\r\n";
+    }
+    os <<
     (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
     (shortRpcFormatFlag ? "O:" : "Offset: ")        << offset       << "\r\n" <<
     (shortRpcFormatFlag ? "B:" : "Num-bytes: ")     << numBytes     << "\r\n" <<

@@ -35,9 +35,11 @@ set (lib_srcs
     kfsops.cc
     kfstree.cc
     LayoutManager.cc
+    layoutmanager_instance.cc
     meta.cc
     MetaRequest.cc
     NetDispatch.cc
+    NamespaceV2.cc
     Replay.cc
     Restorer.cc
     util.cc
@@ -62,7 +64,7 @@ target_link_libraries(kfsMeta
 )
 
 if (NOT USE_STATIC_LIB_LINKAGE)
-    add_library (kfsMeta-shared SHARED ${lib_srcs} layoutmanager_instance.cc)
+    add_library (kfsMeta-shared SHARED ${lib_srcs})
     set_target_properties (kfsMeta-shared PROPERTIES OUTPUT_NAME "qfs_meta")
     set_target_properties (kfsMeta-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
     target_link_libraries(kfsMeta-shared
@@ -113,6 +115,21 @@ if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
    # So, switch to umem
    target_link_libraries(kfsMeta umem)
 endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+
+add_executable (namespacev2test namespacev2test_main.cc NamespaceV2.cc)
+target_link_libraries(namespacev2test kfsCommon)
+add_dependencies(namespacev2test kfsCommon)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools" namespacev2test)
+
+add_executable (namespacev2bench namespacev2bench_main.cc NamespaceV2.cc)
+target_link_libraries(namespacev2bench kfsCommon)
+add_dependencies(namespacev2bench kfsCommon)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools" namespacev2bench)
+
+add_executable (namespacev2walreplaytest namespacev2walreplaytest_main.cc)
+target_link_libraries(namespacev2walreplaytest kfsMeta)
+add_dependencies(namespacev2walreplaytest kfsMeta)
+qfs_set_target_runtime_output_dir("${QFS_OUTPUT_DIR}/bin/devtools" namespacev2walreplaytest)
 
 if (CYGWIN)
     # Workaround for "too many sections" asm failure by turning on optimization

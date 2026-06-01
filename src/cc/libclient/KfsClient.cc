@@ -1324,6 +1324,7 @@ private:
         vector<kfsGid_t> mGroups;
         int              mDefaultFileAttributeRevalidateTime;
         unsigned int     mDefaultFileAttributeRevalidateScan;
+        size_t           mDefaultMaxFAttrCacheSize;
 
         static const Globals& Get()
         {
@@ -1341,8 +1342,9 @@ private:
               mEUser(geteuid()),
               mEGroup(getegid()),
               mGroups(),
-              mDefaultFileAttributeRevalidateTime(30),
-              mDefaultFileAttributeRevalidateScan(64)
+              mDefaultFileAttributeRevalidateTime(3600),
+              mDefaultFileAttributeRevalidateScan(64),
+              mDefaultMaxFAttrCacheSize(262144)
         {
             signal(SIGPIPE, SIG_IGN);
             libkfsio::InitGlobals();
@@ -1389,6 +1391,19 @@ private:
                     }
                 }
             }
+            const char* cacheSzPtr =
+                getenv("QFS_CLIENT_MAX_FATTR_CACHE_SIZE");
+            if (! cacheSzPtr) {
+                cacheSzPtr = getenv("KFS_CLIENT_MAX_FATTR_CACHE_SIZE");
+            }
+            if (cacheSzPtr) {
+                char* e = 0;
+                const long v = strtol(cacheSzPtr, &e, 10);
+                if (cacheSzPtr < e && (*e & 0xFF) <= ' ') {
+                    mDefaultMaxFAttrCacheSize = (size_t)max(
+                        16L << 10, v);
+                }
+            }
         }
         ~Globals()
             { Instance().Shutdown(); }
@@ -1414,6 +1429,16 @@ private:
             globals.mDefaultFileAttributeRevalidateTime;
         client.mFileAttributeRevalidateScan =
             globals.mDefaultFileAttributeRevalidateScan;
+        client.mMaxFAttrCacheSize = globals.mDefaultMaxFAttrCacheSize;
+        client.mLookupRpcCount = 0;
+        client.mLookupPathCacheQueryCount = 0;
+        client.mLookupPathCacheHitCount = 0;
+        client.mLookupPathCacheStaleCount = 0;
+        client.mLookupPathCacheMissCount = 0;
+        client.mLookupFidNameCacheQueryCount = 0;
+        client.mLookupFidNameCacheHitCount = 0;
+        client.mLookupFidNameCacheStaleCount = 0;
+        client.mLookupFidNameCacheMissCount = 0;
         client.mClientId = mNextClientId++;
     }
     void RemoveSelf(KfsClientImpl& client)
@@ -1526,9 +1551,19 @@ KfsClientImpl::KfsClientImpl(
       mDeleteClearFattr(0),
       mFreeFileTableEntires(),
       mFattrCacheSkipValidateCnt(0),
-      mFileAttributeRevalidateTime(30),
+      mFileAttributeRevalidateTime(3600),
       mFileAttributeRevalidateScan(64),
       mFAttrCacheGeneration(1),
+      mMaxFAttrCacheSize(262144),
+      mLookupRpcCount(0),
+      mLookupPathCacheQueryCount(0),
+      mLookupPathCacheHitCount(0),
+      mLookupPathCacheStaleCount(0),
+      mLookupPathCacheMissCount(0),
+      mLookupFidNameCacheQueryCount(0),
+      mLookupFidNameCacheHitCount(0),
+      mLookupFidNameCacheStaleCount(0),
+      mLookupFidNameCacheMissCount(0),
       mTmpPath(),
       mTmpAbsPathStr(),
       mTmpAbsPath(),
@@ -2106,10 +2141,11 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
 
     kfsFileId_t parentFid;
     string      dirname;
+    string      path;
     const bool  kInvalidateSubCountsFlag = true;
     const bool  kEnforceLastDirFlag      = false;
     int         res                      = GetPathComponents(
-        pathname, &parentFid, dirname, 0,
+        pathname, &parentFid, dirname, &path,
         kInvalidateSubCountsFlag, kEnforceLastDirFlag);
     if (res < 0) {
         return res;
@@ -2125,6 +2161,10 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
         return GetOpStatus(op);
+    }
+    if (0 <= op.fileId) {
+        CacheCreatedEntry(parentFid, dirname, path, op.fileId,
+            op.permissions, true);
     }
     time_t now = 0; // assign to suppress compiler warning.
     if (! op.userName.empty()) {
@@ -3528,13 +3568,26 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     const bool  kInvalidateSubCountsFlag = true;
     res = GetPathComponents(pathname, &parentFid, filename, &path,
         kInvalidateSubCountsFlag);
-    Delete(LookupFAttr(parentFid, filename));
     if (res < 0) {
         KFS_LOG_STREAM_DEBUG <<
             pathname << ": GetPathComponents: " << res <<
         KFS_LOG_EOM;
         return res;
     }
+    return CreateSelfResolved(pathname, parentFid, filename, path,
+        numReplicas, exclusive, numStripes, numRecoveryStripes, stripeSize,
+        stripedType, forceTypeFlag, mode, minSTier, maxSTier);
+}
+
+int
+KfsClientImpl::CreateSelfResolved(const char *pathname, kfsFileId_t parentFid,
+    const string& filename, const string& path, int numReplicas,
+    bool exclusive, int numStripes, int numRecoveryStripes, int stripeSize,
+    int stripedType, bool forceTypeFlag, kfsMode_t mode,
+    kfsSTier_t minSTier, kfsSTier_t maxSTier)
+{
+    assert(mMutex.IsOwned());
+    Delete(LookupFAttr(parentFid, filename));
     CreateOp op(0, parentFid, filename.c_str(), numReplicas, exclusive,
         Permissions(
             mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
@@ -3572,33 +3625,30 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
             " striped file type " << op.striperType <<
             " is not supported "  << " got: " << op.metaStriperType <<
         KFS_LOG_EOM;
-        // Cleanup the file.
         RemoveOp rm(0, parentFid, filename.c_str(), pathname);
         DoMetaOpWithRetry(&rm);
         return -ENXIO;
     }
+    if (0 <= op.fileId) {
+        CacheCreatedEntry(parentFid, filename, path, op.fileId,
+            op.permissions, false);
+    }
 
-    // Do not attempt to re-use possibly existing file table entry.
-    // If file existed and being written into it is moved into the dumpster by
-    // the meta server.
-    // An attempt to re-use the same file table entry would route the ios to the
-    // previously existed file into newly created one.
     const int fte = AllocFileTableEntry(parentFid, filename, path);
-    if (fte < 0) {      // XXX Too many open files
+    if (fte < 0) {
         KFS_LOG_STREAM_DEBUG <<
             pathname << ": AllocFileTableEntry: " << fte <<
         KFS_LOG_EOM;
         return fte;
     }
 
-    // make it the same as creat(): equivalent to open(O_CREAT|O_WRONLY|O_TRUNC).
     FileTableEntry& entry = *mFileTable[fte];
     entry.openMode        = O_WRONLY;
     FileAttr& fa = entry.fattr;
-    fa.Init(false);    // is an ordinary file
+    fa.Init(false);
     fa.fileId      = op.fileId;
     fa.numReplicas = op.metaNumReplicas;
-    fa.fileSize    = 0; // presently CreateOp always deletes file if exists.
+    fa.fileSize    = 0;
     fa.minSTier    = op.minSTier;
     fa.maxSTier    = op.maxSTier;
     if (op.metaStriperType != KFS_STRIPED_FILE_TYPE_NONE) {
@@ -3619,7 +3669,6 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         }
         UpdateGroupId(op.groupName, fa.group, now);
     }
-    // Set optimal io size, like open does.
     SetOptimalReadAheadSize(entry, mDefaultReadAheadSize);
     SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
     KFS_LOG_STREAM_DEBUG <<
@@ -4149,7 +4198,15 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     kfsFileId_t parentFid = -1;
     string      filename;
     string      fpath;
-    const int res = GetPathComponents(pathname, &parentFid, filename, &fpath);
+    const bool  createFastPathFlag =
+        ! cacheAttributesFlag && (openMode & O_CREAT) != 0 &&
+        (openMode & (O_EXCL | O_TRUNC | O_APPEND)) == 0 &&
+        (openMode & (O_RDWR | O_WRONLY)) != 0;
+    const bool  kInvalidateSubCountsFlag = false;
+    const bool  kEnforceLastDirFlag      = true;
+    const bool  kFollowSymLinkFlag       = ! createFastPathFlag;
+    int res = GetPathComponents(pathname, &parentFid, filename, &fpath,
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         return res;
     }
@@ -4157,6 +4214,27 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
         filename != "." && filename != "..");
     if (path) {
         *path = fpath;
+    }
+    if (createFastPathFlag) {
+        int cres = KfsClient::ValidateCreateParams(
+            numReplicas, numStripes, numRecoveryStripes,
+            stripeSize, stripedType, minSTier, maxSTier);
+        if (cres < 0) {
+            return cres;
+        }
+        const int fte = CreateSelfResolved(pathname, parentFid, filename, fpath,
+            numReplicas, true /* exclusive */, numStripes, numRecoveryStripes,
+            stripeSize, stripedType, false, mode, minSTier, maxSTier);
+        if (fte >= 0 || fte != -EEXIST) {
+            return fte;
+        }
+        res = GetPathComponents(pathname, &parentFid, filename, &fpath);
+        if (res < 0) {
+            return res;
+        }
+        if (path) {
+            *path = fpath;
+        }
     }
     bool         objectStoreTruncateFlag   = false;
     LookupOp     op(0, parentFid, filename.c_str());
@@ -4848,6 +4926,7 @@ KfsClientImpl::StartProtocolWorker()
         return;
     }
     KfsProtocolWorker::Parameters params;
+    params.mUseClientPoolFlag = true;
     if (mProtocolWorkerAuthCtx.IsEnabled()) {
         params.mAuthContextPtr = &mProtocolWorkerAuthCtx;
     }
@@ -4881,6 +4960,9 @@ KfsClientImpl::StartProtocolWorker()
     }
     params.mUseClientPoolFlag = mConfig.getValue(
         "client.connectionPool", params.mUseClientPoolFlag ? 1 : 0) != 0;
+    params.mParallelReplicaWriteFlag = mConfig.getValue(
+        "client.parallelReplicaWrite",
+        params.mParallelReplicaWriteFlag ? 1 : 0) != 0;
     params.mMetaServerNodes = mConfig.getValue(
         KfsClient::GetMetaServerNodesParamName(), params.mMetaServerNodes);
     params.mClientRackId    = mConfig.getValue(
@@ -5648,16 +5730,20 @@ KfsClientImpl::FindFreeFileTableEntry()
 void
 KfsClientImpl::ValidateFAttrCache(time_t now, int maxScan)
 {
-    FAttr*       p;
-    const time_t expire = now - mFileAttributeRevalidateTime;
-    int          rem    = maxScan;
-    while ((p = FAttrLru::Front(mFAttrLru)) &&
-            (p->validatedTime < expire ||
-                p->generation != mFAttrCacheGeneration)) {
-        Delete(p);
-        if (--rem < 0) {
-            break;
+    FAttr* p;
+    int    rem = maxScan;
+    while ((p = FAttrLru::Front(mFAttrLru))) {
+        const bool expiredFlag =
+            (0 <= mFileAttributeRevalidateTime &&
+                p->validatedTime < now - mFileAttributeRevalidateTime);
+        if (p->generation != mFAttrCacheGeneration || expiredFlag) {
+            Delete(p);
+            if (--rem < 0) {
+                break;
+            }
+            continue;
         }
+        break;
     }
 }
 
@@ -5694,9 +5780,8 @@ KfsClientImpl::NewFAttr(kfsFileId_t parentFid, const string& name,
         mFattrCacheSkipValidateCnt = 0;
         ValidateFAttrCache(time(0), mFileAttributeRevalidateScan);
     }
-    const size_t kMaxInodeCacheSize = 16 << 10;
     for (size_t sz = mFidNameToFAttrMap.size();
-            kMaxInodeCacheSize <= sz;
+            mMaxFAttrCacheSize <= sz;
             sz--) {
         Delete(FAttrLru::Front(mFAttrLru));
     }
@@ -5861,13 +5946,45 @@ KfsClientImpl::Lookup(kfsFileId_t parentFid, const string& name,
     assert(! path.empty() && *path.begin() == '/' &&
         name != "." && name != "..");
 
+    mLookupFidNameCacheQueryCount++;
     fa = LookupFAttr(parentFid, name);
     if (fa && IsValid(*fa, now)) {
+        mLookupFidNameCacheHitCount++;
         UpdatePath(fa, path);
         return 0;
     }
+    if (fa) {
+        mLookupFidNameCacheStaleCount++;
+    } else {
+        mLookupFidNameCacheMissCount++;
+    }
+    mLookupRpcCount++;
     LookupOp op(0, parentFid, name.c_str());
     return LookupSelf(op, parentFid, name, fa, now, path);
+}
+
+void
+KfsClientImpl::CacheCreatedEntry(
+    kfsFileId_t            parentFid,
+    const string&          name,
+    const string&          fullPath,
+    kfsFileId_t            fileId,
+    const Permissions&     perms,
+    bool                   isDirectory)
+{
+    if (fileId < 0 || fullPath.empty() || fullPath[0] != '/') {
+        return;
+    }
+    FileAttr attr;
+    attr.fileId       = fileId;
+    attr.isDirectory  = isDirectory;
+    attr.user         = perms.user;
+    attr.group        = perms.group;
+    attr.mode         = perms.mode;
+    attr.Init(isDirectory);
+    FAttr* fa = 0;
+    const time_t now = time(0);
+    (void)UpdateFattr(parentFid, name, fa, fullPath, attr, now);
 }
 
 int
@@ -5990,6 +6107,32 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
         const bool lastFlag = i + 1 == sz;
         if (! followSymLinkFlag && lastFlag && noCheckLastDirFlag) {
             break;
+        }
+        mLookupPathCacheQueryCount++;
+        fa = LookupFAttr(npath, static_cast<string*>(0));
+        if (fa && IsValid(*fa, now)) {
+            mLookupPathCacheHitCount++;
+            if (! fa->isDirectory) {
+                if (lastFlag && noCheckLastDirFlag) {
+                    break;
+                }
+                res = -ENOTDIR;
+                break;
+            }
+            if (invalidateSubCountsFlag) {
+                fa->staleSubCountsFlag = true;
+            }
+            *parentFid = fa->fileId;
+            if (lastFlag) {
+                break;
+            }
+            mTmpPath.push_back(make_pair(*parentFid, i));
+            continue;
+        }
+        if (fa) {
+            mLookupPathCacheStaleCount++;
+        } else {
+            mLookupPathCacheMissCount++;
         }
         fa = 0;
         if ((res = Lookup(*parentFid, name, fa, now, npath)) != 0) {
@@ -7809,12 +7952,65 @@ KfsClientImpl::GetStats()
 {
     QCStMutexLocker l(mMutex);
     StartProtocolWorker();
-    Properties stats = mProtocolWorker->GetStats();
-    if (stats.empty()) {
-        return 0;
+    Properties workerStats = mProtocolWorker->GetStats();
+    Properties* const ret  = new Properties();
+    if (! workerStats.empty()) {
+        ret->swap(workerStats);
     }
-    Properties* const ret = new Properties();
-    ret->swap(stats);
+    const int64_t lookupTotal = mLookupRpcCount +
+        mLookupPathCacheHitCount + mLookupFidNameCacheHitCount;
+    string val;
+    AppendDecIntToString(val, mLookupRpcCount);
+    ret->setValue("PathCache.LookupRpc", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupPathCacheQueryCount);
+    ret->setValue("PathCache.PathQuery", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupPathCacheHitCount);
+    ret->setValue("PathCache.PathHit", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupPathCacheStaleCount);
+    ret->setValue("PathCache.PathStale", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupPathCacheMissCount);
+    ret->setValue("PathCache.PathMiss", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupFidNameCacheQueryCount);
+    ret->setValue("PathCache.FidNameQuery", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupFidNameCacheHitCount);
+    ret->setValue("PathCache.FidNameHit", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupFidNameCacheStaleCount);
+    ret->setValue("PathCache.FidNameStale", val);
+    val.clear();
+    AppendDecIntToString(val, mLookupFidNameCacheMissCount);
+    ret->setValue("PathCache.FidNameMiss", val);
+    val.clear();
+    AppendDecIntToString(val, lookupTotal);
+    ret->setValue("PathCache.LookupTotal", val);
+    val.clear();
+    AppendDecIntToString(val, (int64_t)mFidNameToFAttrMap.size());
+    ret->setValue("PathCache.FattrEntries", val);
+    val.clear();
+    AppendDecIntToString(val, (int64_t)mPathCache.size());
+    ret->setValue("PathCache.PathEntries", val);
+    val.clear();
+    AppendDecIntToString(val, (int64_t)mMaxFAttrCacheSize);
+    ret->setValue("PathCache.MaxEntries", val);
+    val.clear();
+    AppendDecIntToString(val, (int64_t)mFAttrCacheGeneration);
+    ret->setValue("PathCache.Generation", val);
+    val.clear();
+    AppendDecIntToString(val, (int64_t)mFileAttributeRevalidateTime);
+    ret->setValue("PathCache.RevalidateSec", val);
+    if (0 < lookupTotal) {
+        char buf[64];
+        const double ratio = (double)(mLookupPathCacheHitCount +
+            mLookupFidNameCacheHitCount) / (double)lookupTotal;
+        snprintf(buf, sizeof(buf), "%.6f", ratio);
+        ret->setValue("PathCache.HitRatio", buf);
+    }
     return ret;
 }
 

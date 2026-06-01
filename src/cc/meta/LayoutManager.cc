@@ -32,6 +32,7 @@
 #include "ClientSM.h"
 #include "NetDispatch.h"
 #include "LogWriter.h"
+#include "NamespaceV2.h"
 
 #include "qcdio/QCIoBufferPool.h"
 #include "qcdio/QCUtils.h"
@@ -2059,6 +2060,7 @@ LayoutManager::LayoutManager()
       mConcurrentWritesPerNodeWatermark(10),
       mMaxSpaceUtilizationThreshold(0.95),
       mUseFsTotalSpaceFlag(true),
+      mHdfsLikeAllocateFlag(false),
       mChunkAllocMinAvailSpace(2 * (int64_t)CHUNKSIZE),
       mCompleteReplicationCheckInterval(30 * kSecs2MicroSecs),
       mCompleteReplicationCheckTime(
@@ -2392,6 +2394,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mUseFsTotalSpaceFlag = props.getValue(
         "metaServer.useFsTotalSpace",
         mUseFsTotalSpaceFlag ? 1 : 0) != 0;
+    mHdfsLikeAllocateFlag = props.getValue(
+        "metaServer.writeFlow.hdfsLikeAllocate",
+        mHdfsLikeAllocateFlag ? 1 : 0) != 0;
     mChunkAllocMinAvailSpace = props.getValue(
         "metaServer.chunkAllocMinAvailSpace",
         mChunkAllocMinAvailSpace);
@@ -2483,6 +2488,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         mChunkReplicator.GetTimeoutInterval() * 1e-3) * 1e3));
 
     mCheckpoint.GetOp().SetParameters(props);
+    NamespaceV2::SetParameters(props);
 
     mCSCountersUpdateInterval = props.getValue(
         "metaServer.CSCountersUpdateInterval",
@@ -5034,6 +5040,17 @@ LayoutManager::AddNotStableChunk(
         return "chunk was open for append";
     }
     const seq_t curChunkVersion = pinfo.GetChunkInfo()->chunkVersion;
+    if (mHdfsLikeAllocateFlag && ! appendFlag &&
+            chunkVersion == 0 && curChunkVersion > 0) {
+        KFS_LOG_STREAM_INFO << logPrefix <<
+            " not stable chunk:"
+            " <"       << fileId <<
+            ","        << chunkId << ">" <<
+            " remapping dirty version 0 to current version " <<
+            curChunkVersion <<
+        KFS_LOG_EOM;
+        chunkVersion = curChunkVersion;
+    }
     if (chunkVersion < curChunkVersion) {
         return "lower chunk version";
     }
@@ -7157,6 +7174,19 @@ LayoutManager::AllocateChunk(
     }
     if (req.appendChunk) {
         mARAChunkCache.RequestNew(req);
+    }
+    if (mHdfsLikeAllocateFlag && ! req.appendChunk &&
+            ! req.stripedFileFlag && 0 < req.numReplicas &&
+            0 <= req.chunkVersion) {
+        KFS_LOG_STREAM_DEBUG <<
+            "hdfs-like allocate: deferred chunk create"
+            " fid: "     << req.fid <<
+            " chunk: "   << req.chunkId <<
+            " version: " << req.chunkVersion <<
+            " replicas: " << req.servers.size() <<
+        KFS_LOG_EOM;
+        req.LayoutDone(0);
+        return 0;
     }
     for (size_t i = req.servers.size(); i-- > 0; ) {
         req.servers[i]->AllocateChunk(req, i == 0 ? req.leaseId : -1, tiers[i]);
@@ -10124,7 +10154,7 @@ LayoutManager::MakeChunkStableInit(
         KFS_LOG_EOM;
         return;
     }
-    KFS_LOG_STREAM_INFO << logPrefix <<
+    KFS_LOG_STREAM_DEBUG << logPrefix <<
         " <" << fid << "," << chunkId << ">"
         " name: "     << pathname <<
         " version: "  << chunkVersion <<
@@ -10486,7 +10516,7 @@ LayoutManager::LogMakeChunkStableDone(MetaLogMakeChunkStable& req)
     info.serverAddedFlag              = false;
     info.chunkSize                    = req.chunkSize;
     info.chunkChecksum                = req.chunkChecksum;
-    KFS_LOG_STREAM_INFO << logPrefix <<
+    KFS_LOG_STREAM_DEBUG << logPrefix <<
         " <" << req.fid << "," << req.chunkId  << ">"
         " starting MCS"
         " version: "  << req.chunkVersion  <<
@@ -10512,6 +10542,86 @@ LayoutManager::LogMakeChunkStableDone(MetaLogMakeChunkStable& req)
         req.chunkSize, req.hasChunkChecksum, req.chunkChecksum,
         kPendingAddFlag
     ));
+}
+
+bool
+LayoutManager::ScheduleTruncateToLastRecoverableChunk(
+    fid_t      fid,
+    chunkId_t  chunkId,
+    chunkOff_t chunkSize)
+{
+    if (! mHdfsLikeAllocateFlag || ! mPrimaryFlag || fid < 0) {
+        return false;
+    }
+    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+    vector<MetaChunkInfo*>&        chunks = cinfoTmp.Get();
+    MetaFattr*                     fa     = 0;
+    const int status = metatree.getalloc(fid, fa, chunks, 0);
+    if (status != 0 || ! fa || KFS_FILE != fa->type || fa->IsSymLink() ||
+            fa->IsStriped() || fa->numReplicas <= 0 || chunks.empty()) {
+        return false;
+    }
+    bool       sawUnrecoverableSuffixFlag = false;
+    chunkOff_t truncateOffset             = -1;
+    chunkId_t  lastRecoverableChunkId     = -1;
+    StTmp<Servers> serversTmp(mServers3Tmp);
+    Servers&       servers = serversTmp.Get();
+    for (vector<MetaChunkInfo*>::const_reverse_iterator it = chunks.rbegin();
+            it != chunks.rend();
+            ++it) {
+        MetaChunkInfo* const ci    = *it;
+        CSMap::Entry* const  entry = mChunkToServerMap.Find(ci->chunkId);
+        bool recoverableFlag = false;
+        if (entry) {
+            servers.clear();
+            mChunkToServerMap.GetServers(*entry, servers);
+            for (Servers::const_iterator si = servers.begin();
+                    si != servers.end();
+                    ++si) {
+                if ((*si)->IsConnected()) {
+                    recoverableFlag = true;
+                    break;
+                }
+            }
+        }
+        if (! recoverableFlag) {
+            sawUnrecoverableSuffixFlag = true;
+            continue;
+        }
+        if (! sawUnrecoverableSuffixFlag) {
+            return false;
+        }
+        truncateOffset = ci->offset + (chunkOff_t)CHUNKSIZE;
+        if (ci->chunkId == chunkId && 0 <= chunkSize &&
+                chunkSize < (chunkOff_t)CHUNKSIZE) {
+            truncateOffset = ci->offset + chunkSize;
+        }
+        lastRecoverableChunkId = ci->chunkId;
+        break;
+    }
+    if (! sawUnrecoverableSuffixFlag) {
+        return false;
+    }
+    if (truncateOffset < 0) {
+        truncateOffset = 0;
+    }
+    if (fa->nextChunkOffset() <= truncateOffset) {
+        return false;
+    }
+    MetaTruncate& op = *(new MetaTruncate());
+    op.fid           = fid;
+    op.offset        = truncateOffset;
+    op.setEofHintFlag = true;
+    KFS_LOG_STREAM_INFO <<
+        "scheduling hdfs-like recovery truncate:"
+        " fid: "        << fid <<
+        " offset: "     << truncateOffset <<
+        " next: "       << fa->nextChunkOffset() <<
+        " trigger: "    << chunkId <<
+        " recoverable: " << lastRecoverableChunkId <<
+    KFS_LOG_EOM;
+    submit_request(&op);
+    return true;
 }
 
 void
@@ -10704,7 +10814,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
             CancelPendingMakeStable(fileId, req.chunkId);
         }
     }
-    KFS_LOG_STREAM_INFO << logPrefix <<
+    KFS_LOG_STREAM_DEBUG << logPrefix <<
         " <" << req.fid << "," << req.chunkId  << ">"
         " fid: "              << fileId <<
         " version: "          << req.chunkVersion  <<
@@ -10716,6 +10826,16 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
         " down: "             << numDownServers <<
         " server(s)" <<
     KFS_LOG_EOM;
+    if (updateSizeFlag &&
+            numServers > 0 &&
+            fa->filesize < 0 &&
+            ! fa->IsStriped() &&
+            pinfo->GetChunkInfo()->offset +
+                (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() &&
+            ScheduleTruncateToLastRecoverableChunk(
+                fileId, req.chunkId, req.chunkSize)) {
+        return;
+    }
     if (! updateSizeFlag ||
             numServers <= 0 ||
             fa->filesize >= 0 ||

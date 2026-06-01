@@ -71,6 +71,10 @@ public:
         }
         return EnqueueSelf(thread, op);
     }
+    void EnqueueBatch(
+        ClientThread*         thread,
+        MetaRequest* const*   reqs,
+        size_t                count);
     static void SubmitRequest(ClientThread* thread, MetaRequest& op)
     {
         if (thread) {

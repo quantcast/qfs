@@ -625,6 +625,29 @@ IOBuffer::Append(IOBuffer *ioBuf)
     return nBytes;
 }
 
+IOBuffer::BufPos
+IOBuffer::AppendShared(const IOBuffer& other)
+{
+    DebugChecksum(other, other.mByteCount);
+    BufPos nBytes = 0;
+    for (BList::const_iterator it = other.mBuf.begin();
+            it != other.mBuf.end();
+            ++it) {
+        const BufPos nb = it->BytesConsumable();
+        if (nb > 0) {
+            mBuf.push_back(IOBufferData(*it,
+                const_cast<char*>(it->Consumer()),
+                const_cast<char*>(it->Producer())));
+            nBytes += nb;
+        }
+    }
+    assert(mByteCount >= 0);
+    mByteCount += nBytes;
+    DebugVerify();
+    other.DebugVerify();
+    return nBytes;
+}
+
 inline IOBuffer::BList::iterator
 IOBuffer::BeginSpaceAvailable(IOBuffer::BufPos* nBytes /* = 0 */)
 {
