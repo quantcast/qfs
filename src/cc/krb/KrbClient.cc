@@ -475,9 +475,7 @@ private:
         }
         // Fall back to a private FILE: ccache in TMPDIR / /tmp. Create
         // it via mkstemp so the name is unique and the file is owned
-        // by this process, then immediately unlink it: on POSIX the
-        // file remains accessible through the open fd until close, and
-        // an interrupted process leaves nothing behind on disk.
+        // by this process.
         const char* theTmpDirPtr = getenv("TMPDIR");
         if (! theTmpDirPtr || ! *theTmpDirPtr) {
             theTmpDirPtr = "/tmp";
@@ -500,18 +498,16 @@ private:
         if (theFd < 0) {
             return errno != 0 ? errno : EIO;
         }
-        // Unlink immediately so an aborted process leaves no residue.
-        // libkrb5 will recreate / write to the named path; on POSIX
-        // unlink before re-create is harmless.
-        unlink(theTmplPtr);
         // The libkrb5 FILE ccache code opens its own fd; ours is only
         // used to reserve the name. Closing it here is fine.
+        close(theFd);
+        // Keep the path linked until cleanup to avoid a TOCTOU window
+        // between mkstemp() and libkrb5 opening the FILE: ccache path.
         if ((theErr = krb5_cc_resolve(
                 mCtx, theCacheNameBuf.GetPtr(), &mCachePtr)) != 0) {
-            close(theFd);
+            unlink(theTmplPtr);
             return theErr;
         }
-        close(theFd);
         mPrivateCacheFlag = true;
         mCacheFilePath    = theTmplPtr;
         return 0;
