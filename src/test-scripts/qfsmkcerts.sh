@@ -112,8 +112,13 @@ for n in ${certs-"$@"}; do
     if [ -f "$n.key" ]; then
         true
     else
+        # Generate a certificate signing request (not a self-signed cert):
+        # omit -x509 and use -new so $n.req is a PKCS#10 CSR that "openssl ca"
+        # can sign below.  The signed certificate's validity comes from
+        # default_days in $caconf.  Newer OpenSSL (e.g. 3.5+ on Rocky 10)
+        # strictly rejects a certificate passed to "openssl ca -infiles".
         openssl req \
-            -days 3650 \
+            -new \
             -subj "$subjectprefix/CN=$cn" \
             -nodes \
             -newkey rsa:"$non_ca_key_size" \

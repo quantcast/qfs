@@ -32,18 +32,21 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 24.04
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-24.04-arm
           - distro: ubuntu
             ver: 22.04
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-latest
           - distro: ubuntu
             ver: 20.04
@@ -92,12 +95,14 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-latest
           - distro: debian
             ver: 13
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-24.04-arm
           - distro: debian
             ver: 12
@@ -140,12 +145,14 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-latest
           - distro: rockylinux/rockylinux
             ver: 10
             codecov: no
             btype: release
             buser: qfsbuild
+            krb_test: yes
             runs_on: ubuntu-24.04-arm
           - distro: rockylinux
             ver: 9
@@ -187,6 +194,7 @@ jobs:
       BTYPE: ${{ matrix.btype }}
       BUSER: ${{ matrix.buser }}
       UBUNTU_APT_OPTIONS: "-o Acquire:Queue-mode=host"
+      QFS_KRB_TEST: ${{ matrix.krb_test || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v2

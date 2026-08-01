@@ -49,6 +49,15 @@ done
 DEPS_CENTOS=$DEPS_CENTOS$DEPS_CENTOS_PRIOR_TO_9
 DEPS_CENTOS8=$DEPS_CENTOS8$DEPS_CENTOS_PRIOR_TO_9
 
+# Additional packages installed only when QFS_KRB_TEST=yes to run the KDC
+# natively inside the build container (no inner Docker needed).
+# Ubuntu/Debian: krb5-kdc provides krb5kdc + kdb5_util; krb5-admin-server
+# provides kadmind.  libkrb5-dev is already in DEPS_UBUNTU.
+DEPS_UBUNTU_KRB='krb5-kdc krb5-admin-server'
+# RHEL/Rocky: krb5-server provides the KDC, kadmind, and kdb5_util.
+# krb5-devel and krb5-workstation are already in DEPS_CENTOS.
+DEPS_CENTOS_KRB='krb5-server'
+
 MYMVN_URL='https://dlcdn.apache.org/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz'
 
 MYTMPDIR='.tmp'
@@ -73,6 +82,27 @@ MYQFSHADOOP_VERSIONS_CENTOS2023=$MYQFSHADOOP_VERSIONS_UBUNTU1804
 MYQFSHADOOP_VERSIONS_CENTOS5='0.23.4  0.23.11  1.0.4  1.1.2  2.5.1'
 
 MYBUILD_TYPE='release'
+
+do_krb_native_setup() {
+    # Set up MIT Kerberos KDC and kadmind directly inside the build container.
+    # Writes /etc/krb5.conf, starts krb5kdc + kadmind as background daemons,
+    # and creates the krb.env file used by krbtest.
+    # Must be called as root before do_build_linux so the KDC is ready when
+    # the krbtest make target runs.
+    local krb_test_dir="$PWD/build/$MYBUILD_TYPE/qfstest-krb"
+    mkdir -p "$krb_test_dir"
+    TEST_DIR="$krb_test_dir" \
+    QFS_CLIENT_USER="${MYUSER:-$(id -un)}" \
+        bash "$PWD/src/test-scripts/krb/setup_kerberos.sh"
+    # This runs as root and creates the build/<type> directory tree (and the
+    # keytabs / krb.env) owned by root.  The build itself runs as $MYUSER, so
+    # hand ownership of the freshly-created build tree to $MYUSER; otherwise
+    # cmake cannot write into build/<type> and run-cmake fails.  At this point
+    # (before do_build_linux) build/ only contains the kerberos test files.
+    if [ x"$MYUSER" != x ]; then
+        chown -R "$MYUSER" "$PWD/build"
+    fi
+}
 
 set_sudo() {
     if [ x"$(id -u)" = x'0' ]; then
@@ -145,11 +175,31 @@ do_build() {
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D CMAKE_BUILD_TYPE=RelWithDebInfo'
     fi
     sync || true
-    $MYSU make ${1+"$@"} \
+    # When kerberos testing is enabled, wrap the make invocation with the env
+    # vars that libkrb5 and OpenSSL need, and append the KRB_ENV_FILE make
+    # configuration variable, to enable the kerberos tests.
+    local myenv_pfx=('env')
+    local mykrb_make_args=()
+    if [ x"$QFS_KRB_TEST" = x'yes' ]; then
+        local krb_test_dir="$PWD/build/$MYBUILD_TYPE/qfstest-krb"
+        # Only set KRB5_CONFIG here.  Do NOT set OPENSSL_CONF globally: it would
+        # leak into the X.509 certificate generation performed by mintest and
+        # break it (e.g. on distros with newer OpenSSL).  MIT Kerberos with the
+        # AES-only enctypes configured by setup_kerberos.sh does not need the
+        # legacy OpenSSL provider.
+        myenv_pfx+=(
+			"KRB5_CONFIG=/etc/krb5.conf"
+		)
+        mykrb_make_args+=(
+			"KRB_ENV_FILE=$krb_test_dir/krb.env"
+		)
+    fi
+    $MYSU "${myenv_pfx[@]}" make ${1+"$@"} \
         BUILD_TYPE="$MYBUILD_TYPE" \
         CMAKE="$MYCMAKE" \
         CMAKE_OPTIONS="$MYCMAKE_OPTIONS" \
         JAVA_BUILD_OPTIONS='-r 5' \
+		${mykrb_make_args+"${mykrb_make_args[@]}"} \
         test tarball ||
         tail_logs_and_exit
 }
@@ -210,6 +260,9 @@ build_ubuntu() {
     else
         MYDEPS=$DEPS_UBUNTU
     fi
+    if [ x"$QFS_KRB_TEST" = x'yes' ]; then
+        MYDEPS="$MYDEPS $DEPS_UBUNTU_KRB"
+    fi
     APT_GET_CMD="apt-get${UBUNTU_APT_OPTIONS:+ ${UBUNTU_APT_OPTIONS}}"
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
@@ -232,6 +285,9 @@ build_ubuntu() {
     elif [ x"$1" = x'24.04' -o x"$1" = x'd11' -o x"$1" = x'd12' ]; then
         # Work around -O2 optimization bugs.
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS" -D CMAKE_CXX_FLAGS_RELWITHDEBINFO='-O1 -g'"
+    fi
+    if [ x"$QFS_KRB_TEST" = x'yes' ]; then
+        do_krb_native_setup
     fi
     do_build_linux \
         ${MYPATH+PATH="${MYPATH}:${PATH}"} \
@@ -300,6 +356,9 @@ build_centos() {
     $MYSUDO yum makecache
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $YUM_OPTS $MYDEPS
+    if [ x"$QFS_KRB_TEST" = x'yes' ]; then
+        $MYSUDO yum install -y $YUM_OPTS $DEPS_CENTOS_KRB
+    fi
     MYPATH=$PATH
     # CentOS doesn't package maven directly so we have to install it manually
     install_maven
@@ -333,6 +392,9 @@ build_centos() {
         # CentOS7 has the distro information in /etc/redhat-release
         $MYSUDO /bin/bash -c \
             "cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
+    fi
+    if [ x"$QFS_KRB_TEST" = x'yes' ]; then
+        do_krb_native_setup
     fi
     do_build_linux PATH="$MYPATH" ${M2_HOME+M2_HOME="$M2_HOME"} \
         ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"} \
@@ -416,6 +478,7 @@ if [ x"$BUILD_OS_NAME" = x'linux' ]; then
         fi
         docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
             ${UBUNTU_APT_OPTIONS:+-e UBUNTU_APT_OPTIONS="$UBUNTU_APT_OPTIONS"} \
+            ${QFS_KRB_TEST:+-e QFS_KRB_TEST="$QFS_KRB_TEST"} \
             "$DOCKER_IMAGE_PREFIX$DISTRO:$VER" \
             /bin/bash ./travis/script.sh \
             build "$DISTRO" "$VER" "$BTYPE" "$BUSER"

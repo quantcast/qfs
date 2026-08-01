@@ -63,19 +63,26 @@ EOF
 # Create KDC database
 kdb5_util create -s -P "$ADMIN_PASSWORD" -r "$REALM"
 
-# Create ACL file
-mkdir -p /etc/krb5kdc
-echo "*/admin@${REALM} *" >/etc/krb5kdc/kadm5.acl
+# Create ACL file in the distro-specific KDC configuration directory.
+# RHEL/Rocky use /var/kerberos/krb5kdc; Debian/Ubuntu use /etc/krb5kdc.
+if [ -d /var/kerberos/krb5kdc ]; then
+    KDC_CONF_DIR=/var/kerberos/krb5kdc
+else
+    KDC_CONF_DIR=/etc/krb5kdc
+fi
+mkdir -p "$KDC_CONF_DIR"
+echo "*/admin@${REALM} *" >"$KDC_CONF_DIR/kadm5.acl"
 
 wait_for_port() {
     local port="$1"
     local timeout="${2:-10}"
     local i=0
-    while ! nc -z localhost "$port" 2>/dev/null && [ $i -lt $timeout ]; do
+    # Use bash /dev/tcp for a portable, nc-free connectivity check.
+    while ! (: </dev/tcp/localhost/"$port") 2>/dev/null && [ $i -lt $timeout ]; do
         sleep 0.5
         i=$((i + 1))
     done
-    nc -z localhost "$port" 2>/dev/null
+    (: </dev/tcp/localhost/"$port") 2>/dev/null
 }
 
 # Start KDC
