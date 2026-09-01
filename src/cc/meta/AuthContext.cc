@@ -246,6 +246,22 @@ public:
                 int64_t(time(0)) + mMaxAuthenticationValidTime,
                 inOp.credExpirationTime
             );
+            // The Kerberos session key is used as the TLS-PSK, so its
+            // strength is bounded by the negotiated enctype. Warn on keys
+            // shorter than 128 bits (single-DES class); AES128/AES256 yield
+            // 16/32 byte keys. The effective control is the enctype policy
+            // in krb5.conf / the keytab -- see the annotated configuration.
+            const int kMinKrbSessionKeyLen = 16;
+            if (0 < theSessionKeyLen &&
+                    theSessionKeyLen < kMinKrbSessionKeyLen) {
+                KFS_LOG_STREAM_WARN <<
+                    "kerberos authentication: " <<
+                    (theAuthName.empty() ? "?" : theAuthName) <<
+                    ": weak session key: " << (theSessionKeyLen * 8) <<
+                    " bits, used as TLS-PSK; configure strong (AES) enctypes"
+                    " in krb5.conf and the keytab" <<
+                KFS_LOG_EOM;
+            }
             if (! mSslCtxPtr || ! mKrbUseSslFlag) {
                 inOp.authName     = theAuthName;
                 inOp.sendAuthType = inOp.authType;

@@ -103,6 +103,13 @@
 # ================= Kerberos authentication ====================================
 #
 # Kerberos service principal: service/host@realm
+#
+# With Kerberos authentication the Kerberos session key is used as the TLS-PSK,
+# so its strength is bounded by the negotiated Kerberos enctype. Restrict
+# enctypes to strong AES ciphers in krb5.conf (permitted_enctypes,
+# default_tkt_enctypes, default_tgs_enctypes) and provision only AES keys in the
+# keytab; single-DES / RC4 keys are weak. A warning is logged when a session key
+# shorter than 128 bits is used.
 
 # Meta server's Kerberos principal [service/host@realm] service name part.
 # client.auth.krb5.service =
@@ -116,6 +123,17 @@
 
 # Kerberos keytab file with the key(s) that corresponds to the QFS client's
 # principal, if used. Key table is typically used for service.
+#
+# Keytab based clients do not use the default (KRB5CCNAME) credential cache, in
+# order to avoid clobbering an interactive kinit cache or the caches of other
+# QFS clients running in the same process. Instead a private, process-local
+# credential cache is used: an in-memory (MEMORY:) cache when the Kerberos
+# library supports it, otherwise a fallback file credential cache created with
+# mkstemp() (mode 0600) under TMPDIR or /tmp. The file cache holds credentials
+# and is removed on cleanup / process exit, but may persist if the process is
+# terminated abnormally (e.g. SIGKILL, crash); a warning is logged whenever the
+# file fallback is used. To keep credentials out of on-disk temporary storage,
+# use a Kerberos library that supports the MEMORY: credential cache type.
 # client.auth.krb5.keytab =
 
 # QFS client's kerberos principal. krb5_parse_name() used to convert the name

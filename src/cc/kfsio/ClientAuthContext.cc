@@ -144,6 +144,19 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            const char* const theCacheFilePathPtr =
+                theKrbClientPtr->GetCredCacheFilePath();
+            if (theCacheFilePathPtr) {
+                KFS_LOG_STREAM_WARN <<
+                    theParamName.Truncate(theCurLen) <<
+                    "* keytab client: could not create an in-memory (MEMORY:)"
+                    " credential cache; using an on-disk file credential"
+                    " cache: " << theCacheFilePathPtr <<
+                    " -- credentials are written to this file and it is"
+                    " removed on cleanup, but may persist if the process is"
+                    " terminated abnormally" <<
+                KFS_LOG_EOM;
+            }
             if (inVerifyFlag) {
                 const char* theBufPtr        = 0;
                 int         theBufLen        = 0;
@@ -171,6 +184,20 @@ public:
                         " request size: " << theBufLen <<
                     KFS_LOG_EOM;
                     return -EFAULT;
+                }
+                // The Kerberos session key is used as the TLS-PSK; warn on
+                // keys shorter than 128 bits (single-DES class). AES128/AES256
+                // yield 16/32 byte keys. The enctype policy in krb5.conf / the
+                // keytab is the effective control.
+                const int kMinKrbSessionKeyLen = 16;
+                if (theSessionKeyLen < kMinKrbSessionKeyLen) {
+                    KFS_LOG_STREAM_WARN <<
+                        theParamName.Truncate(theCurLen) <<
+                        "* weak kerberos session key: " <<
+                        (theSessionKeyLen * 8) <<
+                        " bits, used as TLS-PSK; configure strong (AES)"
+                        " enctypes in krb5.conf and the keytab" <<
+                    KFS_LOG_EOM;
                 }
             }
         }

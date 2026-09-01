@@ -228,6 +228,8 @@ public:
         { return (int)mErrCode; }
     time_t GetLastCredEndTime() const
         { return mLastCredEndTime; }
+    const char* GetCredCacheFilePath() const
+        { return (mCacheFilePath.empty() ? 0 : mCacheFilePath.c_str()); }
     Impl* Clone(
         const char*& outErrMsgPtr) const
     {
@@ -638,6 +640,12 @@ KrbClient::GetErrorCode() const
 KrbClient::GetLastCredEndTime() const
 {
     return mImpl.GetLastCredEndTime();
+}
+
+    const char*
+KrbClient::GetCredCacheFilePath() const
+{
+    return mImpl.GetCredCacheFilePath();
 }
 
     KrbClient*

@@ -54,6 +54,13 @@ public:
         int          inReplyLen);
     int GetErrorCode() const;
     time_t GetLastCredEndTime() const;
+    // Returns the path of the on-disk FILE: credential cache when the
+    // keytab based client had to fall back to it (because a MEMORY: ccache
+    // could not be created, e.g. with older Kerberos libraries), or 0 when
+    // an in-memory / default credential cache is used. The backing file
+    // holds credentials and is removed on cleanup / destruction, but may
+    // persist if the process is terminated abnormally.
+    const char* GetCredCacheFilePath() const;
     KrbClient* Clone(
         const char*& outErrMsgPtr) const;
 private:

@@ -305,6 +305,13 @@ chunkServer.msgLogWriter.logLevel = INFO
 #
 # Kerberos principal: service/host@realm
 
+# With Kerberos authentication the Kerberos session key is used as the TLS-PSK,
+# so its strength is bounded by the negotiated Kerberos enctype. Restrict
+# enctypes to strong AES ciphers in krb5.conf (permitted_enctypes,
+# default_tkt_enctypes, default_tgs_enctypes) and provision only AES keys in the
+# keytab; single-DES / RC4 keys are weak. A warning is logged when a session key
+# shorter than 128 bits is used.
+
 # Meta server's Kerberos principal [service/host@realm] service name part.
 # chunkserver.meta.auth.krb5.service =
 
@@ -313,6 +320,13 @@ chunkServer.msgLogWriter.logLevel = INFO
 
 # Kerberos keytab file with the key(s) that corresponds to the chunk server's
 # principal.
+# Keytab based clients use a private, process-local credential cache: an
+# in-memory (MEMORY:) cache when the Kerberos library supports it, otherwise a
+# fallback file credential cache (mode 0600) under TMPDIR or /tmp. The file
+# cache is removed on cleanup / process exit but may persist on abnormal
+# termination; a warning is logged whenever the file fallback is used. Use a
+# Kerberos library with MEMORY: credential cache support to avoid writing
+# credentials to on-disk temporary storage.
 # chunkserver.meta.auth.krb5.keytab =
 
 # Chunk server's kerberos principal. krb5_parse_name() used to convert the name

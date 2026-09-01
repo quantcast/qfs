@@ -665,6 +665,13 @@ metaServer.msgLogWriter.logLevel = INFO
 # ================= Kerberos authentication =====================================
 # Kerberos principal: service/host@realm
 
+# With Kerberos authentication the Kerberos session key is used as the TLS-PSK,
+# so its strength is bounded by the negotiated Kerberos enctype. Restrict
+# enctypes to strong AES ciphers in krb5.conf (permitted_enctypes,
+# default_tkt_enctypes, default_tgs_enctypes) and provision only AES keys in the
+# keytab; single-DES / RC4 keys are weak. A warning is logged when a session key
+# shorter than 128 bits is used.
+
 # Meta server's Kerberos principal [service/host@realm] service name part.
 # metaServer.CSAuthentication.krb5.service =
 
@@ -797,6 +804,13 @@ metaServer.msgLogWriter.logLevel = INFO
 
 # ================= Kerberos authentication =====================================
 # Kerberos principal: service/host@realm
+
+# With Kerberos authentication the Kerberos session key is used as the TLS-PSK,
+# so its strength is bounded by the negotiated Kerberos enctype. Restrict
+# enctypes to strong AES ciphers in krb5.conf (permitted_enctypes,
+# default_tkt_enctypes, default_tgs_enctypes) and provision only AES keys in the
+# keytab; single-DES / RC4 keys are weak. A warning is logged when a session key
+# shorter than 128 bits is used.
 
 # Meta server's Kerberos principal [service/host@realm] service name part.
 # metaServer.clientAuthentication.krb5.service =
@@ -1691,6 +1705,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #
 # metaServer.metaDataSync.auth.krb5.service =
 # metaServer.metaDataSync.auth.krb5.host =
+# Keytab based client: uses a private in-memory (MEMORY:) credential cache, or
+# a fallback on-disk file cache (mode 0600, under TMPDIR or /tmp) with older
+# Kerberos libraries. The file cache is removed on cleanup but may persist on
+# abnormal termination; a warning is logged whenever the file fallback is used.
 # metaServer.metaDataSync.auth.krb5.keytab =
 # metaServer.metaDataSync.auth.krb5.clientName =
 # metaServer.metaDataSync.auth.krb5.initClientCache = 0
@@ -1724,6 +1742,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #
 # metaServer.log.transmitter.auth.krb5.service =
 # metaServer.log.transmitter.auth.krb5.host =
+# Keytab based client: uses a private in-memory (MEMORY:) credential cache, or
+# a fallback on-disk file cache (mode 0600, under TMPDIR or /tmp) with older
+# Kerberos libraries. The file cache is removed on cleanup but may persist on
+# abnormal termination; a warning is logged whenever the file fallback is used.
 # metaServer.log.transmitter.auth.krb5.keytab =
 # metaServer.log.transmitter.auth.krb5.clientName =
 # metaServer.log.transmitter.auth.krb5.initClientCache = 0
