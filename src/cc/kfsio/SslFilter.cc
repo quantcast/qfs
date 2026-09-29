@@ -88,6 +88,11 @@ private:
         SSL_SESSION* inSessionPtr)
         { return inSessionPtr->peer; }
 #endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    inline static const ASN1_TIME* X509_get0_notAfter(
+        const X509* inX509Ptr)
+        { return X509_get_notAfter(const_cast<X509*>(inX509Ptr)); }
+#endif
 public:
     typedef SslFilter::Ctx       Ctx;
     typedef SslFilter::Error     Error;
@@ -419,7 +424,7 @@ public:
         if (! theX509Ptr) {
             return false;
         }
-        const ASN1_TIME* const theTimePtr = X509_get_notAfter(theX509Ptr);
+        const ASN1_TIME* const theTimePtr = X509_get0_notAfter(theX509Ptr);
         return (theTimePtr && GetTime(*theTimePtr, outEndTime));
     }
     static void FreeCtx(
@@ -1053,7 +1058,7 @@ private:
         bool        theTimeValidFlag = false;
         int64_t     theTime          = 0;
         if (theCertPtr) {
-            const ASN1_TIME* const theTimePtr = X509_get_notAfter(theCertPtr);
+            const ASN1_TIME* const theTimePtr = X509_get0_notAfter(theCertPtr);
             theTimeValidFlag = theTimePtr && GetTime(*theTimePtr, theTime);
         }
         return (thePtr->VeifyPeer(
@@ -1065,15 +1070,18 @@ private:
         ) ? 1 : 0);
     }
     static string GetCommonName(
-       X509_NAME* inNamePtr)
+       const X509_NAME* inNamePtr)
     {
         if (! inNamePtr) {
             return string();
         }
-        ASN1_STRING* const theStrPtr = X509_NAME_ENTRY_get_data(
+        // Cast away const for older releases with non const X509_NAME
+        // accessors.
+        X509_NAME* const theNamePtr = const_cast<X509_NAME*>(inNamePtr);
+        const ASN1_STRING* const theStrPtr = X509_NAME_ENTRY_get_data(
             X509_NAME_get_entry(
-                inNamePtr,
-                X509_NAME_get_index_by_NID(inNamePtr, NID_commonName, -1)
+                theNamePtr,
+                X509_NAME_get_index_by_NID(theNamePtr, NID_commonName, -1)
             )
         );
         int theLen;
@@ -1082,7 +1090,7 @@ private:
         }
         return string(reinterpret_cast<const char*>(
 #if OPENSSL_VERSION_NUMBER < 0x1010000fL
-            ASN1_STRING_data(theStrPtr)
+            ASN1_STRING_data(const_cast<ASN1_STRING*>(theStrPtr))
 #else
             ASN1_STRING_get0_data(theStrPtr)
 #endif
@@ -1101,7 +1109,7 @@ private:
         bool        theTimeValidFlag = 0;
         if (theCertPtr) {
             thePeerName = GetCommonName(X509_get_subject_name(theCertPtr));
-            const ASN1_TIME* const theTimePtr = X509_get_notAfter(theCertPtr);
+            const ASN1_TIME* const theTimePtr = X509_get0_notAfter(theCertPtr);
             theTimeValidFlag = theTimePtr && GetTime(*theTimePtr, theTime);
             X509_free(theCertPtr);
         }
@@ -1450,11 +1458,23 @@ private:
         const ASN1_TIME& inTime,
         int64_t&         outTime)
     {
-        if (inTime.type == V_ASN1_UTCTIME) {
-            return ParseUtcTime(inTime.data, inTime.length, outTime);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+        const int                  theType    = inTime.type;
+        const unsigned char* const theDataPtr = inTime.data;
+        const int                  theLen     = inTime.length;
+#else
+        const int                  theType    = ASN1_STRING_type(&inTime);
+        const unsigned char* const theDataPtr = ASN1_STRING_get0_data(&inTime);
+        const int                  theLen     = ASN1_STRING_length(&inTime);
+#endif
+        if (! theDataPtr) {
+            return false;
         }
-        if (inTime.type == V_ASN1_GENERALIZEDTIME) {
-            return ParseGeneralizedTime(inTime.data, inTime.length, outTime);
+        if (theType == V_ASN1_UTCTIME) {
+            return ParseUtcTime(theDataPtr, theLen, outTime);
+        }
+        if (theType == V_ASN1_GENERALIZEDTIME) {
+            return ParseGeneralizedTime(theDataPtr, theLen, outTime);
         }
         return false;
     }
