@@ -49,11 +49,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if mvn --version >/dev/null 2>&1; then
+if mvn_version=$(mvn --version 2>/dev/null); then
     echo "Using Apache Maven to build QFS jars.."
 else
     echo "Skipping Java build of QFS. Please install Apache Maven and try again."
     exit 0
+fi
+
+# Probe supported release with the JDK that maven uses, as it might differ
+# from javac in the PATH.
+javac_cmd=javac
+mvn_java_home=$(echo "$mvn_version" | sed -n 's/^Java version:.*runtime: *//p')
+if [ x"$mvn_java_home" != x -a -x "$mvn_java_home/bin/javac" ]; then
+    javac_cmd=$mvn_java_home/bin/javac
 fi
 
 if [ x"$work_dir" = x ]; then
@@ -93,7 +101,8 @@ fi
 test_build_data=${test_build_data:-"/tmp"}
 
 min_supported_release=6
-until javac --release $min_supported_release -version >/dev/null 2>&1; do
+until "$javac_cmd" --release $min_supported_release -version \
+        >/dev/null 2>&1; do
     if [ $min_supported_release -ge 30 ]; then
         min_supported_release=6
         break
