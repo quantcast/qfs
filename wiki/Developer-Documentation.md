@@ -203,4 +203,9 @@ To run the example program create or modify existing configuration file
 then run the example:
 `python examples/python/qfssample.py examples/python/qfssample.cfg`
 
+## Publishing a Release
+
+See [[Release Publishing Checklist|Release-Publishing-Checklist]] for the steps
+required to tag, build, and publish a QFS release.
+
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
