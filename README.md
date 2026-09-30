@@ -94,8 +94,6 @@ variants. The QFS client tools work on OS X and Cygwin as well.
 | CentOS 8                 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Rocky Linux 9 x86_64     | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Rocky Linux 9 arm64      | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 10                | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
-| Debian 11                | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Debian 12 x86_64         | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Debian 12 arm64          | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
 | Amazon Linux 2023 x86_64 | [![Build Status](https://github.com/quantcast/qfs/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/quantcast/qfs/actions/workflows/build.yml) |
