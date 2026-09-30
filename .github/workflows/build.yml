@@ -116,12 +116,6 @@ jobs:
             btype: release
             buser: qfsbuild
             runs_on: ubuntu-24.04-arm
-          - distro: debian
-            ver: 11
-            codecov: no
-            btype: release
-            buser: qfsbuild
-            runs_on: ubuntu-latest
           - distro: centos
             ver: 6
             codecov: no
