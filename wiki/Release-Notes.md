@@ -1,5 +1,37 @@
 # QFS release notes
 
+## [[QFS version 2.2.9|Release-Notes-2.2.9]]
+
+### Release Highlights (2.2.9)
+
+1. **Kerberos authentication hardening:** Keytab-based clients use a private
+   credential cache instead of the default cache. Weak Kerberos session keys
+   used as the TLS-PSK are logged, and the annotated configuration documents
+   how to restrict enctypes to strong AES ciphers.
+2. **OpenSSL 4.0:** The SSL filter builds with OpenSSL 4.0, where ASN1 string
+   and time types are opaque and X509 accessors are const-qualified.
+3. **Kerberos CI:** The latest Linux release builds run a Kerberos
+   authentication test against a KDC in Docker.
+4. **Build tools:** Maven 3.9.16, Apache RAT 0.18, and Java source/target
+   selection taken from the JDK that Maven actually runs.
+
+### Key Components Updated (2.2.9)
+
+1. **Kerberos client**: Private credential cache, Heimdal cache initialization,
+   and keyblock fallback when the authentication context has no key
+2. **Meta server and client authentication**: Warning when a Kerberos session
+   key used as the TLS-PSK is shorter than 128 bits
+3. **SSL filter**: OpenSSL 4.0 compatible certificate time and name parsing
+4. **Build system**: Maven, RAT, CMake Kerberos detection, and the Java
+   compiler release probe
+
+### Platform Changes (2.2.9)
+
+1. **Removed**: Debian 11 (end of life). No Debian 11 binary is published for
+   2.2.9.
+2. **Unchanged**: The other platforms built for 2.2.8, including Debian 12 and
+   13, Rocky Linux 9 and 10, Amazon Linux 2023, and the arm64 builds.
+
 ## [[QFS version 2.2.8|Release-Notes-2.2.8]]
 
 ### Release Highlights (2.2.8)
