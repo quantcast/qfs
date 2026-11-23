@@ -44,6 +44,7 @@
 #include <openssl/asn1.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -92,6 +93,18 @@ private:
     inline static const ASN1_TIME* X509_get0_notAfter(
         const X509* inX509Ptr)
         { return X509_get_notAfter(const_cast<X509*>(inX509Ptr)); }
+#endif
+#if OPENSSL_VERSION_NUMBER < 0x40100000L
+    // ASN1_STRING_length() is deprecated in OpenSSL 4.1 in favor of
+    // ASN1_STRING_get_length(), which does not exist in earlier releases.
+    // Match its contract: return size_t, and 0 for a negative length.
+    inline static size_t ASN1_STRING_get_length(
+        const ASN1_STRING* inStrPtr)
+    {
+        const int theLen = ASN1_STRING_length(
+            const_cast<ASN1_STRING*>(inStrPtr));
+        return (theLen < 0 ? size_t(0) : size_t(theLen));
+    }
 #endif
 public:
     typedef SslFilter::Ctx       Ctx;
@@ -1084,8 +1097,8 @@ private:
                 X509_NAME_get_index_by_NID(theNamePtr, NID_commonName, -1)
             )
         );
-        int theLen;
-        if (! theStrPtr || (theLen = ASN1_STRING_length(theStrPtr)) <= 0) {
+        size_t theLen;
+        if (! theStrPtr || (theLen = ASN1_STRING_get_length(theStrPtr)) == 0) {
             return string();
         }
         return string(reinterpret_cast<const char*>(
@@ -1465,7 +1478,11 @@ private:
 #else
         const int                  theType    = ASN1_STRING_type(&inTime);
         const unsigned char* const theDataPtr = ASN1_STRING_get0_data(&inTime);
-        const int                  theLen     = ASN1_STRING_length(&inTime);
+        const size_t               theSize    = ASN1_STRING_get_length(&inTime);
+        if (size_t(INT_MAX) < theSize) {
+            return false;
+        }
+        const int                  theLen     = int(theSize);
 #endif
         if (! theDataPtr) {
             return false;
