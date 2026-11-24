@@ -8,8 +8,10 @@
    credential cache instead of the default cache. Weak Kerberos session keys
    used as the TLS-PSK are logged, and the annotated configuration documents
    how to restrict enctypes to strong AES ciphers.
-2. **OpenSSL 4.0:** The SSL filter builds with OpenSSL 4.0, where ASN1 string
-   and time types are opaque and X509 accessors are const-qualified.
+2. **OpenSSL 4.0 and 4.1:** The SSL filter builds with OpenSSL 4.0, where
+   ASN1 string and time types are opaque and X509 accessors are
+   const-qualified, and with OpenSSL 4.1, where `ASN1_STRING_length()` is
+   deprecated in favor of `ASN1_STRING_get_length()`.
 3. **Kerberos CI:** The latest Linux release builds run a Kerberos
    authentication test against a KDC in Docker.
 4. **Build tools:** Maven 3.9.16, Apache RAT 0.18, and Java source/target
@@ -21,7 +23,8 @@
    and keyblock fallback when the authentication context has no key
 2. **Meta server and client authentication**: Warning when a Kerberos session
    key used as the TLS-PSK is shorter than 128 bits
-3. **SSL filter**: OpenSSL 4.0 compatible certificate time and name parsing
+3. **SSL filter**: OpenSSL 4.0 and 4.1 compatible certificate time and name
+   parsing
 4. **Build system**: Maven, RAT, CMake Kerberos detection, and the Java
    compiler release probe
 

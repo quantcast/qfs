@@ -2,7 +2,7 @@
 
 Release 2.2.9
 
-- Release 2.2.9 contains Kerberos authentication hardening, an OpenSSL 4.0 build fix, and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
+- Release 2.2.9 contains Kerberos authentication hardening, OpenSSL 4.0 and 4.1 build fixes, and minor improvements. [Release notes](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
 Release 2.2.8
 

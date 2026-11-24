@@ -49,13 +49,18 @@
   environment file. `make mintest` includes that target and skips the Kerberos
   run when the file is not set.
 
-### OpenSSL 4.0
+### OpenSSL 4.0 and 4.1
 
 - Certificate `notAfter` parsing no longer reads `ASN1_TIME` fields directly.
   OpenSSL 1.1 and later expose those through `ASN1_STRING_type`,
-  `ASN1_STRING_get0_data`, and `ASN1_STRING_length`.
+  `ASN1_STRING_get0_data`, and the string length accessor.
 - Common-name and expiry reads use the const-qualified X509 accessors from
   OpenSSL 4.0, with a local `X509_get0_notAfter` shim for OpenSSL before 1.1.
+- OpenSSL 4.1 deprecates `ASN1_STRING_length()` in favor of
+  `ASN1_STRING_get_length()`, which returns `size_t`. The SSL filter uses
+  `ASN1_STRING_get_length()`, with a local shim over `ASN1_STRING_length()`
+  for releases before 4.1. A certificate time whose length does not fit in an
+  `int` is rejected.
 
 ## Component-Specific Changes
 
@@ -115,7 +120,7 @@
 
 - Maven 3.9.16 for the CI install.
 - Apache RAT 0.18.
-- Builds with OpenSSL 4.0.
+- Builds with OpenSSL 4.0 and 4.1.
 
 ## Documentation
 
