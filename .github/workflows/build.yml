@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: rat
         run: make rat clean
@@ -193,7 +193,7 @@ jobs:
       QFS_KRB_TEST: ${{ matrix.krb_test || '' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: Linux docker build
         run: |
@@ -227,7 +227,7 @@ jobs:
           brew install python3 || true
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: MacOS build
         run: travis/script.sh
@@ -256,7 +256,7 @@ jobs:
           brew install awscli || true
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: MacOS build
         run: travis/script.sh
@@ -285,7 +285,7 @@ jobs:
           git config --global core.eol lf
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: Install Hadoop tools, Cygwin, and do build
         shell: pwsh
