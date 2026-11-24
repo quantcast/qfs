@@ -177,7 +177,9 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
-            runs_on: ubuntu-latest
+            # On ubuntu-26.04 hosts useradd in the 32-bit container fails
+            # with "Cannot open audit interface - aborting."
+            runs_on: ubuntu-24.04
     runs-on: "${{ matrix.runs_on }}"
     env:
       BUILD_OS_NAME: linux
